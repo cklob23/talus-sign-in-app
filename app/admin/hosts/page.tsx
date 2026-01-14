@@ -1,0 +1,261 @@
+"use client"
+
+import type React from "react"
+
+import { useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Plus, Pencil, Trash2, UserCog } from "lucide-react"
+import type { Host, Location } from "@/types/database"
+
+export default function HostsPage() {
+  const [hosts, setHosts] = useState<Host[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingHost, setEditingHost] = useState<Host | null>(null)
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    department: "",
+    locationId: "",
+    isActive: true,
+  })
+
+  async function loadData() {
+    setIsLoading(true)
+    const supabase = createClient()
+
+    const [{ data: hostsData }, { data: locationsData }] = await Promise.all([
+      supabase.from("hosts").select("*").order("name"),
+      supabase.from("locations").select("*").order("name"),
+    ])
+
+    if (hostsData) setHosts(hostsData)
+    if (locationsData) {
+      setLocations(locationsData)
+      if (locationsData.length > 0 && !form.locationId) {
+        setForm((f) => ({ ...f, locationId: locationsData[0].id }))
+      }
+    }
+    setIsLoading(false)
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  function openCreateDialog() {
+    setEditingHost(null)
+    setForm({
+      name: "",
+      email: "",
+      phone: "",
+      department: "",
+      locationId: locations[0]?.id || "",
+      isActive: true,
+    })
+    setIsDialogOpen(true)
+  }
+
+  function openEditDialog(host: Host) {
+    setEditingHost(host)
+    setForm({
+      name: host.name,
+      email: host.email || "",
+      phone: host.phone || "",
+      department: host.department || "",
+      locationId: host.location_id,
+      isActive: host.is_active,
+    })
+    setIsDialogOpen(true)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const supabase = createClient()
+
+    const data = {
+      name: form.name,
+      email: form.email || null,
+      phone: form.phone || null,
+      department: form.department || null,
+      location_id: form.locationId,
+      is_active: form.isActive,
+    }
+
+    if (editingHost) {
+      await supabase.from("hosts").update(data).eq("id", editingHost.id)
+    } else {
+      await supabase.from("hosts").insert(data)
+    }
+
+    setIsDialogOpen(false)
+    loadData()
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Are you sure you want to delete this host?")) return
+    const supabase = createClient()
+    await supabase.from("hosts").delete().eq("id", id)
+    loadData()
+  }
+
+  async function toggleActive(host: Host) {
+    const supabase = createClient()
+    await supabase.from("hosts").update({ is_active: !host.is_active }).eq("id", host.id)
+    loadData()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Hosts</h1>
+          <p className="text-muted-foreground">Manage employees who can receive visitors</p>
+        </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button onClick={openCreateDialog}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Host
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingHost ? "Edit Host" : "Add Host"}</DialogTitle>
+              <DialogDescription>
+                {editingHost ? "Update host information" : "Add a new employee who can receive visitors"}
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="department">Department</Label>
+                <Input
+                  id="department"
+                  value={form.department}
+                  onChange={(e) => setForm({ ...form, department: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="location">Location</Label>
+                <Select value={form.locationId} onValueChange={(value) => setForm({ ...form, locationId: value })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button type="submit">{editingHost ? "Save Changes" : "Add Host"}</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserCog className="w-5 h-5" />
+            All Hosts
+          </CardTitle>
+          <CardDescription>{hosts.length} registered hosts</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-center py-8 text-muted-foreground">Loading...</p>
+          ) : hosts.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">No hosts found</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {hosts.map((host) => (
+                  <TableRow key={host.id}>
+                    <TableCell className="font-medium">{host.name}</TableCell>
+                    <TableCell>{host.email || "-"}</TableCell>
+                    <TableCell>{host.phone || "-"}</TableCell>
+                    <TableCell>{host.department || "-"}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={host.is_active ? "default" : "secondary"}
+                        className="cursor-pointer"
+                        onClick={() => toggleActive(host)}
+                      >
+                        {host.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(host)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(host.id)}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
