@@ -475,7 +475,7 @@ export default function KioskPage() {
                 <p className="text-sm text-muted-foreground mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting TalusAg."}
+                    : "Thank you for visiting Talus!"}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">
