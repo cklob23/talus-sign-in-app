@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { UserPlus, LogOut, CheckCircle, ArrowLeft, Clock, Building2 } from "lucide-react"
 import type { VisitorType, Host, Location } from "@/types/database"
+import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "sign-out" | "success"
 
@@ -196,7 +197,9 @@ export default function KioskPage() {
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30">
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <TalusAgLogo />
+          <Link href="/">
+            <TalusAgLogo />
+          </Link>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building2 className="w-4 h-4" />
             <span>{locations.find((l) => l.id === selectedLocation)?.name || "Loading..."}</span>
