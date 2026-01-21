@@ -63,7 +63,7 @@ export default async function AdminDashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-muted-foreground">Overview of visitor activity at TalusAg facilities</p>
+        <p className="text-muted-foreground">Overview of visitor activity at Talus facilities</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">

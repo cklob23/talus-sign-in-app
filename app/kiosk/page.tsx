@@ -668,7 +668,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-12">
               <h1 className="text-4xl font-bold text-foreground mb-3">Visitor Check-In</h1>
-              <p className="text-lg text-muted-foreground">Welcome to TalusAg. Please sign in or sign out below.</p>
+              <p className="text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -723,7 +723,7 @@ export default function KioskPage() {
                       </div>
                       <div>
                         <h3 className="font-semibold">Employee Sign In</h3>
-                        <p className="text-sm text-muted-foreground">TalusAg employees sign in here</p>
+                        <p className="text-sm text-muted-foreground">Talus employees sign in here</p>
                       </div>
                     </div>
                     <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180" />
@@ -1004,7 +1004,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription>Sign in with your TalusAg credentials</CardDescription>
+                    <CardDescription>Sign in with your Talus credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1240,7 +1240,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on TalusAg premises. I understand that failure
+                        all safety guidelines and procedures while on Talus premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -1298,7 +1298,7 @@ export default function KioskPage() {
                 <p className="text-sm text-muted-foreground mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting TalusAg."}
+                    : "Thank you for visiting Talus."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">
