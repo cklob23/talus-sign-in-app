@@ -14,14 +14,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { 
-  UserPlus, 
-  LogOut, 
-  CheckCircle, 
-  ArrowLeft, 
-  Clock, 
-  Building2, 
-  PlayCircle, 
+import {
+  UserPlus,
+  LogOut,
+  CheckCircle,
+  ArrowLeft,
+  Clock,
+  Building2,
+  PlayCircle,
   AlertTriangle,
   MapPin,
   Briefcase,
@@ -29,6 +29,7 @@ import {
   User
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
+import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -186,13 +187,13 @@ export default function KioskPage() {
       setError("No location selected. Please select a location first.")
       return
     }
-    
+
     setIsLoading(true)
     setError(null)
-    
+
     try {
       const supabase = createClient()
-      
+
       // Check if already signed in today
       const { data: existingSignIn } = await supabase
         .from("employee_sign_ins")
@@ -209,7 +210,7 @@ export default function KioskPage() {
           auto_signed_in: true,
           device_id: navigator.userAgent,
         })
-        
+
         if (insertError) {
           console.log("[v0] Employee sign-in insert error:", insertError)
           throw insertError
@@ -240,7 +241,7 @@ export default function KioskPage() {
     async function checkExistingSession() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      
+
       if (user) {
         // User is authenticated, check if they have an employee profile
         const { data: profile } = await supabase
@@ -248,10 +249,10 @@ export default function KioskPage() {
           .select("*")
           .eq("id", user.id)
           .single()
-        
+
         if (profile && ["employee", "admin", "staff"].includes(profile.role)) {
           setCurrentEmployee(profile)
-          
+
           // Check if they have an active sign-in
           const { data: activeSignIn } = await supabase
             .from("employee_sign_ins")
@@ -259,7 +260,7 @@ export default function KioskPage() {
             .eq("profile_id", profile.id)
             .is("sign_out_time", null)
             .single()
-          
+
           if (activeSignIn) {
             setEmployeeSignedIn(true)
             setMode("employee-dashboard")
@@ -267,7 +268,7 @@ export default function KioskPage() {
         }
       }
     }
-    
+
     checkExistingSession()
   }, [])
 
@@ -296,7 +297,7 @@ export default function KioskPage() {
   function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
     const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
-    
+
     if (selectedType?.requires_training) {
       // Go to training video step
       setMode("training")
@@ -310,16 +311,16 @@ export default function KioskPage() {
   function startVideoProgress() {
     if (videoStarted) return
     setVideoStarted(true)
-    
+
     // Simulate 60 seconds of required watching time
     const totalDuration = 60
     let elapsed = 0
-    
+
     videoTimerRef.current = setInterval(() => {
       elapsed += 1
       const progress = Math.min((elapsed / totalDuration) * 100, 100)
       setVideoProgress(progress)
-      
+
       if (progress >= 100) {
         setTrainingWatched(true)
         if (videoTimerRef.current) {
@@ -525,19 +526,19 @@ export default function KioskPage() {
 
       setCurrentEmployee(profile)
 
-// Create employee sign-in record
-  console.log("[v0] Creating employee sign-in for profile:", profile.id, "at location:", selectedLocation)
-  const { error: signInError } = await supabase.from("employee_sign_ins").insert({
-  profile_id: profile.id,
-  location_id: selectedLocation,
-  auto_signed_in: false,
-  device_id: navigator.userAgent,
-  })
-  
-  if (signInError) {
-    console.log("[v0] Employee sign-in insert error:", signInError)
-    throw signInError
-  }
+      // Create employee sign-in record
+      console.log("[v0] Creating employee sign-in for profile:", profile.id, "at location:", selectedLocation)
+      const { error: signInError } = await supabase.from("employee_sign_ins").insert({
+        profile_id: profile.id,
+        location_id: selectedLocation,
+        auto_signed_in: false,
+        device_id: navigator.userAgent,
+      })
+
+      if (signInError) {
+        console.log("[v0] Employee sign-in insert error:", signInError)
+        throw signInError
+      }
 
       // Remember employee if checkbox is checked
       if (rememberMe) {
@@ -613,7 +614,9 @@ export default function KioskPage() {
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30">
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <TalusAgLogo />
+          <Link href="/">
+            <TalusAgLogo />
+          </Link>
           <div className="flex items-center gap-4">
             {/* Location indicator */}
             <div className="flex items-center gap-2 text-sm">
