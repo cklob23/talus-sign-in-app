@@ -3,6 +3,9 @@ export interface Location {
   name: string
   address: string | null
   timezone: string
+  latitude: number | null
+  longitude: number | null
+  auto_signin_radius_meters: number | null
   created_at: string
   updated_at: string
 }
@@ -11,10 +14,24 @@ export interface Profile {
   id: string
   email: string
   full_name: string | null
-  role: "admin" | "staff" | "viewer"
+  role: "admin" | "staff" | "viewer" | "employee"
   location_id: string | null
   created_at: string
   updated_at: string
+}
+
+export interface EmployeeSignIn {
+  id: string
+  profile_id: string
+  location_id: string
+  sign_in_time: string
+  sign_out_time: string | null
+  auto_signed_in: boolean
+  device_id: string | null
+  created_at: string
+  // Joined fields
+  profile?: Profile
+  location?: Location
 }
 
 export interface VisitorType {
@@ -23,7 +40,19 @@ export interface VisitorType {
   badge_color: string
   requires_host: boolean
   requires_company: boolean
+  requires_training: boolean
+  training_video_url: string | null
+  training_title: string | null
   location_id: string
+  created_at: string
+}
+
+export interface TrainingCompletion {
+  id: string
+  visitor_id: string
+  visitor_type_id: string
+  completed_at: string
+  expires_at: string | null
   created_at: string
 }
 

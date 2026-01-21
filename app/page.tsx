@@ -91,7 +91,7 @@ export default function HomePage() {
 
       <footer className="border-t py-8 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} Talus Ag. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Talus. All rights reserved.</p>
         </div>
       </footer>
     </div>

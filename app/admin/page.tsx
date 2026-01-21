@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, UserCheck, Clock, AlertTriangle } from "lucide-react"
+import { Users, UserCheck, Clock, AlertTriangle, Briefcase } from "lucide-react"
 import { DashboardCharts } from "@/components/admin/dashboard-charts"
 import { RecentVisitors } from "@/components/admin/recent-visitors"
 
@@ -13,11 +13,23 @@ export default async function AdminDashboardPage() {
     .select("*", { count: "exact", head: true })
     .is("sign_out_time", null)
 
-  // Get today's total sign-ins
+  // Get current employees (signed in but not signed out)
+  const { count: currentEmployees } = await supabase
+    .from("employee_sign_ins")
+    .select("*", { count: "exact", head: true })
+    .is("sign_out_time", null)
+
+  // Get today's total sign-ins (visitors)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const { count: todayVisitors } = await supabase
     .from("sign_ins")
+    .select("*", { count: "exact", head: true })
+    .gte("sign_in_time", today.toISOString())
+
+  // Get today's employee sign-ins
+  const { count: todayEmployees } = await supabase
+    .from("employee_sign_ins")
     .select("*", { count: "exact", head: true })
     .gte("sign_in_time", today.toISOString())
 
@@ -54,7 +66,7 @@ export default async function AdminDashboardPage() {
         <p className="text-muted-foreground">Overview of visitor activity at TalusAg facilities</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Current Visitors</CardTitle>
@@ -68,12 +80,23 @@ export default async function AdminDashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Current Employees</CardTitle>
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{currentEmployees || 0}</div>
+            <p className="text-xs text-muted-foreground">Employees on-site</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Today{"'"}s Sign-Ins</CardTitle>
             <UserCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todayVisitors || 0}</div>
-            <p className="text-xs text-muted-foreground">Total visits today</p>
+            <div className="text-2xl font-bold">{(todayVisitors || 0) + (todayEmployees || 0)}</div>
+            <p className="text-xs text-muted-foreground">{todayVisitors || 0} visitors, {todayEmployees || 0} employees</p>
           </CardContent>
         </Card>
 

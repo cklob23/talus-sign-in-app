@@ -24,24 +24,15 @@ import { useRouter } from "next/navigation"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { formatDistanceToNow } from "date-fns"
 
-interface VisitorType {
-  name: string
-  badge_color: string
-}
-
-interface Location {
-  name: string
-}
-
-interface SignInActivityRaw {
+interface CombinedActivity {
   id: string
-  visitor_name: string
-  visitor_email: string
+  type: "visitor" | "employee"
+  name: string
   sign_in_time: string
   sign_out_time: string | null
-  badge_number: string
-  visitor_type: VisitorType | VisitorType[] | null
-  location: Location | Location[] | null
+  badge_text: string
+  badge_color: string
+  location_name: string | null
 }
 
 interface SignInActivity {
@@ -51,13 +42,24 @@ interface SignInActivity {
   sign_in_time: string
   sign_out_time: string | null
   badge_number: string
-  visitor_type: VisitorType | null
-  location: Location | null
+  visitor_type: { name: string; badge_color: string } | null
+  location: { name: string } | null
+}
+
+interface SignInActivityRaw {
+  id: string
+  visitor_name: string
+  visitor_email: string
+  sign_in_time: string
+  sign_out_time: string | null
+  badge_number: string
+  visitor_type: { name: string; badge_color: string }[] | { name: string; badge_color: string } | null
+  location: { name: string }[] | { name: string } | null
 }
 
 export function AdminHeader() {
   const [user, setUser] = useState<SupabaseUser | null>(null)
-  const [notifications, setNotifications] = useState<SignInActivity[]>([])
+  const [notifications, setNotifications] = useState<CombinedActivity[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const router = useRouter()
@@ -72,9 +74,9 @@ export function AdminHeader() {
   useEffect(() => {
     fetchRecentActivity()
     
-    // Set up real-time subscription for new sign-ins
+    // Set up real-time subscription for visitor sign-ins
     const supabase = createClient()
-    const channel = supabase
+    const visitorChannel = supabase
       .channel('sign_ins_changes')
       .on(
         'postgres_changes',
@@ -90,41 +92,101 @@ export function AdminHeader() {
       )
       .subscribe()
 
+    // Set up real-time subscription for employee sign-ins
+    const employeeChannel = supabase
+      .channel('employee_sign_ins_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'employee_sign_ins'
+        },
+        () => {
+          fetchRecentActivity()
+          setUnreadCount(prev => prev + 1)
+        }
+      )
+      .subscribe()
+
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(visitorChannel)
+      supabase.removeChannel(employeeChannel)
     }
   }, [])
 
   async function fetchRecentActivity() {
     const supabase = createClient()
-    const { data } = await supabase
+    const combined: CombinedActivity[] = []
+
+    // Fetch visitor sign-ins
+    const { data: visitorData } = await supabase
       .from('sign_ins')
       .select(`
         id,
-        visitor_name,
-        visitor_email,
         sign_in_time,
         sign_out_time,
         badge_number,
+        visitor:visitors(first_name, last_name),
         visitor_type:visitor_types(name, badge_color),
         location:locations(name)
       `)
       .order('sign_in_time', { ascending: false })
-      .limit(20)
+      .limit(15)
 
-    if (data) {
-      // Transform data to handle array vs object responses from Supabase joins
-      const transformed: SignInActivity[] = (data as SignInActivityRaw[]).map((item) => ({
-        ...item,
-        visitor_type: Array.isArray(item.visitor_type) 
-          ? item.visitor_type[0] || null 
-          : item.visitor_type,
-        location: Array.isArray(item.location) 
-          ? item.location[0] || null 
-          : item.location,
-      }))
-      setNotifications(transformed)
+    if (visitorData) {
+      for (const item of visitorData) {
+        const visitor = Array.isArray(item.visitor) ? item.visitor[0] : item.visitor
+        const visitorType = Array.isArray(item.visitor_type) ? item.visitor_type[0] : item.visitor_type
+        const location = Array.isArray(item.location) ? item.location[0] : item.location
+        
+        combined.push({
+          id: item.id,
+          type: "visitor",
+          name: visitor ? `${visitor.first_name || ""} ${visitor.last_name || ""}`.trim() : "Unknown Visitor",
+          sign_in_time: item.sign_in_time,
+          sign_out_time: item.sign_out_time,
+          badge_text: visitorType?.name || "Visitor",
+          badge_color: visitorType?.badge_color || "#16a34a",
+          location_name: location?.name || null,
+        })
+      }
     }
+
+    // Fetch employee sign-ins
+    const { data: employeeData } = await supabase
+      .from('employee_sign_ins')
+      .select(`
+        id,
+        sign_in_time,
+        sign_out_time,
+        profile:profiles(full_name, email),
+        location:locations(name)
+      `)
+      .order('sign_in_time', { ascending: false })
+      .limit(15)
+
+    if (employeeData) {
+      for (const item of employeeData) {
+        const profile = Array.isArray(item.profile) ? item.profile[0] : item.profile
+        const location = Array.isArray(item.location) ? item.location[0] : item.location
+        
+        combined.push({
+          id: item.id,
+          type: "employee",
+          name: profile?.full_name || profile?.email || "Unknown Employee",
+          sign_in_time: item.sign_in_time,
+          sign_out_time: item.sign_out_time,
+          badge_text: "Employee",
+          badge_color: "#2563eb",
+          location_name: location?.name || null,
+        })
+      }
+    }
+
+    // Sort by sign_in_time descending and take top 20
+    combined.sort((a, b) => new Date(b.sign_in_time).getTime() - new Date(a.sign_in_time).getTime())
+    setNotifications(combined.slice(0, 20))
   }
 
   async function handleSignOut() {
@@ -181,7 +243,7 @@ export function AdminHeader() {
                 <div className="divide-y">
                   {notifications.map((activity) => (
                     <div
-                      key={activity.id}
+                      key={`${activity.type}-${activity.id}`}
                       className="p-4 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-start gap-3">
@@ -189,6 +251,8 @@ export function AdminHeader() {
                           className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                             activity.sign_out_time
                               ? 'bg-orange-100 text-orange-600'
+                              : activity.type === 'employee'
+                              ? 'bg-blue-100 text-blue-600'
                               : 'bg-primary/10 text-primary'
                           }`}
                         >
@@ -201,28 +265,21 @@ export function AdminHeader() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="font-medium text-sm truncate">
-                              {activity.visitor_name}
+                              {activity.name}
                             </p>
-                            {activity.visitor_type && (
-                              <Badge
-                                variant="outline"
-                                className="text-xs shrink-0"
-                                style={{
-                                  borderColor: activity.visitor_type.badge_color,
-                                  color: activity.visitor_type.badge_color,
-                                }}
-                              >
-                                {activity.visitor_type.name}
-                              </Badge>
-                            )}
+                            <Badge
+                              variant="outline"
+                              className="text-xs shrink-0"
+                              style={{
+                                borderColor: activity.badge_color,
+                                color: activity.badge_color,
+                              }}
+                            >
+                              {activity.badge_text}
+                            </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
                             {activity.sign_out_time ? 'Signed out' : 'Signed in'}
-                            {activity.badge_number && (
-                              <span className="ml-1">
-                                - Badge #{activity.badge_number}
-                              </span>
-                            )}
                           </p>
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
@@ -232,10 +289,10 @@ export function AdminHeader() {
                                 { addSuffix: true }
                               )}
                             </span>
-                            {activity.location && (
+                            {activity.location_name && (
                               <span className="flex items-center gap-1">
                                 <Building2 className="w-3 h-3" />
-                                {activity.location.name}
+                                {activity.location_name}
                               </span>
                             )}
                           </div>
