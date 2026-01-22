@@ -160,39 +160,39 @@ export function HistoryContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Visitor History</h1>
-          <p className="text-muted-foreground">Complete log of all visitor sign-ins</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Visitor History</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Complete log of all visitor sign-ins</p>
         </div>
-        <Button onClick={handleExport} variant="outline">
+        <Button onClick={handleExport} variant="outline" size="sm" className="w-fit bg-transparent">
           <Download className="w-4 h-4 mr-2" />
           Export CSV
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="all" className="flex items-center gap-2">
+        <TabsList className="mb-4 w-full sm:w-auto">
+          <TabsTrigger value="all" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
-            Visitors ({filteredSignIns.length})
+            <span className="hidden sm:inline">Visitors</span> ({filteredSignIns.length})
           </TabsTrigger>
-          <TabsTrigger value="employees" className="flex items-center gap-2">
+          <TabsTrigger value="employees" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Briefcase className="w-4 h-4" />
-            Employees ({filteredEmployeeSignIns.length})
+            <span className="hidden sm:inline">Employees</span> ({filteredEmployeeSignIns.length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="all">
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
+            <CardHeader className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <CardTitle>Visitor Sign-In Records</CardTitle>
-                  <CardDescription>Showing last 100 visitor records</CardDescription>
+                  <CardTitle className="text-base sm:text-lg">Visitor Sign-In Records</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Showing last 100 visitor records</CardDescription>
                 </div>
-                <div className="relative w-64">
+                <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder="Search visitors..."
@@ -203,35 +203,30 @@ export function HistoryContent() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {isLoading ? (
                 <p className="text-center py-8 text-muted-foreground">Loading...</p>
               ) : filteredSignIns.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No visitor records found</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Visitor</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Host</TableHead>
-                      <TableHead>Sign In</TableHead>
-                      <TableHead>Sign Out</TableHead>
-                      <TableHead>Duration</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* Mobile card view */}
+                  <div className="space-y-3 md:hidden">
                     {filteredSignIns.map((signIn) => (
-                      <TableRow key={signIn.id}>
-                        <TableCell className="font-medium">
-                          {signIn.visitor?.first_name} {signIn.visitor?.last_name}
-                        </TableCell>
-                        <TableCell>{signIn.visitor?.company || "-"}</TableCell>
-                        <TableCell>
+                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium text-sm">
+                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                            </p>
+                            {signIn.visitor?.company && (
+                              <p className="text-xs text-muted-foreground">{signIn.visitor.company}</p>
+                            )}
+                          </div>
                           {signIn.visitor_type && (
                             <Badge
                               variant="outline"
+                              className="text-xs"
                               style={{
                                 borderColor: signIn.visitor_type.badge_color,
                                 color: signIn.visitor_type.badge_color,
@@ -240,17 +235,64 @@ export function HistoryContent() {
                               {signIn.visitor_type.name}
                             </Badge>
                           )}
-                        </TableCell>
-                        <TableCell>{signIn.host?.name || "-"}</TableCell>
-                        <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
-                        <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Host: {signIn.host?.name || "-"}</span>
+                          <span>In: {formatDateTime(signIn.sign_in_time)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</span>
+                        </div>
+                        <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
+                          {formatDuration(signIn)}
+                        </Badge>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Visitor</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Host</TableHead>
+                          <TableHead>Sign In</TableHead>
+                          <TableHead>Sign Out</TableHead>
+                          <TableHead>Duration</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredSignIns.map((signIn) => (
+                          <TableRow key={signIn.id}>
+                            <TableCell className="font-medium">
+                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                            </TableCell>
+                            <TableCell>{signIn.visitor?.company || "-"}</TableCell>
+                            <TableCell>
+                              {signIn.visitor_type && (
+                                <Badge
+                                  variant="outline"
+                                  style={{
+                                    borderColor: signIn.visitor_type.badge_color,
+                                    color: signIn.visitor_type.badge_color,
+                                  }}
+                                >
+                                  {signIn.visitor_type.name}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{signIn.host?.name || "-"}</TableCell>
+                            <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -258,13 +300,13 @@ export function HistoryContent() {
 
         <TabsContent value="employees">
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
+            <CardHeader className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <CardTitle>Employee Sign-In Records</CardTitle>
-                  <CardDescription>Showing last 100 employee records</CardDescription>
+                  <CardTitle className="text-base sm:text-lg">Employee Sign-In Records</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Showing last 100 employee records</CardDescription>
                 </div>
-                <div className="relative w-64">
+                <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder="Search employees..."
@@ -275,54 +317,88 @@ export function HistoryContent() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {isLoading ? (
                 <p className="text-center py-8 text-muted-foreground">Loading...</p>
               ) : filteredEmployeeSignIns.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No employee records found</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Sign In</TableHead>
-                      <TableHead>Sign Out</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Auto</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* Mobile card view */}
+                  <div className="space-y-3 md:hidden">
                     {filteredEmployeeSignIns.map((signIn) => (
-                      <TableRow key={signIn.id}>
-                        <TableCell className="font-medium">
-                          {signIn.profile?.full_name || "Unknown"}
-                        </TableCell>
-                        <TableCell>{signIn.profile?.email || "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
+                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium text-sm">{signIn.profile?.full_name || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground">{signIn.profile?.email || "-"}</p>
+                          </div>
+                          <Badge variant="outline" className="capitalize text-xs">
                             {signIn.profile?.role || "-"}
                           </Badge>
-                        </TableCell>
-                        <TableCell>{signIn.location?.name || "-"}</TableCell>
-                        <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
-                        <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {signIn.auto_signed_in ? (
-                            <Badge variant="secondary">Auto</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Location: {signIn.location?.name || "-"}</span>
+                          <span>In: {formatDateTime(signIn.sign_in_time)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
+                            {formatDuration(signIn)}
+                          </Badge>
+                          {signIn.auto_signed_in && (
+                            <Badge variant="secondary" className="text-xs">Auto</Badge>
                           )}
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Employee</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Sign In</TableHead>
+                          <TableHead>Sign Out</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Auto</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredEmployeeSignIns.map((signIn) => (
+                          <TableRow key={signIn.id}>
+                            <TableCell className="font-medium">
+                              {signIn.profile?.full_name || "Unknown"}
+                            </TableCell>
+                            <TableCell>{signIn.profile?.email || "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="capitalize">
+                                {signIn.profile?.role || "-"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{signIn.location?.name || "-"}</TableCell>
+                            <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              {signIn.auto_signed_in ? (
+                                <Badge variant="secondary">Auto</Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

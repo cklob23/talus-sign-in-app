@@ -116,15 +116,15 @@ export default function ReportsPage() {
   }, [period])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Reports</h1>
-          <p className="text-muted-foreground">Visitor analytics and insights</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Reports</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Visitor analytics and insights</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-32 sm:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -134,9 +134,9 @@ export default function ReportsPage() {
               <SelectItem value="90">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline">
-            <Download className="w-4 h-4 mr-2" />
-            Export Report
+          <Button variant="outline" size="sm">
+            <Download className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Export Report</span>
           </Button>
         </div>
       </div>
@@ -145,44 +145,44 @@ export default function ReportsPage() {
         <p className="text-center py-8 text-muted-foreground">Loading report data...</p>
       ) : data ? (
         <>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Total Sign-Ins</CardTitle>
+              <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium">Total Sign-Ins</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{data.totalVisitors}</div>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="text-xl sm:text-3xl font-bold">{data.totalVisitors}</div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Unique Visitors</CardTitle>
+              <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium">Unique Visitors</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{data.uniqueVisitors}</div>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="text-xl sm:text-3xl font-bold">{data.uniqueVisitors}</div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Avg. Duration</CardTitle>
+              <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium">Avg. Duration</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{data.avgDuration} min</div>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="text-xl sm:text-3xl font-bold">{data.avgDuration} <span className="text-xs sm:text-base">min</span></div>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
             <Card>
-              <CardHeader>
-                <CardTitle>Visitors by Day</CardTitle>
-                <CardDescription>Daily sign-in trends</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Visitors by Day</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Daily sign-in trends</CardDescription>
               </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
+              <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                <ResponsiveContainer width="100%" height={250} className="sm:!h-[300px]">
                   <BarChart data={data.byDay}>
-                    <XAxis dataKey="day" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="day" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={30} />
                     <Tooltip />
                     <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -191,15 +191,15 @@ export default function ReportsPage() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Visitors by Type</CardTitle>
-                <CardDescription>Breakdown by visitor category</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Visitors by Type</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Breakdown by visitor category</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                 {data.byType.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={250} className="sm:!h-[300px]">
                     <PieChart>
-                      <Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                      <Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
                         {data.byType.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
@@ -214,24 +214,24 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
 
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>Top Hosts</CardTitle>
-                <CardDescription>Most visited employees</CardDescription>
+            <Card className="lg:col-span-2">
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Top Hosts</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Most visited employees</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                 {data.byHost.length > 0 ? (
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={data.byHost} layout="vertical">
-                      <XAxis type="number" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                      <XAxis type="number" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
                       <YAxis
                         dataKey="name"
                         type="category"
                         stroke="#888888"
-                        fontSize={12}
+                        fontSize={10}
                         tickLine={false}
                         axisLine={false}
-                        width={100}
+                        width={80}
                       />
                       <Tooltip />
                       <Bar dataKey="count" fill="hsl(var(--chart-2))" radius={[0, 4, 4, 0]} />

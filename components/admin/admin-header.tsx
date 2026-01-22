@@ -23,6 +23,7 @@ import { Bell, LogOut, User, LogIn, Clock, Building2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { formatDistanceToNow } from "date-fns"
+import { MobileSidebar } from "./admin-sidebar"
 
 interface CombinedActivity {
   id: string
@@ -205,11 +206,12 @@ export function AdminHeader() {
   const initials = user?.email?.slice(0, 2).toUpperCase() || "AD"
 
   return (
-    <header className="h-16 border-b bg-background flex items-center justify-between px-6">
-      <div>
-        <h2 className="text-lg font-semibold">Admin Portal</h2>
+    <header className="h-14 sm:h-16 border-b bg-background flex items-center justify-between px-3 sm:px-6">
+      <div className="flex items-center gap-2">
+        <MobileSidebar />
+        <h2 className="text-base sm:text-lg font-semibold">Admin Portal</h2>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         <Popover open={isOpen} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
@@ -221,7 +223,7 @@ export function AdminHeader() {
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-96 p-0" align="end">
+          <PopoverContent className="w-[calc(100vw-2rem)] sm:w-96 p-0" align="end">
             <div className="p-4 border-b">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Recent Activity</h3>
@@ -233,7 +235,7 @@ export function AdminHeader() {
                 Sign-in and sign-out notifications
               </p>
             </div>
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="h-[60vh] sm:h-[400px]">
               {notifications.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <Bell className="w-10 h-10 mx-auto mb-3 opacity-50" />

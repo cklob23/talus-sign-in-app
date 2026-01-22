@@ -97,6 +97,46 @@ export default function KioskPage() {
   const [videoStarted, setVideoStarted] = useState(false)
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Distance unit preference
+  const [useMiles, setUseMiles] = useState(false)
+
+  // Settings state
+  const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
+  const [badgePrintingEnabled, setBadgePrintingEnabled] = useState(false)
+
+  // Load settings from database based on selected location
+  useEffect(() => {
+    async function loadSettings() {
+      if (!selectedLocation) return
+
+      const supabase = createClient()
+      const { data } = await supabase
+        .from("settings")
+        .select("key, value")
+        .eq("location_id", selectedLocation)
+
+      // Reset to defaults first
+      setUseMiles(false)
+      setHostNotificationsEnabled(true)
+      setBadgePrintingEnabled(false)
+
+      if (data && data.length > 0) {
+        for (const setting of data) {
+          if (setting.key === "distance_unit_miles") {
+            setUseMiles(setting.value === true || setting.value === "true")
+          }
+          if (setting.key === "host_notifications") {
+            setHostNotificationsEnabled(setting.value === true || setting.value === "true")
+          }
+          if (setting.key === "badge_printing") {
+            setBadgePrintingEnabled(setting.value === true || setting.value === "true")
+          }
+        }
+      }
+    }
+    loadSettings()
+  }, [selectedLocation])
+
   // Calculate distance between two coordinates using Haversine formula
   const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371e3 // Earth's radius in meters
@@ -111,6 +151,23 @@ export default function KioskPage() {
 
     return R * c // Distance in meters
   }, [])
+
+  // Format distance with unit preference
+  const formatDistance = useCallback((meters: number, suffix = "away"): string => {
+    if (useMiles) {
+      const miles = meters / 1609.34
+      if (miles < 0.1) {
+        const feet = Math.round(meters * 3.28084)
+        return `${feet}ft ${suffix}`
+      }
+      return `${miles.toFixed(1)}mi ${suffix}`
+    }
+    // Metric
+    if (meters < 1000) {
+      return `${Math.round(meters)}m ${suffix}`
+    }
+    return `${(meters / 1000).toFixed(1)}km ${suffix}`
+  }, [useMiles])
 
   // Find nearest location based on user coordinates
   const findNearestLocation = useCallback((coords: { lat: number; lng: number }, locs: Location[]) => {
@@ -294,12 +351,44 @@ export default function KioskPage() {
   }
 
   // Check if visitor type requires training and redirect if needed
-  function handleSignInSubmit(e: React.FormEvent) {
+  async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
     const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
 
     if (selectedType?.requires_training) {
-      // Go to training video step
+      // Check if this visitor has already completed training for this visitor type
+      const supabase = createClient()
+
+      // First, find the visitor by email (if they've visited before)
+      const { data: existingVisitor } = await supabase
+        .from("visitors")
+        .select("id")
+        .eq("email", form.email)
+        .single()
+
+      if (existingVisitor) {
+        // Check for existing training completion
+        const { data: trainingCompletion } = await supabase
+          .from("training_completions")
+          .select("*")
+          .eq("visitor_id", existingVisitor.id)
+          .eq("visitor_type_id", selectedType.id)
+          .single()
+
+        if (trainingCompletion) {
+          // Check if training has expired
+          const hasExpired = trainingCompletion.expires_at &&
+            new Date(trainingCompletion.expires_at) < new Date()
+
+          if (!hasExpired) {
+            // Training already completed and not expired, skip training
+            completeSignIn()
+            return
+          }
+        }
+      }
+
+      // No prior training or expired - go to training video step
       setMode("training")
     } else {
       // Proceed directly to sign in
@@ -385,6 +474,64 @@ export default function KioskPage() {
       })
 
       if (signInError) throw signInError
+
+      // Send host notification email if enabled and host is selected
+      if (hostNotificationsEnabled && form.hostId) {
+        const selectedHost = hosts.find(h => h.id === form.hostId)
+        if (selectedHost?.email) {
+          // Call API to send notification email
+          try {
+            await fetch("/api/notify-host", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                hostEmail: selectedHost.email,
+                hostName: selectedHost.name,
+                visitorName: `${form.firstName} ${form.lastName}`,
+                visitorCompany: form.company,
+                purpose: form.purpose,
+                badgeNumber,
+              }),
+            })
+          } catch (notifyErr) {
+            console.error("[v0] Failed to send host notification:", notifyErr)
+          }
+        }
+      }
+
+      // Trigger badge printing if enabled
+      if (badgePrintingEnabled) {
+        // Open print dialog for badge
+        const printWindow = window.open("", "_blank", "width=400,height=300")
+        if (printWindow) {
+          printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Visitor Badge</title>
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+                .badge { border: 2px solid #333; padding: 20px; width: 300px; margin: 0 auto; }
+                .badge-number { font-size: 32px; font-weight: bold; color: #10B981; }
+                .visitor-name { font-size: 24px; margin: 10px 0; }
+                .company { font-size: 14px; color: #666; }
+                .date { font-size: 12px; color: #999; margin-top: 10px; }
+              </style>
+            </head>
+            <body>
+              <div class="badge">
+                <div class="badge-number">${badgeNumber}</div>
+                <div class="visitor-name">${form.firstName} ${form.lastName}</div>
+                ${form.company ? `<div class="company">${form.company}</div>` : ""}
+                <div class="date">${new Date().toLocaleDateString()}</div>
+              </div>
+              <script>window.print(); window.close();</script>
+            </body>
+            </html>
+          `)
+          printWindow.document.close()
+        }
+      }
 
       setSuccessData({
         name: `${form.firstName} ${form.lastName}`,
@@ -613,13 +760,15 @@ export default function KioskPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30">
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/">
-            <TalusAgLogo />
-          </Link>
-          <div className="flex items-center gap-4">
+        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
+          <div className="shrink-0">
+            <Link href="/">
+              <TalusAgLogo />
+            </Link>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             {/* Location indicator */}
-            <div className="flex items-center gap-2 text-sm">
+            <div className="hidden sm:flex items-center gap-2 text-sm">
               {isDetectingLocation ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -630,9 +779,7 @@ export default function KioskPage() {
                   <MapPin className="w-4 h-4 text-primary" />
                   <span className="text-foreground font-medium">{nearestLocation.location.name}</span>
                   <Badge variant="secondary" className="text-xs">
-                    {nearestLocation.distance < 1000
-                      ? `${Math.round(nearestLocation.distance)}m away`
-                      : `${(nearestLocation.distance / 1000).toFixed(1)}km away`}
+                    {formatDistance(nearestLocation.distance)}
                   </Badge>
                 </>
               ) : (
@@ -647,8 +794,8 @@ export default function KioskPage() {
             {/* Location selector if multiple locations */}
             {locations.length > 1 && (
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Change location" />
+                <SelectTrigger className="w-[140px] sm:w-[180px]">
+                  <SelectValue placeholder="Location" />
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map((loc) => (
@@ -663,27 +810,27 @@ export default function KioskPage() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
         {mode === "home" && (
           <div className="max-w-2xl mx-auto">
-            <div className="text-center mb-12">
-              <h1 className="text-4xl font-bold text-foreground mb-3">Visitor Check-In</h1>
-              <p className="text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
+            <div className="text-center mb-6 sm:mb-12">
+              <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-2 gap-3 sm:gap-6">
               <Card
                 className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
                 onClick={() => setMode("sign-in")}
               >
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
-                    <UserPlus className="w-8 h-8 text-primary" />
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
+                    <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
                   </div>
-                  <CardTitle className="text-2xl">Sign In</CardTitle>
-                  <CardDescription>New visitor? Sign in here</CardDescription>
+                  <CardTitle className="text-lg sm:text-2xl">Sign In</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <Button className="w-full" size="lg">
                     Sign In
                   </Button>
@@ -694,14 +841,14 @@ export default function KioskPage() {
                 className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
                 onClick={() => setMode("sign-out")}
               >
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4 group-hover:bg-secondary/80 transition-colors">
-                    <LogOut className="w-8 h-8 text-foreground" />
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
+                    <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
                   </div>
-                  <CardTitle className="text-2xl">Sign Out</CardTitle>
-                  <CardDescription>Leaving? Sign out here</CardDescription>
+                  <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <Button variant="secondary" className="w-full" size="lg">
                     Sign Out
                   </Button>
@@ -709,40 +856,40 @@ export default function KioskPage() {
               </Card>
             </div>
 
-            <div className="mt-8">
+            <div className="mt-4 sm:mt-8">
               {/* Employee Login Card */}
               <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group mb-6"
+                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group mb-4 sm:mb-6"
                 onClick={() => setMode("employee-login")}
               >
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                        <Briefcase className="w-6 h-6 text-blue-600" />
+                <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors shrink-0">
+                        <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                       </div>
                       <div>
-                        <h3 className="font-semibold">Employee Sign In</h3>
-                        <p className="text-sm text-muted-foreground">Talus employees sign in here</p>
+                        <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
+                        <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
                       </div>
                     </div>
-                    <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180" />
+                    <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
                   </div>
                 </CardContent>
               </Card>
 
               {/* Remembered employee - show quick sign-out if signed in, otherwise show quick sign-in */}
               {rememberedEmployee && (
-                <Card className={`mb-6 ${employeeSignedIn ? "border-green-200 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold ${employeeSignedIn ? "bg-green-600" : "bg-blue-600"}`}>
+                <Card className={`mb-4 sm:mb-6 ${employeeSignedIn ? "border-green-200 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
+                  <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 ${employeeSignedIn ? "bg-green-600" : "bg-blue-600"}`}>
                           {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                          <h3 className="font-semibold">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
-                          <p className="text-sm text-muted-foreground">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
                             {employeeSignedIn ? (
                               <span className="flex items-center gap-1 text-green-600">
                                 <CheckCircle className="w-3 h-3" />
@@ -756,10 +903,11 @@ export default function KioskPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 self-end sm:self-auto">
                         <Button
                           variant="outline"
                           size="sm"
+                          className="text-xs sm:text-sm bg-transparent"
                           onClick={(e) => {
                             e.stopPropagation()
                             forgetEmployee()
@@ -771,6 +919,7 @@ export default function KioskPage() {
                           <Button
                             size="sm"
                             variant="destructive"
+                            className="text-xs sm:text-sm"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleEmployeeSignOut()
@@ -783,6 +932,7 @@ export default function KioskPage() {
                         ) : (
                           <Button
                             size="sm"
+                            className="text-xs sm:text-sm"
                             onClick={(e) => {
                               e.stopPropagation()
                               autoSignInEmployee(rememberedEmployee)
@@ -813,19 +963,19 @@ export default function KioskPage() {
 
         {mode === "sign-in" && (
           <div className="max-w-xl mx-auto">
-            <Button variant="ghost" className="mb-6" onClick={handleReset}>
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={handleReset}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-2xl">Visitor Sign In</CardTitle>
-                <CardDescription>Please fill out the form below to sign in</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-xl sm:text-2xl">Visitor Sign In</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Please fill out the form below to sign in</CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSignInSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <form onSubmit={handleSignInSubmit} className="space-y-3 sm:space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name *</Label>
                       <Input
@@ -954,15 +1104,15 @@ export default function KioskPage() {
 
         {mode === "sign-out" && (
           <div className="max-w-md mx-auto">
-            <Button variant="ghost" className="mb-6" onClick={handleReset}>
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={handleReset}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-2xl">Visitor Sign Out</CardTitle>
-                <CardDescription>Enter the email you used when signing in</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-xl sm:text-2xl">Visitor Sign Out</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Enter the email you used when signing in</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSignOut} className="space-y-4">
@@ -991,20 +1141,20 @@ export default function KioskPage() {
 
         {mode === "employee-login" && (
           <div className="max-w-md mx-auto">
-            <Button variant="ghost" className="mb-6" onClick={handleReset}>
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={handleReset}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="p-4 sm:p-6">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                    <Briefcase className="w-6 h-6 text-blue-600" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                    <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                   </div>
                   <div>
-                    <CardTitle className="text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription>Sign in with your Talus credentials</CardDescription>
+                    <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1051,9 +1201,7 @@ export default function KioskPage() {
                       <div>
                         <p className="text-sm font-medium">Signing in at {nearestLocation.location.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {nearestLocation.distance < 1000
-                            ? `${Math.round(nearestLocation.distance)}m from location`
-                            : `${(nearestLocation.distance / 1000).toFixed(1)}km from location`}
+                          {formatDistance(nearestLocation.distance, "from location")}
                         </p>
                       </div>
                     </div>
@@ -1080,14 +1228,14 @@ export default function KioskPage() {
         {mode === "employee-dashboard" && currentEmployee && (
           <div className="max-w-md mx-auto">
             <Card className="border-blue-200">
-              <CardHeader className="text-center">
-                <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+              <CardHeader className="text-center p-4 sm:p-6">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
                   {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
                 </div>
-                <CardTitle className="text-2xl">
+                <CardTitle className="text-xl sm:text-2xl">
                   Welcome, {currentEmployee.full_name || currentEmployee.email}!
                 </CardTitle>
-                <CardDescription>You are signed in as an employee</CardDescription>
+                <CardDescription className="text-xs sm:text-sm">You are signed in as an employee</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="bg-muted/50 rounded-lg p-4 space-y-3">
@@ -1156,28 +1304,28 @@ export default function KioskPage() {
 
         {mode === "training" && selectedVisitorType && (
           <div className="max-w-3xl mx-auto">
-            <Button variant="ghost" className="mb-6" onClick={() => setMode("sign-in")}>
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => setMode("sign-in")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Form
             </Button>
 
             <Card>
-              <CardHeader>
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="w-6 h-6 text-amber-600" />
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex items-start sm:items-center gap-3 mb-2">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />
                   </div>
                   <div>
-                    <CardTitle className="text-2xl">
+                    <CardTitle className="text-lg sm:text-2xl">
                       {selectedVisitorType.training_title || "Safety Training Required"}
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">
                       As a {selectedVisitorType.name}, you must complete this training before signing in
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
                 {/* Video Container */}
                 <div className="relative">
                   <div className="aspect-video bg-muted rounded-lg overflow-hidden">
@@ -1280,22 +1428,22 @@ export default function KioskPage() {
         {mode === "success" && successData && (
           <div className="max-w-md mx-auto text-center">
             <Card className="border-primary/20">
-              <CardContent className="pt-8 pb-8">
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle className="w-10 h-10 text-primary" />
+              <CardContent className="p-4 sm:p-6 py-6 sm:py-8">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
                 </div>
 
-                <h2 className="text-2xl font-bold mb-2">{successData.type === "in" ? "Welcome!" : "Goodbye!"}</h2>
-                <p className="text-lg text-muted-foreground mb-6">{successData.name}</p>
+                <h2 className="text-xl sm:text-2xl font-bold mb-2">{successData.type === "in" ? "Welcome!" : "Goodbye!"}</h2>
+                <p className="text-base sm:text-lg text-muted-foreground mb-4 sm:mb-6">{successData.name}</p>
 
                 {successData.type === "in" && (
-                  <div className="bg-secondary rounded-lg p-4 mb-6">
-                    <p className="text-sm text-muted-foreground mb-1">Your Badge Number</p>
-                    <p className="text-3xl font-mono font-bold text-foreground">{successData.badge}</p>
+                  <div className="bg-secondary rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
+                    <p className="text-xs sm:text-sm text-muted-foreground mb-1">Your Badge Number</p>
+                    <p className="text-2xl sm:text-3xl font-mono font-bold text-foreground">{successData.badge}</p>
                   </div>
                 )}
 
-                <p className="text-sm text-muted-foreground mb-6">
+                <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
                     : "Thank you for visiting Talus."}

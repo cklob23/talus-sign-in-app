@@ -38,7 +38,7 @@ export default function SignUpPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/admin`,
+          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/admin`,
           data: {
             full_name: fullName,
             role: "staff",
@@ -56,24 +56,24 @@ export default function SignUpPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
-      <header className="p-6">
+      <header className="p-4 sm:p-6">
         <Link href="/">
           <TalusAgLogo />
         </Link>
       </header>
 
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
         <div className="w-full max-w-sm">
           <Card>
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Create Account</CardTitle>
-              <CardDescription>Register for admin access to the visitor management system</CardDescription>
+            <CardHeader className="text-center p-4 sm:p-6">
+              <CardTitle className="text-xl sm:text-2xl">Create Account</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Register for admin access to the visitor management system</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
               <form onSubmit={handleSignUp}>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3 sm:gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="fullName">Full Name</Label>
+                    <Label htmlFor="fullName" className="text-sm">Full Name</Label>
                     <Input
                       id="fullName"
                       type="text"
@@ -84,7 +84,7 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email" className="text-sm">Email</Label>
                     <Input
                       id="email"
                       type="email"
@@ -95,7 +95,7 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password" className="text-sm">Password</Label>
                     <Input
                       id="password"
                       type="password"
@@ -105,7 +105,7 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="confirmPassword">Confirm Password</Label>
+                    <Label htmlFor="confirmPassword" className="text-sm">Confirm Password</Label>
                     <Input
                       id="confirmPassword"
                       type="password"
@@ -119,7 +119,7 @@ export default function SignUpPage() {
                     {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
                 </div>
-                <div className="mt-4 text-center text-sm">
+                <div className="mt-4 text-center text-xs sm:text-sm">
                   Already have an account?{" "}
                   <Link href="/auth/login" className="underline underline-offset-4 text-primary">
                     Sign in

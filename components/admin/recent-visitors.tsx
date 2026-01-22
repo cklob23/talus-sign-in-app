@@ -26,7 +26,7 @@ export function RecentVisitors() {
       const supabase = createClient()
       
       // Fetch visitor sign-ins
-      const { data: visitorData, error: visitorError } = await supabase
+      const { data: visitorData } = await supabase
         .from("sign_ins")
         .select(
           `
@@ -39,10 +39,8 @@ export function RecentVisitors() {
         .order("sign_in_time", { ascending: false })
         .limit(5)
 
-      console.log("[v0] Visitor sign-ins:", visitorData, "Error:", visitorError)
-
       // Fetch employee sign-ins
-      const { data: employeeData, error: employeeError } = await supabase
+      const { data: employeeData } = await supabase
         .from("employee_sign_ins")
         .select(
           `
@@ -53,8 +51,6 @@ export function RecentVisitors() {
         )
         .order("sign_in_time", { ascending: false })
         .limit(5)
-
-      console.log("[v0] Employee sign-ins:", employeeData, "Error:", employeeError)
 
       // Combine and sort by sign_in_time
       const combined: CombinedSignIn[] = []
@@ -100,38 +96,40 @@ export function RecentVisitors() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Recent Visitors</CardTitle>
-        <CardDescription>Latest sign-ins at the facility</CardDescription>
+      <CardHeader className="p-4 sm:p-6">
+        <CardTitle className="text-base sm:text-lg">Recent Visitors</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">Latest sign-ins at the facility</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
+      <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+        <div className="space-y-3 sm:space-y-4">
           {signIns.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">No recent sign-ins</p>
           ) : (
             signIns.map((signIn) => (
-              <div key={signIn.id} className="flex items-center gap-4">
-                <Avatar>
+              <div key={signIn.id} className="flex items-center gap-3 sm:gap-4">
+                <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                   <AvatarFallback 
-                    className={signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"}
+                    className={`text-xs sm:text-sm ${signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"}`}
                   >
                     {signIn.initials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{signIn.name}</p>
+                  <p className="text-xs sm:text-sm font-medium truncate">{signIn.name}</p>
                   <p className="text-xs text-muted-foreground truncate">{signIn.subtitle}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   {signIn.badge_text && (
                     <Badge
                       variant="outline"
+                      className="text-xs px-1.5 py-0 sm:px-2.5 sm:py-0.5"
                       style={{
                         borderColor: signIn.badge_color,
                         color: signIn.badge_color,
                       }}
                     >
-                      {signIn.badge_text}
+                      <span className="hidden sm:inline">{signIn.badge_text}</span>
+                      <span className="sm:hidden">{signIn.badge_text.slice(0, 3)}</span>
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">

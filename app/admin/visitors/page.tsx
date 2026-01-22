@@ -115,68 +115,60 @@ export default function CurrentVisitorsPage() {
   }, [])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Currently On-Site</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl sm:text-3xl font-bold">Currently On-Site</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             {visitors.length} visitor(s) and {employees.length} employee(s) currently on-site
           </p>
         </div>
-        <Button onClick={loadData} variant="outline" disabled={isLoading}>
+        <Button onClick={loadData} variant="outline" disabled={isLoading} size="sm" className="w-fit bg-transparent">
           <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="visitors" className="flex items-center gap-2">
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="visitors" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
-            Visitors ({visitors.length})
+            <span className="hidden sm:inline">Visitors</span> ({visitors.length})
           </TabsTrigger>
-          <TabsTrigger value="employees" className="flex items-center gap-2">
+          <TabsTrigger value="employees" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Briefcase className="w-4 h-4" />
-            Employees ({employees.length})
+            <span className="hidden sm:inline">Employees</span> ({employees.length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="visitors" className="mt-4">
           <Card>
-            <CardHeader>
-              <CardTitle>On-Site Visitors</CardTitle>
-              <CardDescription>{visitors.length} visitor(s) currently signed in</CardDescription>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-base sm:text-lg">On-Site Visitors</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">{visitors.length} visitor(s) currently signed in</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {visitors.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No visitors currently on-site</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Visitor</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Host</TableHead>
-                      <TableHead>Badge</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* Mobile card view */}
+                  <div className="space-y-3 md:hidden">
                     {visitors.map((signIn) => (
-                      <TableRow key={signIn.id}>
-                        <TableCell className="font-medium">
-                          {signIn.visitor?.first_name} {signIn.visitor?.last_name}
-                          {signIn.visitor?.email && (
-                            <span className="block text-xs text-muted-foreground">{signIn.visitor.email}</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{signIn.visitor?.company || "-"}</TableCell>
-                        <TableCell>
+                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium text-sm">
+                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                            </p>
+                            {signIn.visitor?.company && (
+                              <p className="text-xs text-muted-foreground">{signIn.visitor.company}</p>
+                            )}
+                          </div>
                           {signIn.visitor_type && (
                             <Badge
                               variant="outline"
+                              className="text-xs"
                               style={{
                                 borderColor: signIn.visitor_type.badge_color,
                                 color: signIn.visitor_type.badge_color,
@@ -185,20 +177,71 @@ export default function CurrentVisitorsPage() {
                               {signIn.visitor_type.name}
                             </Badge>
                           )}
-                        </TableCell>
-                        <TableCell>{signIn.host?.name || "-"}</TableCell>
-                        <TableCell className="font-mono">{signIn.badge_number}</TableCell>
-                        <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => handleVisitorSignOut(signIn.id)}>
-                            <LogOut className="w-4 h-4 mr-1" />
-                            Sign Out
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Host: {signIn.host?.name || "-"}</span>
+                          <span>Badge: {signIn.badge_number}</span>
+                          <span>Duration: {formatDuration(signIn.sign_in_time)}</span>
+                        </div>
+                        <Button variant="outline" size="sm" className="w-full bg-transparent" onClick={() => handleVisitorSignOut(signIn.id)}>
+                          <LogOut className="w-4 h-4 mr-1" />
+                          Sign Out
+                        </Button>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Visitor</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Host</TableHead>
+                          <TableHead>Badge</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visitors.map((signIn) => (
+                          <TableRow key={signIn.id}>
+                            <TableCell className="font-medium">
+                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                              {signIn.visitor?.email && (
+                                <span className="block text-xs text-muted-foreground">{signIn.visitor.email}</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{signIn.visitor?.company || "-"}</TableCell>
+                            <TableCell>
+                              {signIn.visitor_type && (
+                                <Badge
+                                  variant="outline"
+                                  style={{
+                                    borderColor: signIn.visitor_type.badge_color,
+                                    color: signIn.visitor_type.badge_color,
+                                  }}
+                                >
+                                  {signIn.visitor_type.name}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{signIn.host?.name || "-"}</TableCell>
+                            <TableCell className="font-mono">{signIn.badge_number}</TableCell>
+                            <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="outline" size="sm" onClick={() => handleVisitorSignOut(signIn.id)}>
+                                <LogOut className="w-4 h-4 mr-1" />
+                                Sign Out
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -206,57 +249,87 @@ export default function CurrentVisitorsPage() {
 
         <TabsContent value="employees" className="mt-4">
           <Card>
-            <CardHeader>
-              <CardTitle>On-Site Employees</CardTitle>
-              <CardDescription>{employees.length} employee(s) currently signed in</CardDescription>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-base sm:text-lg">On-Site Employees</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">{employees.length} employee(s) currently signed in</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {employees.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No employees currently on-site</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Auto Sign-In</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* Mobile card view */}
+                  <div className="space-y-3 md:hidden">
                     {employees.map((signIn) => (
-                      <TableRow key={signIn.id}>
-                        <TableCell className="font-medium">
-                          {signIn.profile?.full_name || "Unknown"}
-                        </TableCell>
-                        <TableCell>{signIn.profile?.email || "-"}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize border-blue-500 text-blue-500">
+                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium text-sm">{signIn.profile?.full_name || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground">{signIn.profile?.email || "-"}</p>
+                          </div>
+                          <Badge variant="outline" className="capitalize border-blue-500 text-blue-500 text-xs">
                             {signIn.profile?.role || "-"}
                           </Badge>
-                        </TableCell>
-                        <TableCell>{signIn.location?.name || "-"}</TableCell>
-                        <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>
-                        <TableCell>
-                          {signIn.auto_signed_in ? (
-                            <Badge variant="secondary">Auto</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">Manual</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => handleEmployeeSignOut(signIn.id)}>
-                            <LogOut className="w-4 h-4 mr-1" />
-                            Sign Out
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Location: {signIn.location?.name || "-"}</span>
+                          <span>Duration: {formatDuration(signIn.sign_in_time)}</span>
+                          <span>{signIn.auto_signed_in ? "Auto" : "Manual"}</span>
+                        </div>
+                        <Button variant="outline" size="sm" className="w-full bg-transparent" onClick={() => handleEmployeeSignOut(signIn.id)}>
+                          <LogOut className="w-4 h-4 mr-1" />
+                          Sign Out
+                        </Button>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Employee</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Auto Sign-In</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {employees.map((signIn) => (
+                          <TableRow key={signIn.id}>
+                            <TableCell className="font-medium">
+                              {signIn.profile?.full_name || "Unknown"}
+                            </TableCell>
+                            <TableCell>{signIn.profile?.email || "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="capitalize border-blue-500 text-blue-500">
+                                {signIn.profile?.role || "-"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{signIn.location?.name || "-"}</TableCell>
+                            <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>
+                            <TableCell>
+                              {signIn.auto_signed_in ? (
+                                <Badge variant="secondary">Auto</Badge>
+                              ) : (
+                                <span className="text-muted-foreground">Manual</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="outline" size="sm" onClick={() => handleEmployeeSignOut(signIn.id)}>
+                                <LogOut className="w-4 h-4 mr-1" />
+                                Sign Out
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

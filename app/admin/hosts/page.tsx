@@ -124,23 +124,23 @@ export default function HostsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Hosts</h1>
-          <p className="text-muted-foreground">Manage employees who can receive visitors</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Hosts</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Manage employees who can receive visitors</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={openCreateDialog}>
+            <Button onClick={openCreateDialog} size="sm" className="w-fit">
               <Plus className="w-4 h-4 mr-2" />
               Add Host
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingHost ? "Edit Host" : "Add Host"}</DialogTitle>
-              <DialogDescription>
+              <DialogTitle className="text-lg">{editingHost ? "Edit Host" : "Add Host"}</DialogTitle>
+              <DialogDescription className="text-sm">
                 {editingHost ? "Update host information" : "Add a new employee who can receive visitors"}
               </DialogDescription>
             </DialogHeader>
@@ -199,60 +199,99 @@ export default function HostsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
             <UserCog className="w-5 h-5" />
             All Hosts
           </CardTitle>
-          <CardDescription>{hosts.length} registered hosts</CardDescription>
+          <CardDescription className="text-xs sm:text-sm">{hosts.length} registered hosts</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           {isLoading ? (
             <p className="text-center py-8 text-muted-foreground">Loading...</p>
           ) : hosts.length === 0 ? (
             <p className="text-center py-8 text-muted-foreground">No hosts found</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Mobile card view */}
+              <div className="space-y-3 md:hidden">
                 {hosts.map((host) => (
-                  <TableRow key={host.id}>
-                    <TableCell className="font-medium">{host.name}</TableCell>
-                    <TableCell>{host.email || "-"}</TableCell>
-                    <TableCell>{host.phone || "-"}</TableCell>
-                    <TableCell>{host.department || "-"}</TableCell>
-                    <TableCell>
+                  <div key={host.id} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-sm">{host.name}</p>
+                        {host.email && <p className="text-xs text-muted-foreground">{host.email}</p>}
+                      </div>
                       <Badge
                         variant={host.is_active ? "default" : "secondary"}
-                        className="cursor-pointer"
+                        className="cursor-pointer text-xs"
                         onClick={() => toggleActive(host)}
                       >
                         {host.is_active ? "Active" : "Inactive"}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(host)}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(host.id)}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {host.phone && <span>Phone: {host.phone}</span>}
+                      {host.department && <span>Dept: {host.department}</span>}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEditDialog(host)}>
+                        <Pencil className="w-4 h-4 mr-1" />
+                        Edit
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(host.id)}>
+                        <Trash2 className="w-4 h-4 mr-1 text-destructive" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+              {/* Desktop table view */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {hosts.map((host) => (
+                      <TableRow key={host.id}>
+                        <TableCell className="font-medium">{host.name}</TableCell>
+                        <TableCell>{host.email || "-"}</TableCell>
+                        <TableCell>{host.phone || "-"}</TableCell>
+                        <TableCell>{host.department || "-"}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={host.is_active ? "default" : "secondary"}
+                            className="cursor-pointer"
+                            onClick={() => toggleActive(host)}
+                          >
+                            {host.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(host)}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDelete(host.id)}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

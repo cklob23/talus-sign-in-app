@@ -46,15 +46,15 @@ export function DashboardCharts() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Visitor Trends</CardTitle>
-        <CardDescription>Sign-ins over the last 7 days</CardDescription>
+      <CardHeader className="p-4 sm:p-6">
+        <CardTitle className="text-base sm:text-lg">Visitor Trends</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">Sign-ins over the last 7 days</CardDescription>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
+      <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+        <ResponsiveContainer width="100%" height={250} className="sm:!h-[300px]">
           <BarChart data={chartData}>
-            <XAxis dataKey="day" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+            <XAxis dataKey="day" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
+            <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={30} />
             <Tooltip />
             <Bar dataKey="visitors" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
           </BarChart>

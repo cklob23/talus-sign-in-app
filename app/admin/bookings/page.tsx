@@ -129,20 +129,20 @@ export default function BookingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Bookings</h1>
-          <p className="text-muted-foreground">Pre-registered visitor appointments</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Bookings</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Pre-registered visitor appointments</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button size="sm" className="w-fit">
               <Plus className="w-4 h-4 mr-2" />
               New Booking
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Booking</DialogTitle>
               <DialogDescription>Pre-register an expected visitor</DialogDescription>
@@ -243,88 +243,146 @@ export default function BookingsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
             <Calendar className="w-5 h-5" />
             Upcoming Bookings
           </CardTitle>
-          <CardDescription>{bookings.filter((b) => b.status === "pending").length} pending visits</CardDescription>
+          <CardDescription className="text-xs sm:text-sm">{bookings.filter((b) => b.status === "pending").length} pending visits</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           {isLoading ? (
             <p className="text-center py-8 text-muted-foreground">Loading...</p>
           ) : bookings.length === 0 ? (
             <p className="text-center py-8 text-muted-foreground">No bookings found</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Visitor</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Host</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Expected</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Mobile card view */}
+              <div className="space-y-3 md:hidden">
                 {bookings.map((booking) => (
-                  <TableRow key={booking.id}>
-                    <TableCell className="font-medium">
-                      {booking.visitor_first_name} {booking.visitor_last_name}
-                      {booking.visitor_email && (
-                        <span className="block text-xs text-muted-foreground">{booking.visitor_email}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{booking.visitor_company || "-"}</TableCell>
-                    <TableCell>{booking.host?.name || "-"}</TableCell>
-                    <TableCell>
-                      {booking.visitor_type && (
-                        <Badge
-                          variant="outline"
-                          style={{
-                            borderColor: booking.visitor_type.badge_color,
-                            color: booking.visitor_type.badge_color,
-                          }}
-                        >
-                          {booking.visitor_type.name}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {new Date(booking.expected_arrival).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(booking.status)}</TableCell>
-                    <TableCell className="text-right">
-                      {booking.status === "pending" && (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateBookingStatus(booking.id, "completed")}
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateBookingStatus(booking.id, "cancelled")}
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                  <div key={booking.id} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-sm">
+                          {booking.visitor_first_name} {booking.visitor_last_name}
+                        </p>
+                        {booking.visitor_company && (
+                          <p className="text-xs text-muted-foreground">{booking.visitor_company}</p>
+                        )}
+                      </div>
+                      {getStatusBadge(booking.status)}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Host: {booking.host?.name || "-"}</span>
+                      <span>
+                        {new Date(booking.expected_arrival).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    {booking.visitor_type && (
+                      <Badge
+                        variant="outline"
+                        className="text-xs"
+                        style={{
+                          borderColor: booking.visitor_type.badge_color,
+                          color: booking.visitor_type.badge_color,
+                        }}
+                      >
+                        {booking.visitor_type.name}
+                      </Badge>
+                    )}
+                    {booking.status === "pending" && (
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button variant="outline" size="sm" onClick={() => updateBookingStatus(booking.id, "completed")}>
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          Complete
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => updateBookingStatus(booking.id, "cancelled")}>
+                          <XCircle className="w-4 h-4 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+              {/* Desktop table view */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Visitor</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Host</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Expected</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bookings.map((booking) => (
+                      <TableRow key={booking.id}>
+                        <TableCell className="font-medium">
+                          {booking.visitor_first_name} {booking.visitor_last_name}
+                          {booking.visitor_email && (
+                            <span className="block text-xs text-muted-foreground">{booking.visitor_email}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{booking.visitor_company || "-"}</TableCell>
+                        <TableCell>{booking.host?.name || "-"}</TableCell>
+                        <TableCell>
+                          {booking.visitor_type && (
+                            <Badge
+                              variant="outline"
+                              style={{
+                                borderColor: booking.visitor_type.badge_color,
+                                color: booking.visitor_type.badge_color,
+                              }}
+                            >
+                              {booking.visitor_type.name}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {new Date(booking.expected_arrival).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(booking.status)}</TableCell>
+                        <TableCell className="text-right">
+                          {booking.status === "pending" && (
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => updateBookingStatus(booking.id, "completed")}
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => updateBookingStatus(booking.id, "cancelled")}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
