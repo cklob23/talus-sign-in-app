@@ -19,19 +19,20 @@ export default function LoginPage() {
     const redirectBase =
       process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "azure",
       options: {
         redirectTo: `${redirectBase}/auth/callback`,
+        scopes: 'email'
       },
     })
-
+    console.log(data)
     if (error) {
       setError(error.message)
       setIsLoading(false)
     }
   }
-  
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
       <header className="p-4 sm:p-6">
