@@ -16,10 +16,13 @@ export default function LoginPage() {
     setIsLoading(true)
     setError(null)
 
+    const redirectBase =
+      process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "azure",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${redirectBase}/auth/callback`,
       },
     })
 
@@ -28,7 +31,7 @@ export default function LoginPage() {
       setIsLoading(false)
     }
   }
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
       <header className="p-4 sm:p-6">
