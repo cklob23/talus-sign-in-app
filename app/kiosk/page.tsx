@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
@@ -29,7 +30,6 @@ import {
   User
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
-import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -55,6 +55,8 @@ interface SignInForm {
 }
 
 export default function KioskPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [mode, setMode] = useState<KioskMode>("home")
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
@@ -103,6 +105,67 @@ export default function KioskPage() {
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
   const [badgePrintingEnabled, setBadgePrintingEnabled] = useState(false)
+
+  // Handle OAuth callback from Microsoft login
+  useEffect(() => {
+    const employeeSignedIn = searchParams.get("employee_signed_in")
+    const profileId = searchParams.get("profile_id")
+    const oauthError = searchParams.get("error")
+
+    if (oauthError) {
+      if (oauthError === "not_employee") {
+        setError("Your account is not registered as an employee. Please contact an administrator.")
+      } else if (oauthError === "profile_creation_failed") {
+        setError("Failed to create your profile. Please try again or contact support.")
+      } else {
+        setError("Sign in failed. Please try again.")
+      }
+      // Clear the URL params
+      router.replace("/kiosk")
+      return
+    }
+
+    if (employeeSignedIn === "true" && profileId) {
+      // Fetch the employee profile and show dashboard
+      async function loadEmployeeAfterOAuth() {
+        const supabase = createClient()
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", profileId)
+          .single()
+
+        if (profile) {
+          setCurrentEmployee({
+            id: profile.id,
+            full_name: profile.full_name,
+            email: profile.email,
+            location_id: profile.location_id,
+            role: "employee",
+            created_at: profile.created_at,
+            updated_at: Date.now().toString(),
+          })
+          setEmployeeSignedIn(true)
+          setMode("employee-dashboard")
+
+          // Remember this employee
+          if (typeof window !== "undefined") {
+            localStorage.setItem("rememberedEmployee", JSON.stringify({
+              id: profile.id,
+              email: profile.email,
+              fullName: profile.full_name,
+              locationId: profile.location_id,
+            }))
+          }
+        }
+
+        // Clear the URL params
+        router.replace("/kiosk")
+      }
+
+      loadEmployeeAfterOAuth()
+    }
+  }, [searchParams, router])
 
   // Load settings from database based on selected location
   useEffect(() => {
@@ -401,8 +464,8 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Duration of 47:39 minutes of required watching time
-    const totalDuration = 2843.40
+    // Simulate 60 seconds of required watching time
+    const totalDuration = 60
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -708,6 +771,30 @@ export default function KioskPage() {
     }
   }
 
+  async function handleEmployeeMicrosoftLogin() {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const supabase = createClient()
+
+      const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "azure",
+        options: {
+          redirectTo: redirectUrl,
+          scopes: "email profile openid",
+        },
+      })
+
+      if (error) throw error
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign in with Microsoft")
+      setIsLoading(false)
+    }
+  }
+
   async function handleEmployeeSignOut() {
     if (!currentEmployee) return
     setIsLoading(true)
@@ -762,9 +849,7 @@ export default function KioskPage() {
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
           <div className="shrink-0">
-            <Link href="/">
-              <TalusAgLogo />
-            </Link>
+            <TalusAgLogo />
           </div>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             {/* Location indicator */}
@@ -815,7 +900,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to TalusAg. Please sign in or sign out below.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:gap-6">
@@ -870,7 +955,7 @@ export default function KioskPage() {
                       </div>
                       <div>
                         <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                        <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground">TalusAg employees sign in here</p>
                       </div>
                     </div>
                     <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -1154,7 +1239,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your TalusAg credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1218,6 +1303,32 @@ export default function KioskPage() {
                     ) : (
                       "Sign In"
                     )}
+                  </Button>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full bg-transparent"
+                    size="lg"
+                    onClick={handleEmployeeMicrosoftLogin}
+                    disabled={isLoading}
+                  >
+                    <svg className="mr-2 h-5 w-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+                    </svg>
+                    Sign in with Microsoft
                   </Button>
                 </form>
               </CardContent>
@@ -1388,7 +1499,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on Talus premises. I understand that failure
+                        all safety guidelines and procedures while on TalusAg premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -1446,7 +1557,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting Talus."}
+                    : "Thank you for visiting TalusAg."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

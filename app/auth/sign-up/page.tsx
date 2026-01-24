@@ -54,6 +54,29 @@ export default function SignUpPage() {
     }
   }
 
+  const handleMicrosoftSignUp = async () => {
+    const supabase = createClient()
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || 
+        `${window.location.origin}/auth/callback?type=admin&next=/admin`
+      
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "azure",
+        options: {
+          redirectTo: redirectUrl,
+          scopes: "email profile openid",
+        },
+      })
+      if (error) throw error
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "An error occurred")
+      setIsLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
       <header className="p-4 sm:p-6">
@@ -117,6 +140,31 @@ export default function SignUpPage() {
                   {error && <p className="text-sm text-destructive">{error}</p>}
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? "Creating account..." : "Create Account"}
+                  </Button>
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full bg-transparent"
+                    onClick={handleMicrosoftSignUp}
+                    disabled={isLoading}
+                  >
+                    <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                      <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                      <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                    </svg>
+                    Sign up with Microsoft
                   </Button>
                 </div>
                 <div className="mt-4 text-center text-xs sm:text-sm">

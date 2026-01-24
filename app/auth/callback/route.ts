@@ -1,41 +1,85 @@
-import { createServerClient } from "@supabase/ssr"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
+  const next = searchParams.get("next") ?? "/admin"
+  const type = searchParams.get("type") // 'admin' or 'employee'
+  const locationId = searchParams.get("location_id")
 
-  if (!code) {
-    return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_SITE_URL}/auth/login`
-    )
+  if (code) {
+    const supabase = await createClient()
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (!error && data.user) {
+      // If this is an employee login from kiosk, record the sign-in
+      if (type === "employee" && locationId) {
+        // Check if user has a profile with employee/admin/staff role
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single()
+
+        if (profile && ["employee", "admin", "staff"].includes(profile.role)) {
+          // Record employee sign-in
+          await supabase.from("employee_sign_ins").insert({
+            profile_id: profile.id,
+            location_id: locationId,
+            auto_signed_in: false,
+            device_id: "Microsoft OAuth",
+          })
+
+          // Redirect back to kiosk with success
+          return NextResponse.redirect(
+            `${origin}/kiosk?employee_signed_in=true&profile_id=${profile.id}`
+          )
+        } else if (!profile) {
+          // No profile found - create one with employee role if they signed in with Microsoft
+          const { data: newProfile, error: createError } = await supabase
+            .from("profiles")
+            .insert({
+              id: data.user.id,
+              email: data.user.email,
+              full_name: data.user.user_metadata?.full_name || data.user.email?.split("@")[0],
+              role: "employee",
+              location_id: locationId,
+            })
+            .select()
+            .single()
+
+          if (!createError && newProfile) {
+            // Record employee sign-in
+            await supabase.from("employee_sign_ins").insert({
+              profile_id: newProfile.id,
+              location_id: locationId,
+              auto_signed_in: false,
+              device_id: "Microsoft OAuth",
+            })
+
+            return NextResponse.redirect(
+              `${origin}/kiosk?employee_signed_in=true&profile_id=${newProfile.id}`
+            )
+          }
+          
+          // Redirect with error if profile creation fails
+          return NextResponse.redirect(
+            `${origin}/kiosk?error=profile_creation_failed`
+          )
+        } else {
+          // User exists but doesn't have employee role
+          return NextResponse.redirect(
+            `${origin}/kiosk?error=not_employee`
+          )
+        }
+      }
+
+      // For admin login, redirect to admin dashboard
+      return NextResponse.redirect(`${origin}${next}`)
+    }
   }
 
-  // Create a mutable response
-  const response = NextResponse.redirect(
-    `${process.env.NEXT_PUBLIC_SITE_URL}/admin`
-  )
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name) {
-          return request.cookies.get(name)?.value
-        },
-        set(name, value, options) {
-          response.cookies.set({ name, value, ...options })
-        },
-        remove(name, options) {
-          response.cookies.set({ name, value: "", ...options })
-        },
-      },
-    }
-  )
-
-  await supabase.auth.exchangeCodeForSession(code)
-
-  return response
+  // Return the user to an error page with instructions
+  return NextResponse.redirect(`${origin}/auth/error`)
 }
