@@ -61,13 +61,16 @@ export default function SignUpPage() {
 
     try {
       const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || 
-        `${window.location.origin}/auth/callback?type=admin&next=/admin`
+        `${window.location.origin}/auth/callback`
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
-          redirectTo: redirectUrl,
-          scopes: "email profile openid",
+          redirectTo: `${redirectUrl}?type=admin&next=/admin`,
+          scopes: "email profile openid User.Read",
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       })
       if (error) throw error

@@ -45,14 +45,19 @@ export default function LoginPage() {
     setError(null)
 
     try {
+      // Use environment variable or construct redirect URL
+      // Ensure it matches what's configured in Supabase and Azure AD
       const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || 
-        `${window.location.origin}/auth/callback?type=admin&next=/admin`
+        `${window.location.origin}/auth/callback`
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
-          redirectTo: redirectUrl,
-          scopes: "email profile openid",
+          redirectTo: `${redirectUrl}?type=admin&next=/admin`,
+          scopes: "email profile openid User.Read",
+          queryParams: {
+            prompt: "select_account", // Always show account picker
+          },
         },
       })
       if (error) throw error
@@ -64,7 +69,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
-      <header className="p-6 sm:p-8">
+      <header className="p-4 sm:p-6">
         <Link href="/">
           <TalusAgLogo />
         </Link>
@@ -131,12 +136,12 @@ export default function LoginPage() {
                     Sign in with Microsoft
                   </Button>
                 </div>
-                {/* <div className="mt-4 text-center text-xs sm:text-sm">
+                <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
                   <Link href="/auth/sign-up" className="underline underline-offset-4 text-primary">
                     Sign up
                   </Link>
-                </div> */}
+                </div>
               </form>
             </CardContent>
           </Card>
