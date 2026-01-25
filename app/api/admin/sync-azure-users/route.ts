@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
               Authorization: `Bearer ${providerToken}`,
             },
           })
-
+          console.log("Photo response for", email, photoResponse)
           if (photoResponse.ok) {
             // Convert photo to base64 data URL
             const photoBlob = await photoResponse.blob()

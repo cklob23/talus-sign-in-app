@@ -47,8 +47,7 @@ export default function LoginPage() {
     try {
       // Use environment variable or construct redirect URL
       // Ensure it matches what's configured in Supabase and Azure AD
-      const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || 
-        `${window.location.origin}/auth/callback`
+      const redirectUrl = `http://localhost:3000/auth/callback`
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
