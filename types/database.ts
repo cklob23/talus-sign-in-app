@@ -15,6 +15,7 @@ export interface Profile {
   email: string
   full_name: string | null
   role: "admin" | "staff" | "viewer" | "employee"
+  avatar_url: string | null
   location_id: string | null
   created_at: string
   updated_at: string

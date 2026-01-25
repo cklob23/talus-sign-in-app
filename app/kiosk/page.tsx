@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -44,6 +45,8 @@ interface RememberedEmployee {
   email: string
   fullName: string
   locationId: string | null
+  role?: "admin" | "staff" | "viewer" | "employee"
+  avatar_url?: string | null
 }
 
 interface SignInForm {
@@ -161,6 +164,7 @@ export default function KioskPage() {
             full_name: profile.full_name,
             email: profile.email,
             location_id: profile.location_id,
+            avatar_url: profile.avatar_url,
             role: profile.role,
             created_at: profile.created_at,
             updated_at: profile.updated_at,
@@ -361,7 +365,8 @@ export default function KioskPage() {
         id: employee.id,
         email: employee.email,
         full_name: employee.fullName,
-        role: "employee",
+        role: employee.role || "employee",
+        avatar_url: employee.avatar_url || null,
         location_id: employee.locationId,
         created_at: "",
         updated_at: "",
@@ -1160,6 +1165,31 @@ export default function KioskPage() {
     setEmployeePassword("")
   }
 
+  {/* Show different options based on employee sign-in status 
+            employeeSignedIn ? (
+
+              <div className="max-w-md mx-auto">
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                  onClick={() => setMode("sign-out")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
+                      <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
+                    </div>
+                    <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <Button variant="secondary" className="w-full" size="lg">
+                      Sign Out
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+          */}
+  /* No employee signed in - show all visitor options */
+
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
 
   return (
@@ -1223,86 +1253,61 @@ export default function KioskPage() {
               <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
-            {/* Show different options based on employee sign-in status */}
-            {employeeSignedIn ? (
-              /* Employee is signed in - only show Sign Out option */
-              <div className="max-w-md mx-auto">
-                <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
-                  onClick={() => setMode("sign-out")}
-                >
-                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
-                      <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
-                    </div>
-                    <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                    <Button variant="secondary" className="w-full" size="lg">
-                      Sign Out
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              /* No employee signed in - show all visitor options */
-              <div className="grid grid-cols-3 gap-3 sm:gap-6">
-                <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
-                  onClick={() => setMode("sign-in")}
-                >
-                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
-                      <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
-                    </div>
-                    <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                    <Button className="w-full" size="lg">
-                      Sign In
-                    </Button>
-                  </CardContent>
-                </Card>
+            <div className="grid grid-cols-3 gap-3 sm:gap-6">
+              <Card
+                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                onClick={() => setMode("sign-in")}
+              >
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
+                    <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
+                  </div>
+                  <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <Button className="w-full" size="lg">
+                    Sign In
+                  </Button>
+                </CardContent>
+              </Card>
 
-                <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
-                  onClick={() => setMode("booking")}
-                >
-                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
-                      <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                    </div>
-                    <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
-                      Check In
-                    </Button>
-                  </CardContent>
-                </Card>
+              <Card
+                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
+                onClick={() => setMode("booking")}
+              >
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
+                    <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                  </div>
+                  <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
+                    Check In
+                  </Button>
+                </CardContent>
+              </Card>
 
-                <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
-                  onClick={() => setMode("sign-out")}
-                >
-                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
-                      <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
-                    </div>
-                    <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                    <Button variant="secondary" className="w-full" size="lg">
-                      Sign Out
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+              <Card
+                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                onClick={() => setMode("sign-out")}
+              >
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
+                    <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
+                  </div>
+                  <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <Button variant="secondary" className="w-full" size="lg">
+                    Sign Out
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
 
             <div className="mt-4 sm:mt-8">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
@@ -1311,9 +1316,12 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold shrink-0">
-                          {currentEmployee.full_name?.charAt(0) || currentEmployee.email?.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0">
+                          <AvatarImage src={currentEmployee.avatar_url || undefined} />
+                          <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                            {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
@@ -1619,8 +1627,8 @@ export default function KioskPage() {
                         <Card
                           key={booking.id}
                           className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
-                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                              : "hover:border-blue-300"
+                            ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                            : "hover:border-blue-300"
                             }`}
                           onClick={() => setSelectedBooking(booking)}
                         >
@@ -1870,9 +1878,12 @@ export default function KioskPage() {
           <div className="max-w-md mx-auto">
             <Card className="border-blue-200">
               <CardHeader className="text-center p-4 sm:p-6">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
-                  {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
-                </div>
+                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                  <AvatarImage src={currentEmployee.avatar_url || undefined} />
+                  <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                    {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <CardTitle className="text-xl sm:text-2xl">
                   Welcome, {currentEmployee.full_name || currentEmployee.email}!
                 </CardTitle>
