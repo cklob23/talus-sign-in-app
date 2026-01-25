@@ -27,12 +27,14 @@ import {
   MapPin,
   Briefcase,
   Loader2,
-  User
+  User,
+  CalendarCheck,
+  Search
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 
-type KioskMode = "home" | "sign-in" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
+type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
 // Storage key for remembered employee
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
@@ -106,6 +108,23 @@ export default function KioskPage() {
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
   const [badgePrintingEnabled, setBadgePrintingEnabled] = useState(false)
+
+  // Booking lookup state
+  const [bookingEmail, setBookingEmail] = useState("")
+  const [bookingResults, setBookingResults] = useState<Array<{
+    id: string
+    visitor_first_name: string
+    visitor_last_name: string
+    visitor_email: string
+    visitor_company: string | null
+    expected_arrival: string
+    expected_departure: string | null
+    purpose: string | null
+    status: string
+    host: { id: string; name: string; email: string } | null
+    visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
+  }>>([])
+  const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
   // Handle OAuth callback from Microsoft login
   useEffect(() => {
@@ -414,6 +433,270 @@ export default function KioskPage() {
     if (hostsData) setHosts(hostsData)
   }
 
+  // Lookup bookings by email
+  async function handleBookingLookup(e: React.FormEvent) {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+    setBookingResults([])
+    setSelectedBooking(null)
+
+    try {
+      const supabase = createClient()
+
+      const { data: bookings, error: bookingsError } = await supabase
+        .from("bookings")
+        .select(`
+          id,
+          visitor_first_name,
+          visitor_last_name,
+          visitor_email,
+          visitor_company,
+          expected_arrival,
+          expected_departure,
+          purpose,
+          status,
+          host:hosts(id, name, email),
+          visitor_type:visitor_types(id, name, badge_color, requires_training)
+        `)
+        .ilike("visitor_email", bookingEmail.trim())
+        .eq("status", "pending")
+        .order("expected_arrival")
+
+      if (bookingsError) throw bookingsError
+
+      if (!bookings || bookings.length === 0) {
+        setError("No bookings found for today with this email address. Please check your email or sign in as a new visitor.")
+        return
+      }
+
+      const typedBookings = bookings?.map(booking => ({
+        ...booking,
+        host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
+        visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
+      })) || []
+      setBookingResults(typedBookings as typeof bookingResults)
+
+      // If only one booking, auto-select it
+      if (bookings.length === 1) {
+        const booking = bookings[0]
+        setSelectedBooking({
+          ...booking,
+          host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
+          visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
+        } as typeof bookingResults[0])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to lookup booking")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Complete sign-in for a pre-registered booking
+  async function handleBookingSignIn() {
+    if (!selectedBooking) return
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const supabase = createClient()
+
+      // Check if visitor type requires training
+      if (selectedBooking.visitor_type?.requires_training) {
+        // First, find or create the visitor
+        let visitorId: string | null = null
+
+        const { data: existingVisitor } = await supabase
+          .from("visitors")
+          .select("id")
+          .eq("email", selectedBooking.visitor_email)
+          .single()
+
+        if (existingVisitor) {
+          visitorId = existingVisitor.id
+
+          // Check for existing training completion
+          const { data: trainingCompletion } = await supabase
+            .from("training_completions")
+            .select("*")
+            .eq("visitor_id", existingVisitor.id)
+            .eq("visitor_type_id", selectedBooking.visitor_type.id)
+            .single()
+
+          if (trainingCompletion) {
+            const hasExpired = trainingCompletion.expires_at &&
+              new Date(trainingCompletion.expires_at) < new Date()
+
+            if (!hasExpired) {
+              // Training is valid, proceed with sign-in
+              await completeBookingSignIn(visitorId)
+              return
+            }
+          }
+        }
+
+        // Need to show training video
+        // Pre-fill the form with booking data for after training
+        setForm({
+          firstName: selectedBooking.visitor_first_name,
+          lastName: selectedBooking.visitor_last_name,
+          email: selectedBooking.visitor_email,
+          phone: "",
+          company: selectedBooking.visitor_company || "",
+          visitorTypeId: selectedBooking.visitor_type.id,
+          hostId: selectedBooking.host?.id || "",
+          purpose: selectedBooking.purpose || "",
+        })
+        setMode("training")
+        setIsLoading(false)
+        return
+      }
+
+      // No training required, proceed with sign-in
+      await completeBookingSignIn(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign in")
+      setIsLoading(false)
+    }
+  }
+
+  // Complete the sign-in process for a booking
+  async function completeBookingSignIn(existingVisitorId: string | null) {
+    if (!selectedBooking) return
+
+    const supabase = createClient()
+
+    // Create or update visitor record
+    let visitorId = existingVisitorId
+
+    if (!visitorId) {
+      const { data: existingVisitor } = await supabase
+        .from("visitors")
+        .select("id")
+        .eq("email", selectedBooking.visitor_email)
+        .single()
+
+      if (existingVisitor) {
+        visitorId = existingVisitor.id
+        // Update existing visitor
+        await supabase
+          .from("visitors")
+          .update({
+            first_name: selectedBooking.visitor_first_name,
+            last_name: selectedBooking.visitor_last_name,
+            company: selectedBooking.visitor_company,
+          })
+          .eq("id", visitorId)
+      } else {
+        // Create new visitor
+        const { data: newVisitor, error: visitorError } = await supabase
+          .from("visitors")
+          .insert({
+            first_name: selectedBooking.visitor_first_name,
+            last_name: selectedBooking.visitor_last_name,
+            email: selectedBooking.visitor_email,
+            company: selectedBooking.visitor_company,
+          })
+          .select()
+          .single()
+
+        if (visitorError) throw visitorError
+        visitorId = newVisitor.id
+      }
+    }
+
+    // Generate badge number
+    const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
+
+    // Create sign-in record
+    const { error: signInError } = await supabase
+      .from("sign_ins")
+      .insert({
+        visitor_id: visitorId,
+        location_id: selectedLocation,
+        visitor_type_id: selectedBooking.visitor_type?.id,
+        host_id: selectedBooking.host?.id,
+        purpose: selectedBooking.purpose,
+        badge_number: badgeNumber,
+        sign_in_time: new Date().toISOString(),
+      })
+
+    if (signInError) throw signInError
+
+    // Update booking status to checked_in
+    await supabase
+      .from("bookings")
+      .update({ status: "checked_in" })
+      .eq("id", selectedBooking.id)
+
+    // Send host notification if enabled
+    if (hostNotificationsEnabled && selectedBooking.host?.email) {
+      try {
+        await fetch("/api/notify-host", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            hostEmail: selectedBooking.host.email,
+            hostName: selectedBooking.host.name,
+            visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+            visitorCompany: selectedBooking.visitor_company,
+            purpose: selectedBooking.purpose,
+            badgeNumber,
+          }),
+        })
+      } catch (notifyErr) {
+        console.error("Failed to send host notification:", notifyErr)
+      }
+    }
+
+    // Handle badge printing if enabled
+    if (badgePrintingEnabled) {
+      const printWindow = window.open("", "_blank", "width=400,height=300")
+      if (printWindow) {
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Visitor Badge</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+              .badge { border: 2px solid #333; padding: 20px; width: 300px; margin: 0 auto; }
+              .badge-number { font-size: 32px; font-weight: bold; color: ${selectedBooking.visitor_type?.badge_color || "#10B981"}; }
+              .visitor-name { font-size: 24px; margin: 10px 0; }
+              .company { font-size: 14px; color: #666; }
+              .date { font-size: 12px; color: #999; margin-top: 10px; }
+            </style>
+          </head>
+          <body>
+            <div class="badge">
+              <div class="badge-number">${badgeNumber}</div>
+              <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
+              ${selectedBooking.visitor_company ? `<div class="company">${selectedBooking.visitor_company}</div>` : ""}
+              <div class="date">${new Date().toLocaleDateString()}</div>
+            </div>
+            <script>window.print(); window.close();</script>
+          </body>
+          </html>
+        `)
+        printWindow.document.close()
+      }
+    }
+
+    setSuccessData({
+      name: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+      badge: badgeNumber,
+      type: "in",
+    })
+
+    // Reset booking state
+    setBookingEmail("")
+    setBookingResults([])
+    setSelectedBooking(null)
+    setMode("success")
+    setIsLoading(false)
+  }
+
   // Check if visitor type requires training and redirect if needed
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -597,6 +880,19 @@ export default function KioskPage() {
         }
       }
 
+      // Update booking status if this was a booking check-in after training
+      if (selectedBooking) {
+        await supabase
+          .from("bookings")
+          .update({ status: "checked_in" })
+          .eq("id", selectedBooking.id)
+
+        // Clear booking state
+        setBookingEmail("")
+        setBookingResults([])
+        setSelectedBooking(null)
+      }
+
       setSuccessData({
         name: `${form.firstName} ${form.lastName}`,
         badge: badgeNumber,
@@ -703,6 +999,10 @@ export default function KioskPage() {
     setSignOutEmail("")
     setEmployeeEmail("")
     setEmployeePassword("")
+    // Clear booking state
+    setBookingEmail("")
+    setBookingResults([])
+    setSelectedBooking(null)
   }
 
   async function handleEmployeeLogin(e: React.FormEvent) {
@@ -926,7 +1226,7 @@ export default function KioskPage() {
               <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:gap-6">
+            <div className="grid grid-cols-3 gap-3 sm:gap-6">
               <Card
                 className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
                 onClick={() => setMode("sign-in")}
@@ -935,12 +1235,30 @@ export default function KioskPage() {
                   <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
                     <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
                   </div>
-                  <CardTitle className="text-lg sm:text-2xl">Sign In</CardTitle>
+                  <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <Button className="w-full" size="lg">
                     Sign In
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
+                onClick={() => setMode("booking")}
+              >
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
+                    <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                  </div>
+                  <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
+                    Check In
                   </Button>
                 </CardContent>
               </Card>
@@ -965,45 +1283,71 @@ export default function KioskPage() {
             </div>
 
             <div className="mt-4 sm:mt-8">
-              {/* Employee Login Card */}
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group mb-4 sm:mb-6"
-                onClick={() => setMode("employee-login")}
-              >
-                <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 sm:gap-4">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors shrink-0">
-                        <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                        <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
-                      </div>
-                    </div>
-                    <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Remembered employee - show quick sign-out if signed in, otherwise show quick sign-in */}
-              {rememberedEmployee && (
-                <Card className={`mb-4 sm:mb-6 ${employeeSignedIn ? "border-green-200 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
+              {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
+              {employeeSignedIn && currentEmployee ? (
+                <Card className="border-green-200 bg-green-50/50 mb-4 sm:mb-6">
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 ${employeeSignedIn ? "bg-green-600" : "bg-blue-600"}`}>
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold shrink-0">
+                          {currentEmployee.full_name?.charAt(0) || currentEmployee.email?.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
+                          <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" />
+                            Currently signed in
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="text-xs sm:text-sm self-end sm:self-auto"
+                        onClick={handleEmployeeSignOut}
+                        disabled={isLoading}
+                      >
+                        <LogOut className="w-4 h-4 mr-1" />
+                        Sign Out
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group mb-4 sm:mb-6"
+                  onClick={() => setMode("employee-login")}
+                >
+                  <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors shrink-0">
+                          <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
+                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
+                        </div>
+                      </div>
+                      <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Remembered employee - only show quick sign-in option if NOT already signed in */}
+              {rememberedEmployee && !employeeSignedIn && (
+                <Card className="mb-4 sm:mb-6 border-blue-200 bg-blue-50/50">
+                  <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
                           {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
-                            {employeeSignedIn ? (
-                              <span className="flex items-center gap-1 text-green-600">
-                                <CheckCircle className="w-3 h-3" />
-                                Currently signed in
-                              </span>
-                            ) : nearestLocation && rememberedEmployee.locationId === nearestLocation.location.id ? (
+                            {nearestLocation && rememberedEmployee.locationId === nearestLocation.location.id ? (
                               "You're at your registered location"
                             ) : (
                               "Quick sign in available"
@@ -1023,33 +1367,17 @@ export default function KioskPage() {
                         >
                           Not you?
                         </Button>
-                        {employeeSignedIn ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="text-xs sm:text-sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEmployeeSignOut()
-                            }}
-                            disabled={isLoading}
-                          >
-                            <LogOut className="w-4 h-4 mr-1" />
-                            Sign Out
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            className="text-xs sm:text-sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              autoSignInEmployee(rememberedEmployee)
-                            }}
-                            disabled={isLoading}
-                          >
-                            Sign In
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          className="text-xs sm:text-sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            autoSignInEmployee(rememberedEmployee)
+                          }}
+                          disabled={isLoading}
+                        >
+                          Sign In
+                        </Button>
                       </div>
                     </div>
                   </CardContent>
@@ -1205,6 +1533,163 @@ export default function KioskPage() {
                     )}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {mode === "booking" && (
+          <div className="max-w-xl mx-auto">
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={handleReset}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+
+            <Card>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-xl sm:text-2xl flex items-center gap-2">
+                  <CalendarCheck className="w-6 h-6 text-blue-600" />
+                  Check In with Booking
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  Enter your email address to find your booking
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                {!bookingResults.length ? (
+                  <form onSubmit={handleBookingLookup} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bookingEmail">Email Address *</Label>
+                      <Input
+                        id="bookingEmail"
+                        type="email"
+                        required
+                        value={bookingEmail}
+                        onChange={(e) => setBookingEmail(e.target.value)}
+                        placeholder="your.email@example.com"
+                      />
+                    </div>
+
+                    {error && (
+                      <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                        {error}
+                      </div>
+                    )}
+
+                    <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Looking up...
+                        </>
+                      ) : (
+                        <>
+                          <Search className="w-4 h-4 mr-2" />
+                          Find My Booking
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      {bookingResults.map((booking) => (
+                        <Card
+                          key={booking.id}
+                          className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
+                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                              : "hover:border-blue-300"
+                            }`}
+                          onClick={() => setSelectedBooking(booking)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-base">
+                                  {booking.visitor_first_name} {booking.visitor_last_name}
+                                </h3>
+                                {booking.visitor_company && (
+                                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                                    <Building2 className="w-3 h-3" />
+                                    {booking.visitor_company}
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  <Badge variant="secondary" className="text-xs">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    {new Date(booking.expected_arrival).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </Badge>
+                                  {booking.host && (
+                                    <Badge variant="outline" className="text-xs">
+                                      <User className="w-3 h-3 mr-1" />
+                                      {booking.host.name}
+                                    </Badge>
+                                  )}
+                                  {booking.visitor_type && (
+                                    <Badge
+                                      className="text-xs text-white"
+                                      style={{ backgroundColor: booking.visitor_type.badge_color }}
+                                    >
+                                      {booking.visitor_type.name}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {booking.purpose && (
+                                  <p className="text-xs text-muted-foreground mt-2 line-clamp-1">
+                                    Purpose: {booking.purpose}
+                                  </p>
+                                )}
+                              </div>
+                              {selectedBooking?.id === booking.id && (
+                                <CheckCircle className="w-5 h-5 text-blue-600 shrink-0" />
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    {error && (
+                      <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                        {error}
+                      </div>
+                    )}
+
+                    <div className="flex gap-3">
+                      <Button
+                        variant="outline"
+                        className="flex-1 bg-transparent"
+                        onClick={() => {
+                          setBookingResults([])
+                          setSelectedBooking(null)
+                          setError(null)
+                        }}
+                      >
+                        Search Again
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        disabled={!selectedBooking || isLoading}
+                        onClick={handleBookingSignIn}
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Checking In...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Check In
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
