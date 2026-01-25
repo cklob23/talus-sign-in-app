@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -20,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, CheckCircle, XCircle } from "lucide-react"
+import { Plus, Calendar, CheckCircle, XCircle, Trash2 } from "lucide-react"
 import type { Booking, Host, VisitorType } from "@/types/database"
 
 export default function BookingsPage() {
@@ -29,6 +30,7 @@ export default function BookingsPage() {
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -109,6 +111,34 @@ export default function BookingsPage() {
     loadData()
   }
 
+  async function deleteSelectedBookings() {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} booking(s)? This action cannot be undone.`)) return
+    
+    const supabase = createClient()
+    await supabase.from("bookings").delete().in("id", Array.from(selectedIds))
+    setSelectedIds(new Set())
+    loadData()
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === bookings.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(bookings.map(b => b.id)))
+    }
+  }
+
+  function toggleSelect(id: string) {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+    setSelectedIds(newSet)
+  }
+
   function getStatusBadge(status: string) {
     switch (status) {
       case "pending":
@@ -135,111 +165,119 @@ export default function BookingsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Bookings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Pre-registered visitor appointments</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="w-fit">
-              <Plus className="w-4 h-4 mr-2" />
-              New Booking
+        <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <Button variant="destructive" size="sm" onClick={deleteSelectedBookings}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete ({selectedIds.size})
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Booking</DialogTitle>
-              <DialogDescription>Pre-register an expected visitor</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleCreateBooking} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+          )}
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="w-fit">
+                <Plus className="w-4 h-4 mr-2" />
+                New Booking
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create Booking</DialogTitle>
+                <DialogDescription>Pre-register an expected visitor</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateBooking} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      required
+                      value={form.firstName}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setForm({ ...form, firstName: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      required
+                      value={form.lastName}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setForm({ ...form, lastName: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
-                    id="firstName"
-                    required
-                    value={form.firstName}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm({ ...form, firstName: e.target.value })
-                    }
+                    id="email"
+                    type="email"
+                    value={form.email}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, email: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name</Label>
+                  <Label htmlFor="company">Company</Label>
                   <Input
-                    id="lastName"
+                    id="company"
+                    value={form.company}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, company: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="host">Host</Label>
+                  <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select host" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hosts.map((host) => (
+                        <SelectItem key={host.id} value={host.id}>
+                          {host.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="type">Visitor Type</Label>
+                  <Select
+                    value={form.visitorTypeId}
+                    onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {visitorTypes.map((type) => (
+                        <SelectItem key={type.id} value={type.id}>
+                          {type.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="arrival">Expected Arrival</Label>
+                  <Input
+                    id="arrival"
+                    type="datetime-local"
                     required
-                    value={form.lastName}
+                    value={form.expectedArrival}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm({ ...form, lastName: e.target.value })
+                      setForm({ ...form, expectedArrival: e.target.value })
                     }
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, email: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="company">Company</Label>
-                <Input
-                  id="company"
-                  value={form.company}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, company: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="host">Host</Label>
-                <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select host" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hosts.map((host) => (
-                      <SelectItem key={host.id} value={host.id}>
-                        {host.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="type">Visitor Type</Label>
-                <Select
-                  value={form.visitorTypeId}
-                  onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {visitorTypes.map((type) => (
-                      <SelectItem key={type.id} value={type.id}>
-                        {type.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="arrival">Expected Arrival</Label>
-                <Input
-                  id="arrival"
-                  type="datetime-local"
-                  required
-                  value={form.expectedArrival}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setForm({ ...form, expectedArrival: e.target.value })
-                  }
-                />
-              </div>
-              <DialogFooter>
-                <Button type="submit">Create Booking</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="submit">Create Booking</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card>
@@ -261,16 +299,25 @@ export default function BookingsPage() {
               <div className="space-y-3 md:hidden">
                 {bookings.map((booking) => (
                   <div key={booking.id} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-sm">
-                          {booking.visitor_first_name} {booking.visitor_last_name}
-                        </p>
-                        {booking.visitor_company && (
-                          <p className="text-xs text-muted-foreground">{booking.visitor_company}</p>
-                        )}
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedIds.has(booking.id)}
+                        onCheckedChange={() => toggleSelect(booking.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium text-sm">
+                              {booking.visitor_first_name} {booking.visitor_last_name}
+                            </p>
+                            {booking.visitor_company && (
+                              <p className="text-xs text-muted-foreground">{booking.visitor_company}</p>
+                            )}
+                          </div>
+                          {getStatusBadge(booking.status)}
+                        </div>
                       </div>
-                      {getStatusBadge(booking.status)}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>Host: {booking.host?.name || "-"}</span>
@@ -315,6 +362,12 @@ export default function BookingsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedIds.size === bookings.length && bookings.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Visitor</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Host</TableHead>
@@ -326,7 +379,13 @@ export default function BookingsPage() {
                   </TableHeader>
                   <TableBody>
                     {bookings.map((booking) => (
-                      <TableRow key={booking.id}>
+                      <TableRow key={booking.id} className={selectedIds.has(booking.id) ? "bg-muted/50" : ""}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(booking.id)}
+                            onCheckedChange={() => toggleSelect(booking.id)}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           {booking.visitor_first_name} {booking.visitor_last_name}
                           {booking.visitor_email && (

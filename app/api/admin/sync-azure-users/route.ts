@@ -1,10 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
 // Microsoft Graph API endpoint for users
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 
-export async function POST() {
+// GET - Preview Azure AD users before import
+export async function GET() {
   try {
     const supabase = await createClient()
 
@@ -43,16 +44,18 @@ export async function POST() {
     }
 
     // Fetch users from Microsoft Graph API
-    const usersResponse = await fetch(`${GRAPH_API_URL}/users?$select=id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation`, {
-      headers: {
-        Authorization: `Bearer ${providerToken}`,
-        "Content-Type": "application/json",
-      },
-    })
+    const usersResponse = await fetch(
+      `${GRAPH_API_URL}/users?$select=id,displayName,mail,userPrincipalName,jobTitle,department`,
+      {
+        headers: {
+          Authorization: `Bearer ${providerToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    )
 
     if (!usersResponse.ok) {
       const errorData = await usersResponse.json().catch(() => ({}))
-      console.error("Graph API error:", errorData)
       
       if (usersResponse.status === 401 || usersResponse.status === 403) {
         return NextResponse.json(
@@ -73,11 +76,66 @@ export async function POST() {
     const usersData = await usersResponse.json()
     const azureUsers = usersData.value || []
 
+    // Return simplified user list for preview (no photos yet to speed up response)
+    const users = azureUsers.map((u: { id: string; displayName: string; mail: string; userPrincipalName: string }) => ({
+      id: u.id,
+      displayName: u.displayName,
+      mail: u.mail,
+      userPrincipalName: u.userPrincipalName,
+    }))
+
+    return NextResponse.json({ users })
+  } catch (error) {
+    console.error("Azure fetch error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to fetch users" },
+      { status: 500 }
+    )
+  }
+}
+
+// POST - Import selected Azure AD users
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+
+    // Check if user is authenticated and is an admin
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Check if user has admin role
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single()
+
+    if (!profile || profile.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    }
+
+    // Get selected users from request body
+    const body = await request.json().catch(() => ({}))
+    const selectedUsers = body.users || []
+
+    if (selectedUsers.length === 0) {
+      return NextResponse.json({ error: "No users selected" }, { status: 400 })
+    }
+
+    // Get the user's Azure AD access token for fetching photos
+    const { data: sessionData } = await supabase.auth.getSession()
+    const providerToken = sessionData?.session?.provider_token
+
     let syncedCount = 0
     const errors: string[] = []
 
-    // Process each Azure AD user
-    for (const azureUser of azureUsers) {
+// Process each selected user
+    for (const azureUser of selectedUsers) {
       const email = azureUser.mail || azureUser.userPrincipalName
       if (!email) continue
 
@@ -139,9 +197,9 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({
+return NextResponse.json({
       synced: syncedCount,
-      total: azureUsers.length,
+      total: selectedUsers.length,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {

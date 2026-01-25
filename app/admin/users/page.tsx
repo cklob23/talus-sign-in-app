@@ -1,5 +1,7 @@
 "use client"
 
+import { Checkbox } from "@/components/ui/checkbox"
+
 import type React from "react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -22,6 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, UsersRound, RefreshCw, Cloud, Loader2 } from "lucide-react"
 import type { Location } from "@/types/database"
+import { AvatarUpload } from "@/components/admin/avatar-upload"
 
 interface Profile {
   id: string
@@ -48,6 +51,15 @@ export default function UsersPage() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+  const [azureUsers, setAzureUsers] = useState<Array<{
+    id: string
+    displayName: string
+    mail: string
+    userPrincipalName: string
+    photo?: string
+    selected: boolean
+  }>>([])
+  const [isAzurePreviewOpen, setIsAzurePreviewOpen] = useState(false)
   const [form, setForm] = useState({
     email: "",
     fullName: "",
@@ -148,34 +160,88 @@ export default function UsersPage() {
     loadData()
   }
 
-  async function handleSyncFromAzure() {
+  async function handleFetchAzureUsers() {
+    setIsSyncing(true)
+    setSyncMessage(null)
+
+    try {
+      const response = await fetch("/api/admin/sync-azure-users?preview=true", {
+        method: "GET",
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to fetch Azure users")
+      }
+
+      // Mark users as selected by default, but unselect if they already exist
+      const existingEmails = new Set(profiles.map(p => p.email?.toLowerCase()))
+      const usersWithSelection = result.users.map((user: { mail: string; userPrincipalName: string }) => ({
+        ...user,
+        selected: !existingEmails.has(user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
+      }))
+
+      setAzureUsers(usersWithSelection)
+      setIsAzurePreviewOpen(true)
+    } catch (error) {
+      setSyncMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to fetch Azure AD users",
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  async function handleImportSelectedUsers() {
+    const selectedUsers = azureUsers.filter(u => u.selected)
+    if (selectedUsers.length === 0) {
+      setSyncMessage({ type: "error", text: "No users selected to import" })
+      return
+    }
+
     setIsSyncing(true)
     setSyncMessage(null)
 
     try {
       const response = await fetch("/api/admin/sync-azure-users", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ users: selectedUsers }),
       })
 
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to sync users")
+        throw new Error(result.error || "Failed to import users")
       }
 
       setSyncMessage({
         type: "success",
-        text: `Successfully synced ${result.synced} users from Azure AD`,
+        text: `Successfully imported ${result.synced} users from Azure AD`,
       })
+      setIsAzurePreviewOpen(false)
+      setAzureUsers([])
       loadData()
     } catch (error) {
       setSyncMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to sync users from Azure AD",
+        text: error instanceof Error ? error.message : "Failed to import users from Azure AD",
       })
     } finally {
       setIsSyncing(false)
     }
+  }
+
+  function toggleAzureUserSelection(id: string) {
+    setAzureUsers(users => users.map(u => 
+      u.id === id ? { ...u, selected: !u.selected } : u
+    ))
+  }
+
+  function selectAllAzureUsers(selected: boolean) {
+    setAzureUsers(users => users.map(u => ({ ...u, selected })))
   }
 
   function getRoleBadge(role: string | null) {
@@ -202,6 +268,10 @@ export default function UsersPage() {
     return "?"
   }
 
+  const handleSyncFromAzure = async () => {
+    // Placeholder function for handleSyncFromAzure
+  }
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -215,7 +285,7 @@ export default function UsersPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleSyncFromAzure}
+            onClick={handleFetchAzureUsers}
             disabled={isSyncing}
             className="w-fit bg-transparent"
           >
@@ -302,26 +372,18 @@ export default function UsersPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="avatarUrl">Avatar URL</Label>
-                  <Input
-                    id="avatarUrl"
-                    type="url"
-                    value={form.avatarUrl}
-                    onChange={(e) => setForm({ ...form, avatarUrl: e.target.value })}
-                    placeholder="https://..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Will be auto-populated when syncing from Azure AD
-                  </p>
-                </div>
-                {form.avatarUrl && (
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={form.avatarUrl || "/placeholder.svg"} />
-                      <AvatarFallback>{getInitials(form.fullName, form.email)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm text-muted-foreground">Avatar preview</span>
+                {editingProfile && (
+                  <div className="space-y-2">
+                    <Label>Profile Photo</Label>
+                    <div className="flex justify-center py-2">
+                      <AvatarUpload
+                        profileId={editingProfile.id}
+                        currentUrl={form.avatarUrl}
+                        name={form.fullName}
+                        onUploadComplete={(url: any) => setForm({ ...form, avatarUrl: url })}
+                        size="lg"
+                      />
+                    </div>
                   </div>
                 )}
                 <DialogFooter>
@@ -332,6 +394,93 @@ export default function UsersPage() {
           </Dialog>
         </div>
       </div>
+
+      {/* Azure Sync Preview Dialog */}
+      <Dialog open={isAzurePreviewOpen} onOpenChange={setIsAzurePreviewOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Users from Azure AD</DialogTitle>
+            <DialogDescription>
+              Select which users you want to import. Users already in the system are unchecked by default.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                {azureUsers.filter(u => u.selected).length} of {azureUsers.length} selected
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(true)} className="bg-transparent">
+                  Select All
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(false)} className="bg-transparent">
+                  Deselect All
+                </Button>
+              </div>
+            </div>
+            
+            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+              {azureUsers.length === 0 ? (
+                <p className="p-4 text-center text-muted-foreground">No users found in Azure AD</p>
+              ) : (
+                <div className="divide-y">
+                  {azureUsers.map(user => {
+                    const existsInSystem = profiles.some(p => 
+                      p.email?.toLowerCase() === (user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
+                    )
+                    return (
+                      <div
+                        key={user.id}
+                        className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${existsInSystem ? "opacity-60" : ""}`}
+                        onClick={() => toggleAzureUserSelection(user.id)}
+                      >
+                        <Checkbox
+                          checked={user.selected}
+                          onCheckedChange={() => toggleAzureUserSelection(user.id)}
+                        />
+                        <Avatar className="h-10 w-10">
+                          {user.photo ? (
+                            <AvatarImage src={user.photo || "/placeholder.svg"} />
+                          ) : null}
+                          <AvatarFallback>
+                            {user.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{user.displayName}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {user.mail || user.userPrincipalName}
+                          </p>
+                        </div>
+                        {existsInSystem && (
+                          <Badge variant="secondary" className="text-xs">Already exists</Badge>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAzurePreviewOpen(false)} className="bg-transparent">
+              Cancel
+            </Button>
+            <Button onClick={handleImportSelectedUsers} disabled={isSyncing || azureUsers.filter(u => u.selected).length === 0}>
+              {isSyncing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                `Import ${azureUsers.filter(u => u.selected).length} Users`
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {syncMessage && (
         <div
@@ -361,7 +510,7 @@ export default function UsersPage() {
           ) : profiles.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground mb-4">No users found</p>
-              <Button variant="outline" onClick={handleSyncFromAzure} disabled={isSyncing} className="bg-transparent">
+              <Button variant="outline" onClick={handleFetchAzureUsers} disabled={isSyncing} className="bg-transparent">
                 <Cloud className="w-4 h-4 mr-2" />
                 Sync users from Azure AD
               </Button>
