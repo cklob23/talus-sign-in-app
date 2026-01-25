@@ -30,6 +30,7 @@ import {
   User
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
+import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -141,7 +142,7 @@ export default function KioskPage() {
             full_name: profile.full_name,
             email: profile.email,
             location_id: profile.location_id,
-            role: "employee",
+            role: profile.role,
             created_at: profile.created_at,
             updated_at: Date.now().toString(),
           })
@@ -819,9 +820,15 @@ export default function KioskPage() {
           .eq("id", signIn.id)
       }
 
-      // Sign out of Supabase Auth
-      await supabase.auth.signOut()
+      // Sign out of Supabase Auth with global scope to clear all sessions
+      await supabase.auth.signOut({ scope: "global" })
 
+      // Clear remembered employee from local storage
+      localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
+      localStorage.removeItem("rememberedEmployee")
+
+      // Clear all state
+      setRememberedEmployee(null)
       setSuccessData({
         name: currentEmployee.full_name || currentEmployee.email,
         badge: "Employee",
@@ -829,6 +836,8 @@ export default function KioskPage() {
       })
       setCurrentEmployee(null)
       setEmployeeSignedIn(false)
+      setEmployeeEmail("")
+      setEmployeePassword("")
       setMode("success")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign out")
@@ -837,9 +846,21 @@ export default function KioskPage() {
     }
   }
 
-  function forgetEmployee() {
+  async function forgetEmployee() {
+    // Clear local storage
     localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
+    localStorage.removeItem("rememberedEmployee")
     setRememberedEmployee(null)
+
+    // Also sign out of Supabase if currently authenticated
+    const supabase = createClient()
+    await supabase.auth.signOut({ scope: "global" })
+
+    // Reset employee-related state
+    setCurrentEmployee(null)
+    setEmployeeSignedIn(false)
+    setEmployeeEmail("")
+    setEmployeePassword("")
   }
 
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
@@ -849,7 +870,9 @@ export default function KioskPage() {
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
           <div className="shrink-0">
-            <TalusAgLogo />
+            <Link href="/">
+              <TalusAgLogo />
+            </Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             {/* Location indicator */}
@@ -900,7 +923,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to TalusAg. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:gap-6">
@@ -955,7 +978,7 @@ export default function KioskPage() {
                       </div>
                       <div>
                         <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                        <p className="text-xs sm:text-sm text-muted-foreground">TalusAg employees sign in here</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
                       </div>
                     </div>
                     <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -1239,7 +1262,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your TalusAg credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1499,7 +1522,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on TalusAg premises. I understand that failure
+                        all safety guidelines and procedures while on Talus premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -1557,7 +1580,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting TalusAg."}
+                    : "Thank you for visiting Talus."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

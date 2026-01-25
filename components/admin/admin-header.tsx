@@ -192,8 +192,16 @@ export function AdminHeader() {
 
   async function handleSignOut() {
     const supabase = createClient()
-    await supabase.auth.signOut()
+    
+    // Sign out from Supabase (clears session cookies)
+    await supabase.auth.signOut({ scope: "global" })
+    
+    // Clear any cached user state
+    setUser(null)
+    
+    // Redirect to login
     router.push("/auth/login")
+    router.refresh()
   }
 
   function handleOpenChange(open: boolean) {
