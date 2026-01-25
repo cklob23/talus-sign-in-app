@@ -25,9 +25,31 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Try to get user, handle errors gracefully
+  let user = null
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    
+    if (error) {
+      // If refresh token is invalid/not found, clear auth cookies
+      if (error.message.includes("refresh_token") || error.code === "refresh_token_not_found") {
+        // Clear all Supabase auth cookies to force fresh login
+        const cookieNames = request.cookies.getAll().map(c => c.name)
+        cookieNames.forEach(name => {
+          if (name.startsWith("sb-")) {
+            supabaseResponse.cookies.delete(name)
+          }
+        })
+      }
+      // Don't throw, just treat as no user
+      user = null
+    } else {
+      user = data.user
+    }
+  } catch {
+    // Silently handle any unexpected errors
+    user = null
+  }
 
   // Protect admin routes
   if (request.nextUrl.pathname.startsWith("/admin") && !user) {

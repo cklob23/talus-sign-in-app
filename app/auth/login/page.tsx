@@ -45,22 +45,28 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      // Use environment variable or construct redirect URL
-      // Ensure it matches what's configured in Supabase and Azure AD
-      const redirectUrl = `http://localhost:3000/auth/callback`
+      // Construct redirect URL - must match what's configured in Supabase Auth settings
+      // The callback URL should be: https://[your-domain]/auth/callback
+      const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
       
-      const { error } = await supabase.auth.signInWithOAuth({
+      console.log("[v0] Microsoft login - redirect URL:", callbackUrl)
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
-          redirectTo: `${redirectUrl}?type=admin&next=/admin`,
+          redirectTo: callbackUrl,
           scopes: "email profile openid User.Read",
           queryParams: {
             prompt: "select_account", // Always show account picker
           },
         },
       })
+      
+      console.log("[v0] Microsoft login - OAuth response:", { data, error })
+      
       if (error) throw error
     } catch (error: unknown) {
+      console.error("[v0] Microsoft login error:", error)
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsLoading(false)
     }

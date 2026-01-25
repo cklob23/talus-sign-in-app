@@ -165,8 +165,8 @@ export default function KioskPage() {
             location_id: profile.location_id,
             role: profile.role,
             avatar_url: profile.avatar_url,
-            created_at: profile.created_at,
-            updated_at: profile.updated_at,
+            created_at: "",
+            updated_at: "",
           })
           setEmployeeSignedIn(true)
           setMode("employee-dashboard")
@@ -474,17 +474,18 @@ export default function KioskPage() {
         return
       }
 
-      // Map host and visitor_type from arrays to single objects (or null)
-      const normalizedBookings = (bookings as any[]).map((b) => ({
-        ...b,
-        host: Array.isArray(b.host) ? b.host[0] ?? null : b.host ?? null,
-        visitor_type: Array.isArray(b.visitor_type) ? b.visitor_type[0] ?? null : b.visitor_type ?? null,
-      }));
-      setBookingResults(normalizedBookings);
+      // Transform bookings to match expected format (convert arrays to single objects)
+      const transformedBookings = bookings.map((booking: any) => ({
+        ...booking,
+        host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
+        visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
+      }))
+
+      setBookingResults(transformedBookings as unknown as typeof bookingResults)
 
       // If only one booking, auto-select it
-      if (normalizedBookings.length === 1) {
-        setSelectedBooking(normalizedBookings[0]);
+      if (transformedBookings.length === 1) {
+        setSelectedBooking(transformedBookings[0])
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to lookup booking")
@@ -1066,7 +1067,7 @@ export default function KioskPage() {
           fullName: profile.full_name || "",
           locationId: profile.location_id,
           role: profile.role,
-          avatar_url: profile.avatar_url,
+          avatar_url: profile.avatar_url || null,
         }
         localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
         setRememberedEmployee(rememberedData)
@@ -1090,7 +1091,9 @@ export default function KioskPage() {
 
       const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      console.log("[v0] Employee Microsoft login - redirect URL:", redirectUrl)
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
           redirectTo: redirectUrl,
@@ -1101,8 +1104,11 @@ export default function KioskPage() {
         },
       })
 
+      console.log("[v0] Employee Microsoft login - OAuth response:", { data, error })
+
       if (error) throw error
     } catch (err) {
+      console.error("[v0] Employee Microsoft login error:", err)
       setError(err instanceof Error ? err.message : "Failed to sign in with Microsoft")
       setIsLoading(false)
     }
@@ -1235,7 +1241,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to TalusAg. Please sign in or sign out below.</p>
             </div>
 
             {/* Visitor options - always shown */}
@@ -1339,7 +1345,7 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">TalusAg employees sign in here</p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -1610,8 +1616,8 @@ export default function KioskPage() {
                         <Card
                           key={booking.id}
                           className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
-                            ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                            : "hover:border-blue-300"
+                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                              : "hover:border-blue-300"
                             }`}
                           onClick={() => setSelectedBooking(booking)}
                         >
@@ -1760,7 +1766,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your TalusAg credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -2020,7 +2026,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on Talus premises. I understand that failure
+                        all safety guidelines and procedures while on TalusAg premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -2078,7 +2084,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting Talus."}
+                    : "Thank you for visiting TalusAg."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">
