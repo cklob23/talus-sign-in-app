@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
 import { TalusAgLogo } from "@/components/talusag-logo"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import {
   LayoutDashboard,
@@ -20,6 +20,8 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+import { UsersRound } from "lucide-react"
+
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/visitors", label: "Current Visitors", icon: Users },
@@ -28,6 +30,7 @@ const navItems = [
   { href: "/admin/reports", label: "Reports", icon: FileText },
   { href: "/admin/evacuations", label: "Evacuations", icon: AlertTriangle },
   { href: "/admin/hosts", label: "Hosts", icon: UserCog },
+  { href: "/admin/users", label: "User Management", icon: UsersRound },
   { href: "/admin/locations", label: "Locations", icon: Building2 },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ]
@@ -92,6 +95,7 @@ export function MobileSidebar() {
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0 bg-sidebar">
+        <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
         <div className="p-4 border-b">
           <Link href="/admin" onClick={() => setOpen(false)}>
             <TalusAgLogo />

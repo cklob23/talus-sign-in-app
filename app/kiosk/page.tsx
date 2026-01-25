@@ -163,7 +163,7 @@ export default function KioskPage() {
             location_id: profile.location_id,
             role: profile.role,
             created_at: profile.created_at,
-            updated_at: Date.now().toString(),
+            updated_at: profile.updated_at,
           })
           setEmployeeSignedIn(true)
           setMode("employee-dashboard")
@@ -470,21 +470,18 @@ export default function KioskPage() {
         return
       }
 
-      const typedBookings = bookings?.map(booking => ({
+      // Transform bookings to match expected type - extract first items from arrays
+      const transformedBookings = bookings.map((booking: any) => ({
         ...booking,
-        host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
-        visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
-      })) || []
-      setBookingResults(typedBookings as typeof bookingResults)
+        host: Array.isArray(booking.host) ? booking.host[0] : booking.host,
+        visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] : booking.visitor_type,
+      }))
+
+      setBookingResults(transformedBookings as typeof bookingResults)
 
       // If only one booking, auto-select it
-      if (bookings.length === 1) {
-        const booking = bookings[0]
-        setSelectedBooking({
-          ...booking,
-          host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
-          visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
-        } as typeof bookingResults[0])
+      if (transformedBookings.length === 1) {
+        setSelectedBooking(transformedBookings[0] as typeof bookingResults[0])
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to lookup booking")
@@ -1170,7 +1167,7 @@ export default function KioskPage() {
       <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
         <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
           <div className="shrink-0">
-            <Link href="/">
+            <Link href="/" className="flex items-center">
               <TalusAgLogo />
             </Link>
           </div>
@@ -1226,61 +1223,86 @@ export default function KioskPage() {
               <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 sm:gap-6">
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
-                onClick={() => setMode("sign-in")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
-                    <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
-                  </div>
-                  <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                  <Button className="w-full" size="lg">
-                    Sign In
-                  </Button>
-                </CardContent>
-              </Card>
+            {/* Show different options based on employee sign-in status */}
+            {employeeSignedIn ? (
+              /* Employee is signed in - only show Sign Out option */
+              <div className="max-w-md mx-auto">
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                  onClick={() => setMode("sign-out")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
+                      <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
+                    </div>
+                    <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <Button variant="secondary" className="w-full" size="lg">
+                      Sign Out
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              /* No employee signed in - show all visitor options */
+              <div className="grid grid-cols-3 gap-3 sm:gap-6">
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                  onClick={() => setMode("sign-in")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
+                      <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
+                    </div>
+                    <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <Button className="w-full" size="lg">
+                      Sign In
+                    </Button>
+                  </CardContent>
+                </Card>
 
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
-                onClick={() => setMode("booking")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
-                    <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                  </div>
-                  <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                  <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
-                    Check In
-                  </Button>
-                </CardContent>
-              </Card>
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
+                  onClick={() => setMode("booking")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
+                      <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                    </div>
+                    <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
+                      Check In
+                    </Button>
+                  </CardContent>
+                </Card>
 
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
-                onClick={() => setMode("sign-out")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
-                    <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
-                  </div>
-                  <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                  <Button variant="secondary" className="w-full" size="lg">
-                    Sign Out
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                  onClick={() => setMode("sign-out")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
+                      <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
+                    </div>
+                    <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <Button variant="secondary" className="w-full" size="lg">
+                      Sign Out
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             <div className="mt-4 sm:mt-8">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}

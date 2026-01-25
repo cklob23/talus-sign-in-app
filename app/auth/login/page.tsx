@@ -64,7 +64,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
-      <header className="p-4 sm:p-6">
+      <header className="p-6 sm:p-8">
         <Link href="/">
           <TalusAgLogo />
         </Link>
