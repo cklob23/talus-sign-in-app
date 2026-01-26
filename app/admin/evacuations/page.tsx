@@ -370,6 +370,7 @@ export default function EvacuationsPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Location: {evac.location?.name || "-"}</span>
                       <span>Reason: {evac.reason || "-"}</span>
                       <span>
                         Duration: {evac.ended_at
@@ -386,6 +387,7 @@ export default function EvacuationsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Duration</TableHead>
                       <TableHead>Status</TableHead>
@@ -395,6 +397,7 @@ export default function EvacuationsPage() {
                     {evacuations.map((evac) => (
                       <TableRow key={evac.id}>
                         <TableCell>{new Date(evac.started_at).toLocaleString()}</TableCell>
+                        <TableCell>{evac.location?.name || "-"}</TableCell>
                         <TableCell>{evac.reason || "-"}</TableCell>
                         <TableCell>
                           {evac.ended_at
