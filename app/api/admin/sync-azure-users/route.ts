@@ -4,6 +4,43 @@ import { type NextRequest, NextResponse } from "next/server"
 // Microsoft Graph API endpoint for users
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 
+// Azure AD App Registration credentials (Client Credentials Flow)
+const AZURE_TENANT_ID = process.env.AZURE_AD_TENANT_ID
+const AZURE_CLIENT_ID = process.env.AZURE_AD_CLIENT_ID
+const AZURE_CLIENT_SECRET = process.env.AZURE_AD_CLIENT_SECRET
+
+// Get access token using Client Credentials Flow
+async function getAzureAccessToken(): Promise<string> {
+  if (!AZURE_TENANT_ID || !AZURE_CLIENT_ID || !AZURE_CLIENT_SECRET) {
+    throw new Error("Azure AD credentials not configured. Please set AZURE_AD_TENANT_ID, AZURE_AD_CLIENT_ID, and AZURE_AD_CLIENT_SECRET environment variables.")
+  }
+
+  const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`
+  
+  const params = new URLSearchParams({
+    client_id: AZURE_CLIENT_ID,
+    client_secret: AZURE_CLIENT_SECRET,
+    scope: "https://graph.microsoft.com/.default",
+    grant_type: "client_credentials",
+  })
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(`Failed to get Azure AD token: ${errorData.error_description || errorData.error || "Unknown error"}`)
+  }
+
+  const data = await response.json()
+  return data.access_token
+}
+
 // GET - Preview Azure AD users before import
 export async function GET() {
   try {
@@ -29,17 +66,17 @@ export async function GET() {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
-    // Get the user's Azure AD access token from their session
-    const { data: sessionData } = await supabase.auth.getSession()
-    const providerToken = sessionData?.session?.provider_token
-
-    if (!providerToken) {
+    // Get access token using app credentials (Client Credentials Flow)
+    let accessToken: string
+    try {
+      accessToken = await getAzureAccessToken()
+    } catch (tokenError) {
       return NextResponse.json(
         {
-          error: "Azure AD token not available. Please sign out and sign back in with Microsoft to grant access.",
-          needsReauth: true,
+          error: tokenError instanceof Error ? tokenError.message : "Failed to authenticate with Azure AD",
+          configError: true,
         },
-        { status: 401 }
+        { status: 500 }
       )
     }
 
@@ -48,7 +85,7 @@ export async function GET() {
       `${GRAPH_API_URL}/users?$select=id,displayName,mail,userPrincipalName,jobTitle,department`,
       {
         headers: {
-          Authorization: `Bearer ${providerToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
       }
@@ -60,10 +97,9 @@ export async function GET() {
       if (usersResponse.status === 401 || usersResponse.status === 403) {
         return NextResponse.json(
           {
-            error: "Azure AD access denied. Please sign out and sign back in with Microsoft, ensuring you grant the required permissions.",
-            needsReauth: true,
+            error: "Azure AD access denied. Ensure your app registration has the User.Read.All application permission granted with admin consent.",
           },
-          { status: 401 }
+          { status: 403 }
         )
       }
       
@@ -127,14 +163,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No users selected" }, { status: 400 })
     }
 
-    // Get the user's Azure AD access token for fetching photos
-    const { data: sessionData } = await supabase.auth.getSession()
-    const providerToken = sessionData?.session?.provider_token
+    // Get access token using app credentials (Client Credentials Flow)
+    let accessToken: string
+    try {
+      accessToken = await getAzureAccessToken()
+    } catch (tokenError) {
+      return NextResponse.json(
+        {
+          error: tokenError instanceof Error ? tokenError.message : "Failed to authenticate with Azure AD",
+        },
+        { status: 500 }
+      )
+    }
 
     let syncedCount = 0
     const errors: string[] = []
 
-// Process each selected user
+    // Process each selected user
     for (const azureUser of selectedUsers) {
       const email = azureUser.mail || azureUser.userPrincipalName
       if (!email) continue
@@ -145,10 +190,10 @@ export async function POST(request: NextRequest) {
         try {
           const photoResponse = await fetch(`${GRAPH_API_URL}/users/${azureUser.id}/photo/$value`, {
             headers: {
-              Authorization: `Bearer ${providerToken}`,
+              Authorization: `Bearer ${accessToken}`,
             },
           })
-          console.log("Photo response for", email, photoResponse)
+
           if (photoResponse.ok) {
             // Convert photo to base64 data URL
             const photoBlob = await photoResponse.blob()
@@ -197,7 +242,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-return NextResponse.json({
+    return NextResponse.json({
       synced: syncedCount,
       total: selectedUsers.length,
       errors: errors.length > 0 ? errors : undefined,
