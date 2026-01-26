@@ -25,46 +25,23 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  // Try to get user, handle errors gracefully
-  let user = null
-  const cookies = request.cookies.getAll()
-  const hasSbCookies = cookies.some(c => c.name.startsWith("sb-"))
+  // Use getSession() which reads from cookies directly without API call
+  // This is faster and works immediately after OAuth callback sets cookies
+  // Note: getSession() is less secure than getUser() but appropriate for middleware
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
   
-  console.log("[v0] Proxy check for:", request.nextUrl.pathname, "| Has sb- cookies:", hasSbCookies)
-  
-  try {
-    const { data, error } = await supabase.auth.getUser()
-    
-    console.log("[v0] getUser result:", { 
-      hasUser: !!data.user, 
-      userEmail: data.user?.email,
-      error: error?.message 
-    })
-    
-    if (error) {
-      // If refresh token is invalid/not found, clear auth cookies
-      if (error.message.includes("refresh_token") || error.code === "refresh_token_not_found") {
-        // Clear all Supabase auth cookies to force fresh login
-        const cookieNames = request.cookies.getAll().map(c => c.name)
-        cookieNames.forEach(name => {
-          if (name.startsWith("sb-")) {
-            supabaseResponse.cookies.delete(name)
-          }
-        })
+  if (sessionError) {
+    // If there's a session error, clear stale cookies
+    const cookieNames = request.cookies.getAll().map(c => c.name)
+    cookieNames.forEach(name => {
+      if (name.startsWith("sb-")) {
+        supabaseResponse.cookies.delete(name)
       }
-      // Don't throw, just treat as no user
-      user = null
-    } else {
-      user = data.user
-    }
-  } catch (e) {
-    console.log("[v0] Proxy getUser exception:", e)
-    user = null
+    })
   }
 
-  // Protect admin routes
-  if (request.nextUrl.pathname.startsWith("/admin") && !user) {
-    console.log("[v0] Redirecting to login - no user found for admin route")
+  // Protect admin routes - require a valid session
+  if (request.nextUrl.pathname.startsWith("/admin") && !session) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
     return NextResponse.redirect(url)

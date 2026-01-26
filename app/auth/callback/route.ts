@@ -42,14 +42,6 @@ export async function GET(request: NextRequest) {
     )
     
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-    
-    console.log("[v0] exchangeCodeForSession result:", { 
-      hasSession: !!data.session,
-      hasUser: !!data.user, 
-      userEmail: data.user?.email,
-      error: error?.message,
-      cookiesToSetCount: cookiesToSet.length
-    })
 
     // Helper to create redirect with cookies
     function redirectWithCookies(url: string) {
