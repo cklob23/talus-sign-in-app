@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const code = searchParams.get("code")
   const errorParam = searchParams.get("error")
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/admin"
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
-  const origin = process.env.NEXT_PUBLIC_SITE_URL || request.headers.get("origin") || "http://localhost:3000"
+  const origin = process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin
 
   // Handle OAuth errors from the provider
   if (errorParam) {
@@ -20,31 +20,50 @@ export async function GET(request: Request) {
   }
 
   if (code) {
-    const cookieStore = await cookies()
+    // We need to track cookies that Supabase wants to set
+    // and apply them to the final redirect response
+    const cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }> = []
     
-    // Create Supabase client that properly handles cookie setting
+    // Create Supabase client that collects cookies to set
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll() {
-            return cookieStore.getAll()
+            return request.cookies.getAll()
           },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options)
-            })
+          setAll(cookies) {
+            // Collect cookies to set on the response
+            cookiesToSet.push(...cookies)
           },
         },
       }
     )
     
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    
+    console.log("[v0] exchangeCodeForSession result:", { 
+      hasSession: !!data.session,
+      hasUser: !!data.user, 
+      userEmail: data.user?.email,
+      error: error?.message,
+      cookiesToSetCount: cookiesToSet.length
+    })
+
+    // Helper to create redirect with cookies
+    function redirectWithCookies(url: string) {
+      const response = NextResponse.redirect(url)
+      // Apply all cookies that Supabase wants to set
+      for (const { name, value, options } of cookiesToSet) {
+        response.cookies.set(name, value, options as Record<string, unknown>)
+      }
+      return response
+    }
 
     if (error) {
       // Redirect to login page with the error message
-      return NextResponse.redirect(
+      return redirectWithCookies(
         `${origin}/auth/login?error=${encodeURIComponent(error.message)}`
       )
     }
@@ -69,7 +88,7 @@ export async function GET(request: Request) {
           })
 
           // Redirect back to kiosk with success
-          return NextResponse.redirect(
+          return redirectWithCookies(
             `${origin}/kiosk?employee_signed_in=true&profile_id=${profile.id}`
           )
         } else if (!profile) {
@@ -95,25 +114,25 @@ export async function GET(request: Request) {
               device_id: "Microsoft OAuth",
             })
 
-            return NextResponse.redirect(
+            return redirectWithCookies(
               `${origin}/kiosk?employee_signed_in=true&profile_id=${newProfile.id}`
             )
           }
           
           // Redirect with error if profile creation fails
-          return NextResponse.redirect(
+          return redirectWithCookies(
             `${origin}/kiosk?error=profile_creation_failed`
           )
         } else {
           // User exists but doesn't have employee role
-          return NextResponse.redirect(
+          return redirectWithCookies(
             `${origin}/kiosk?error=not_employee`
           )
         }
       }
 
       // For admin login, redirect to admin dashboard
-      return NextResponse.redirect(`${origin}${next}`)
+      return redirectWithCookies(`${origin}${next}`)
     }
   }
 
