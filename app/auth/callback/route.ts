@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server"
+import { createServerClient } from "@supabase/ssr"
+import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
@@ -9,7 +10,7 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/admin"
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
-  const origin = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+  const origin = process.env.NEXT_PUBLIC_SITE_URL || request.headers.get("origin") || "http://localhost:3000"
 
   // Handle OAuth errors from the provider
   if (errorParam) {
@@ -19,7 +20,26 @@ export async function GET(request: Request) {
   }
 
   if (code) {
-    const supabase = await createClient()
+    const cookieStore = await cookies()
+    
+    // Create Supabase client that properly handles cookie setting
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options)
+            })
+          },
+        },
+      }
+    )
+    
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (error) {
