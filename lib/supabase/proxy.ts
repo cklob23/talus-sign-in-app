@@ -27,8 +27,19 @@ export async function updateSession(request: NextRequest) {
 
   // Try to get user, handle errors gracefully
   let user = null
+  const cookies = request.cookies.getAll()
+  const hasSbCookies = cookies.some(c => c.name.startsWith("sb-"))
+  
+  console.log("[v0] Proxy check for:", request.nextUrl.pathname, "| Has sb- cookies:", hasSbCookies)
+  
   try {
     const { data, error } = await supabase.auth.getUser()
+    
+    console.log("[v0] getUser result:", { 
+      hasUser: !!data.user, 
+      userEmail: data.user?.email,
+      error: error?.message 
+    })
     
     if (error) {
       // If refresh token is invalid/not found, clear auth cookies
@@ -46,13 +57,14 @@ export async function updateSession(request: NextRequest) {
     } else {
       user = data.user
     }
-  } catch {
-    // Silently handle any unexpected errors
+  } catch (e) {
+    console.log("[v0] Proxy getUser exception:", e)
     user = null
   }
 
   // Protect admin routes
   if (request.nextUrl.pathname.startsWith("/admin") && !user) {
+    console.log("[v0] Redirecting to login - no user found for admin route")
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
     return NextResponse.redirect(url)
