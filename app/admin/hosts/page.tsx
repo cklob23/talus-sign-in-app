@@ -247,6 +247,7 @@ export default function HostsPage() {
                       </Badge>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Location: {locations.find(l => l.id === host.location_id)?.name || "-"}</span>
                       {host.phone && <span>Phone: {host.phone}</span>}
                       {host.department && <span>Dept: {host.department}</span>}
                     </div>
@@ -270,6 +271,7 @@ export default function HostsPage() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Status</TableHead>
@@ -289,6 +291,7 @@ export default function HostsPage() {
                           </div>
                         </TableCell>
                         <TableCell>{host.email || "-"}</TableCell>
+                        <TableCell>{locations.find(l => l.id === host.location_id)?.name || "-"}</TableCell>
                         <TableCell>{host.phone || "-"}</TableCell>
                         <TableCell>{host.department || "-"}</TableCell>
                         <TableCell>
