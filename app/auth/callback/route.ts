@@ -1,62 +1,44 @@
-import { createServerClient } from "@supabase/ssr"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
   const errorParam = searchParams.get("error")
   const errorDescription = searchParams.get("error_description")
   const next = searchParams.get("next") ?? "/admin"
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
-  const origin = process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin
+  
+  // Handle x-forwarded-host for deployments behind load balancers
+  const forwardedHost = request.headers.get("x-forwarded-host")
+  const isLocalEnv = process.env.NODE_ENV === "development"
+  
+  function getRedirectUrl(path: string) {
+    if (isLocalEnv) {
+      return `${origin}${path}`
+    } else if (forwardedHost) {
+      return `https://${forwardedHost}${path}`
+    }
+    return `${origin}${path}`
+  }
 
   // Handle OAuth errors from the provider
   if (errorParam) {
     return NextResponse.redirect(
-      `${origin}/auth/login?error=${encodeURIComponent(errorDescription || errorParam)}`
+      getRedirectUrl(`/auth/login?error=${encodeURIComponent(errorDescription || errorParam)}`)
     )
   }
 
   if (code) {
-    // We need to track cookies that Supabase wants to set
-    // and apply them to the final redirect response
-    const cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }> = []
-    
-    // Create Supabase client that collects cookies to set
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll()
-          },
-          setAll(cookies) {
-            // Collect cookies to set on the response
-            cookiesToSet.push(...cookies)
-          },
-        },
-      }
-    )
-    
+    // Use the server client which properly handles cookies via Next.js cookies() API
+    const supabase = await createClient()
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-
-    // Helper to create redirect with cookies
-    function redirectWithCookies(url: string) {
-      const response = NextResponse.redirect(url)
-      // Apply all cookies that Supabase wants to set
-      for (const { name, value, options } of cookiesToSet) {
-        response.cookies.set(name, value, options as Record<string, unknown>)
-      }
-      return response
-    }
 
     if (error) {
       // Redirect to login page with the error message
-      return redirectWithCookies(
-        `${origin}/auth/login?error=${encodeURIComponent(error.message)}`
+      return NextResponse.redirect(
+        getRedirectUrl(`/auth/login?error=${encodeURIComponent(error.message)}`)
       )
     }
 
@@ -80,8 +62,8 @@ export async function GET(request: NextRequest) {
           })
 
           // Redirect back to kiosk with success
-          return redirectWithCookies(
-            `${origin}/kiosk?employee_signed_in=true&profile_id=${profile.id}`
+          return NextResponse.redirect(
+            getRedirectUrl(`/kiosk?employee_signed_in=true&profile_id=${profile.id}`)
           )
         } else if (!profile) {
           // No profile found - create one with employee role if they signed in with Microsoft
@@ -106,28 +88,28 @@ export async function GET(request: NextRequest) {
               device_id: "Microsoft OAuth",
             })
 
-            return redirectWithCookies(
-              `${origin}/kiosk?employee_signed_in=true&profile_id=${newProfile.id}`
+            return NextResponse.redirect(
+              getRedirectUrl(`/kiosk?employee_signed_in=true&profile_id=${newProfile.id}`)
             )
           }
           
           // Redirect with error if profile creation fails
-          return redirectWithCookies(
-            `${origin}/kiosk?error=profile_creation_failed`
+          return NextResponse.redirect(
+            getRedirectUrl("/kiosk?error=profile_creation_failed")
           )
         } else {
           // User exists but doesn't have employee role
-          return redirectWithCookies(
-            `${origin}/kiosk?error=not_employee`
+          return NextResponse.redirect(
+            getRedirectUrl("/kiosk?error=not_employee")
           )
         }
       }
 
       // For admin login, redirect to admin dashboard
-      return redirectWithCookies(`${origin}${next}`)
+      return NextResponse.redirect(getRedirectUrl(next))
     }
   }
 
   // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth/error`)
+  return NextResponse.redirect(getRedirectUrl("/auth/error"))
 }
