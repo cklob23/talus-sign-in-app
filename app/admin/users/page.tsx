@@ -23,7 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, UsersRound, RefreshCw, Cloud, Loader2 } from "lucide-react"
-import type { Location } from "@/types/database"
+import type { Location, Host } from "@/types/database"
 import { AvatarUpload } from "@/components/admin/avatar-upload"
 
 interface Profile {
@@ -46,6 +46,7 @@ const ROLES = [
 export default function UsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [hosts, setHosts] = useState<Host[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -66,18 +67,21 @@ export default function UsersPage() {
     role: "employee",
     locationId: "",
     avatarUrl: "",
+    isHost: false,
   })
 
   async function loadData() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: profilesData }, { data: locationsData }] = await Promise.all([
+    const [{ data: profilesData }, { data: locationsData }, { data: hostsData }] = await Promise.all([
       supabase.from("profiles").select("*").order("full_name"),
       supabase.from("locations").select("*").order("name"),
+      supabase.from("hosts").select("*"),
     ])
 
     if (profilesData) setProfiles(profilesData)
+    if (hostsData) setHosts(hostsData)
     if (locationsData) {
       setLocations(locationsData)
       if (locationsData.length > 0 && !form.locationId) {
@@ -99,18 +103,22 @@ export default function UsersPage() {
       role: "employee",
       locationId: locations[0]?.id || "",
       avatarUrl: "",
+      isHost: false,
     })
     setIsDialogOpen(true)
   }
 
   function openEditDialog(profile: Profile) {
     setEditingProfile(profile)
+    // Check if this profile is linked to a host
+    const isProfileHost = hosts.some(h => h.profile_id === profile.id || h.email?.toLowerCase() === profile.email?.toLowerCase())
     setForm({
       email: profile.email || "",
       fullName: profile.full_name || "",
       role: profile.role || "employee",
       locationId: profile.location_id || locations[0]?.id || "",
       avatarUrl: profile.avatar_url || "",
+      isHost: isProfileHost,
     })
     setIsDialogOpen(true)
   }
@@ -135,10 +143,37 @@ export default function UsersPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: editingProfile.id, ...profileData }),
         })
-        
+
         if (!response.ok) {
           const result = await response.json()
           throw new Error(result.error || "Failed to update profile")
+        }
+
+        // Handle host status
+        const supabase = createClient()
+        const existingHost = hosts.find(h => h.profile_id === editingProfile.id || h.email?.toLowerCase() === editingProfile.email?.toLowerCase())
+
+        if (form.isHost && !existingHost) {
+          // Create new host entry
+          await supabase.from("hosts").insert({
+            name: form.fullName || form.email,
+            email: form.email,
+            profile_id: editingProfile.id,
+            avatar_url: form.avatarUrl || null,
+            location_id: form.locationId || locations[0]?.id,
+            is_active: true,
+          })
+        } else if (form.isHost && existingHost) {
+          // Update existing host entry
+          await supabase.from("hosts").update({
+            name: form.fullName || form.email,
+            avatar_url: form.avatarUrl || null,
+            location_id: form.locationId || existingHost.location_id,
+            profile_id: editingProfile.id,
+          }).eq("id", existingHost.id)
+        } else if (!form.isHost && existingHost) {
+          // Remove host entry
+          await supabase.from("hosts").delete().eq("id", existingHost.id)
         }
       } else {
         // Create new profile via API
@@ -147,7 +182,7 @@ export default function UsersPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(profileData),
         })
-        
+
         if (!response.ok) {
           const result = await response.json()
           throw new Error(result.error || "Failed to create profile")
@@ -168,17 +203,17 @@ export default function UsersPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this user profile? This action cannot be undone.")) return
-    
+
     try {
       const response = await fetch(`/api/admin/profiles?id=${id}`, {
         method: "DELETE",
       })
-      
+
       if (!response.ok) {
         const result = await response.json()
         throw new Error(result.error || "Failed to delete profile")
       }
-      
+
       loadData()
     } catch (error) {
       setSyncMessage({
@@ -263,7 +298,7 @@ export default function UsersPage() {
   }
 
   function toggleAzureUserSelection(id: string) {
-    setAzureUsers(users => users.map(u => 
+    setAzureUsers(users => users.map(u =>
       u.id === id ? { ...u, selected: !u.selected } : u
     ))
   }
@@ -279,6 +314,10 @@ export default function UsersPage() {
         {roleConfig.label}
       </Badge>
     )
+  }
+
+  function isUserHost(profile: Profile): boolean {
+    return hosts.some(h => h.profile_id === profile.id || h.email?.toLowerCase() === profile.email?.toLowerCase())
   }
 
   function getInitials(name: string | null, email: string | null) {
@@ -400,6 +439,18 @@ export default function UsersPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {editingProfile && (
+                  <div className="flex items-center space-x-2 py-2">
+                    <Checkbox
+                      id="isHost"
+                      checked={form.isHost}
+                      onCheckedChange={(checked) => setForm({ ...form, isHost: checked === true })}
+                    />
+                    <Label htmlFor="isHost" className="text-sm font-normal cursor-pointer">
+                      Set as Host (can receive visitors)
+                    </Label>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Profile Photo</Label>
                   {editingProfile ? (
@@ -452,7 +503,7 @@ export default function UsersPage() {
               Select which users you want to import. Users already in the system are unchecked by default.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
@@ -467,14 +518,14 @@ export default function UsersPage() {
                 </Button>
               </div>
             </div>
-            
+
             <div className="border rounded-lg max-h-[400px] overflow-y-auto">
               {azureUsers.length === 0 ? (
                 <p className="p-4 text-center text-muted-foreground">No users found in Azure AD</p>
               ) : (
                 <div className="divide-y">
                   {azureUsers.map(user => {
-                    const existsInSystem = profiles.some(p => 
+                    const existsInSystem = profiles.some(p =>
                       p.email?.toLowerCase() === (user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
                     )
                     return (
@@ -511,7 +562,7 @@ export default function UsersPage() {
               )}
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAzurePreviewOpen(false)} className="bg-transparent">
               Cancel
@@ -532,11 +583,10 @@ export default function UsersPage() {
 
       {syncMessage && (
         <div
-          className={`p-4 rounded-lg ${
-            syncMessage.type === "success"
-              ? "bg-green-50 text-green-800 border border-green-200"
-              : "bg-red-50 text-red-800 border border-red-200"
-          }`}
+          className={`p-4 rounded-lg ${syncMessage.type === "success"
+            ? "bg-green-50 text-green-800 border border-green-200"
+            : "bg-red-50 text-red-800 border border-red-200"
+            }`}
         >
           {syncMessage.text}
         </div>
@@ -580,13 +630,20 @@ export default function UsersPage() {
                         <div>
                           <p className="font-medium text-sm">
                             {profile.full_name || profile.email || "Unknown"}
+                            {isUserHost(profile) && (
+                              <Badge variant="outline" className="ml-2 border-amber-500 text-amber-600">
+                                Host
+                              </Badge>
+                            )}
                           </p>
                           {profile.email && profile.full_name && (
                             <p className="text-xs text-muted-foreground">{profile.email}</p>
                           )}
                         </div>
                       </div>
-                      {getRoleBadge(profile.role)}
+                      <div className="flex flex-wrap gap-1">
+                        {getRoleBadge(profile.role)}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       {profile.location_id && (
@@ -634,10 +691,19 @@ export default function UsersPage() {
                             <span className="font-medium">
                               {profile.full_name || "No name"}
                             </span>
+                            {isUserHost(profile) && (
+                              <Badge variant="outline" className="border-amber-500 text-amber-600">
+                                Host
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>{profile.email || "-"}</TableCell>
-                        <TableCell>{getRoleBadge(profile.role)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {getRoleBadge(profile.role)}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {locations.find((l) => l.id === profile.location_id)?.name || "-"}
                         </TableCell>

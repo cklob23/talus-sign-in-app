@@ -15,7 +15,6 @@ export interface Profile {
   email: string
   full_name: string | null
   role: "admin" | "staff" | "viewer" | "employee"
-  avatar_url: string | null
   location_id: string | null
   created_at: string
   updated_at: string
@@ -65,6 +64,8 @@ export interface Host {
   department: string | null
   location_id: string
   is_active: boolean
+  profile_id: string | null
+  avatar_url: string | null
   created_at: string
   updated_at: string
 }
@@ -76,7 +77,6 @@ export interface Visitor {
   email: string | null
   phone: string | null
   company: string | null
-  location: string | null
   photo_url: string | null
   created_at: string
   updated_at: string

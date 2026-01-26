@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { createClient as createAdminClient } from "@supabase/supabase-js"
 import { type NextRequest, NextResponse } from "next/server"
 
 // Microsoft Graph API endpoint for users
@@ -176,6 +177,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Use admin client to create auth users and bypass RLS
+    const adminClient = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
+
     let syncedCount = 0
     const errors: string[] = []
 
@@ -185,8 +198,75 @@ export async function POST(request: NextRequest) {
       if (!email) continue
 
       try {
-        // Try to fetch profile photo
-        let avatarUrl: string | null = null
+        // Check if profile with this email already exists
+        const { data: existingProfile } = await adminClient
+          .from("profiles")
+          .select("id")
+          .eq("email", email.toLowerCase())
+          .single()
+
+        let profileId: string
+
+        if (existingProfile) {
+          profileId = existingProfile.id
+          // Update existing profile (without avatar for now)
+          const { error: updateError } = await adminClient
+            .from("profiles")
+            .update({
+              full_name: azureUser.displayName || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingProfile.id)
+          
+          if (updateError) {
+            throw new Error(updateError.message)
+          }
+        } else {
+          // Check if an auth user with this email already exists
+          const { data: authUsers } = await adminClient.auth.admin.listUsers()
+          const existingAuthUser = authUsers?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase())
+
+          if (existingAuthUser) {
+            // Use existing auth user's ID
+            profileId = existingAuthUser.id
+          } else {
+            // Create a new auth user via Admin API
+            const { data: newAuthUser, error: authError } = await adminClient.auth.admin.createUser({
+              email: email.toLowerCase(),
+              email_confirm: true,
+              user_metadata: {
+                full_name: azureUser.displayName || null,
+              },
+            })
+
+            if (authError) {
+              throw new Error(`Failed to create auth user: ${authError.message}`)
+            }
+
+            profileId = newAuthUser.user.id
+          }
+
+          // Create profile with the auth user's ID
+          // Note: Valid roles are 'admin', 'staff', 'viewer' per database CHECK constraint
+          const { error: insertError } = await adminClient
+            .from("profiles")
+            .upsert({
+              id: profileId,
+              email: email.toLowerCase(),
+              full_name: azureUser.displayName || null,
+              role: "employee",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: "id"
+            })
+
+          if (insertError) {
+            throw new Error(`Profile insert failed: ${insertError.message}`)
+          }
+        }
+
+        // Try to fetch and upload profile photo to storage bucket
         try {
           const photoResponse = await fetch(`${GRAPH_API_URL}/users/${azureUser.id}/photo/$value`, {
             headers: {
@@ -195,45 +275,60 @@ export async function POST(request: NextRequest) {
           })
 
           if (photoResponse.ok) {
-            // Convert photo to base64 data URL
             const photoBlob = await photoResponse.blob()
             const arrayBuffer = await photoBlob.arrayBuffer()
-            const base64 = Buffer.from(arrayBuffer).toString("base64")
+            const buffer = new Uint8Array(arrayBuffer)
             const mimeType = photoResponse.headers.get("content-type") || "image/jpeg"
-            avatarUrl = `data:${mimeType};base64,${base64}`
+            
+            // Determine file extension from mime type
+            const extMap: Record<string, string> = {
+              "image/jpeg": "jpg",
+              "image/png": "png",
+              "image/gif": "gif",
+              "image/webp": "webp",
+            }
+            const fileExt = extMap[mimeType] || "jpg"
+            
+            // Use same filename format as upload-avatar route: ${profileId}-${Date.now()}.${fileExt}
+            const fileName = `${profileId}-${Date.now()}.${fileExt}`
+            const filePath = fileName
+
+            // Ensure avatars bucket exists
+            const { data: buckets } = await adminClient.storage.listBuckets()
+            const avatarsBucketExists = buckets?.some(b => b.name === "avatars")
+            
+            if (!avatarsBucketExists) {
+              await adminClient.storage.createBucket("avatars", {
+                public: true,
+                fileSizeLimit: 5 * 1024 * 1024,
+                allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"]
+              })
+            }
+
+            // Upload to Supabase Storage
+            const { error: uploadError } = await adminClient.storage
+              .from("avatars")
+              .upload(filePath, buffer, {
+                contentType: mimeType,
+                upsert: true,
+              })
+
+            if (!uploadError) {
+              // Get public URL
+              const { data: { publicUrl } } = adminClient.storage
+                .from("avatars")
+                .getPublicUrl(filePath)
+
+              // Update profile with avatar URL
+              await adminClient
+                .from("profiles")
+                .update({ avatar_url: publicUrl })
+                .eq("id", profileId)
+            }
           }
         } catch (photoError) {
-          // Photo fetch failed, continue without avatar
+          // Photo fetch/upload failed, continue without avatar
           console.log(`No photo available for ${email}`)
-        }
-
-        // Check if profile exists
-        const { data: existingProfile } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("email", email.toLowerCase())
-          .single()
-
-        const profileData = {
-          email: email.toLowerCase(),
-          full_name: azureUser.displayName || null,
-          avatar_url: avatarUrl,
-          updated_at: new Date().toISOString(),
-        }
-
-        if (existingProfile) {
-          // Update existing profile
-          await supabase
-            .from("profiles")
-            .update(profileData)
-            .eq("id", existingProfile.id)
-        } else {
-          // Create new profile with employee role by default
-          await supabase.from("profiles").insert({
-            ...profileData,
-            id: crypto.randomUUID(),
-            role: "employee",
-          })
         }
 
         syncedCount++

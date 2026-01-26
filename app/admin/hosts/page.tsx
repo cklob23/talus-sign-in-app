@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -123,6 +124,15 @@ export default function HostsPage() {
     loadData()
   }
 
+  function getInitials(name: string) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -218,9 +228,15 @@ export default function HostsPage() {
                 {hosts.map((host) => (
                   <div key={host.id} className="border rounded-lg p-3 space-y-2">
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-sm">{host.name}</p>
-                        {host.email && <p className="text-xs text-muted-foreground">{host.email}</p>}
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={host.avatar_url || undefined} />
+                          <AvatarFallback>{getInitials(host.name)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium text-sm">{host.name}</p>
+                          {host.email && <p className="text-xs text-muted-foreground">{host.email}</p>}
+                        </div>
                       </div>
                       <Badge
                         variant={host.is_active ? "default" : "secondary"}
@@ -263,7 +279,15 @@ export default function HostsPage() {
                   <TableBody>
                     {hosts.map((host) => (
                       <TableRow key={host.id}>
-                        <TableCell className="font-medium">{host.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={host.avatar_url || undefined} />
+                              <AvatarFallback className="text-xs">{getInitials(host.name)}</AvatarFallback>
+                            </Avatar>
+                            <span className="font-medium">{host.name}</span>
+                          </div>
+                        </TableCell>
                         <TableCell>{host.email || "-"}</TableCell>
                         <TableCell>{host.phone || "-"}</TableCell>
                         <TableCell>{host.department || "-"}</TableCell>
