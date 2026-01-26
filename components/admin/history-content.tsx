@@ -135,12 +135,13 @@ export function HistoryContent() {
       a.click()
     } else {
       const csv = [
-        ["Name", "Email", "Company", "Type", "Host", "Sign In", "Sign Out", "Duration"],
+        ["Name", "Email", "Company", "Type", "Location", "Host", "Sign In", "Sign Out", "Duration"],
         ...filteredSignIns.map((s) => [
           `${s.visitor?.first_name} ${s.visitor?.last_name}`,
           s.visitor?.email || "",
           s.visitor?.company || "",
           s.visitor_type?.name || "",
+          s.location?.name || "",
           s.host?.name || "",
           s.sign_in_time,
           s.sign_out_time || "",
@@ -237,6 +238,7 @@ export function HistoryContent() {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
                           <span>In: {formatDateTime(signIn.sign_in_time)}</span>
                           <span>Out: {signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</span>
@@ -255,6 +257,7 @@ export function HistoryContent() {
                           <TableHead>Visitor</TableHead>
                           <TableHead>Company</TableHead>
                           <TableHead>Type</TableHead>
+                          <TableHead>Location</TableHead>
                           <TableHead>Host</TableHead>
                           <TableHead>Sign In</TableHead>
                           <TableHead>Sign Out</TableHead>
@@ -281,6 +284,7 @@ export function HistoryContent() {
                                 </Badge>
                               )}
                             </TableCell>
+                            <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
                             <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
                             <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>

@@ -117,47 +117,75 @@ export default function UsersPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const supabase = createClient()
+    setIsLoading(true)
 
-    const data = {
-      email: form.email || null,
-      full_name: form.fullName || null,
-      role: form.role,
-      location_id: form.locationId || null,
-      avatar_url: form.avatarUrl || null,
-    }
-
-    if (editingProfile) {
-      await supabase.from("profiles").update(data).eq("id", editingProfile.id)
-    } else {
-      // For new profiles, we need to create them via auth or just insert if they already exist
-      // This creates a profile entry - the user would need to sign up separately via Microsoft OAuth
-      const { data: existingProfile } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", form.email)
-        .single()
-
-      if (existingProfile) {
-        await supabase.from("profiles").update(data).eq("id", existingProfile.id)
-      } else {
-        // Create a placeholder profile - will be linked when user signs in with Microsoft
-        await supabase.from("profiles").insert({
-          ...data,
-          id: crypto.randomUUID(),
-        })
+    try {
+      const profileData = {
+        email: form.email || null,
+        full_name: form.fullName || null,
+        role: form.role,
+        location_id: form.locationId || null,
+        avatar_url: form.avatarUrl || null,
       }
-    }
 
-    setIsDialogOpen(false)
-    loadData()
+      if (editingProfile) {
+        // Update existing profile via API
+        const response = await fetch("/api/admin/profiles", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: editingProfile.id, ...profileData }),
+        })
+        
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || "Failed to update profile")
+        }
+      } else {
+        // Create new profile via API
+        const response = await fetch("/api/admin/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileData),
+        })
+        
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || "Failed to create profile")
+        }
+      }
+
+      setIsDialogOpen(false)
+      loadData()
+    } catch (error) {
+      setSyncMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to save profile",
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this user profile? This action cannot be undone.")) return
-    const supabase = createClient()
-    await supabase.from("profiles").delete().eq("id", id)
-    loadData()
+    
+    try {
+      const response = await fetch(`/api/admin/profiles?id=${id}`, {
+        method: "DELETE",
+      })
+      
+      if (!response.ok) {
+        const result = await response.json()
+        throw new Error(result.error || "Failed to delete profile")
+      }
+      
+      loadData()
+    } catch (error) {
+      setSyncMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to delete profile",
+      })
+    }
   }
 
   async function handleFetchAzureUsers() {
@@ -372,20 +400,40 @@ export default function UsersPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                {editingProfile && (
-                  <div className="space-y-2">
-                    <Label>Profile Photo</Label>
+                <div className="space-y-2">
+                  <Label>Profile Photo</Label>
+                  {editingProfile ? (
                     <div className="flex justify-center py-2">
                       <AvatarUpload
                         profileId={editingProfile.id}
                         currentUrl={form.avatarUrl}
                         name={form.fullName}
-                        onUploadComplete={(url: any) => setForm({ ...form, avatarUrl: url })}
+                        onUploadComplete={(url) => setForm({ ...form, avatarUrl: url })}
                         size="lg"
                       />
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        type="url"
+                        placeholder="https://example.com/avatar.jpg"
+                        value={form.avatarUrl}
+                        onChange={(e) => setForm({ ...form, avatarUrl: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Enter an avatar URL. You can upload photos after saving the user.
+                      </p>
+                      {form.avatarUrl && (
+                        <div className="flex justify-center py-2">
+                          <Avatar className="h-16 w-16">
+                            <AvatarImage src={form.avatarUrl || "/placeholder.svg"} />
+                            <AvatarFallback>{getInitials(form.fullName, form.email)}</AvatarFallback>
+                          </Avatar>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <DialogFooter>
                   <Button type="submit">{editingProfile ? "Save Changes" : "Add User"}</Button>
                 </DialogFooter>

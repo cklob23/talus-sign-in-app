@@ -15,12 +15,79 @@ interface ReportData {
   byType: { name: string; count: number; color: string }[]
   byHost: { name: string; count: number }[]
   byDay: { day: string; count: number }[]
+  rawSignIns: Array<{
+    sign_in_time: string
+    sign_out_time: string | null
+    visitor: { first_name: string; last_name: string; email: string; company: string } | null
+    host: { name: string } | null
+    visitor_type: { name: string } | null
+  }>
 }
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState("7")
   const [data, setData] = useState<ReportData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  function exportReportCSV() {
+    if (!data) return
+
+    const periodLabel = period === "7" ? "Last 7 days" : period === "14" ? "Last 14 days" : period === "30" ? "Last 30 days" : "Last 90 days"
+    
+    // Create CSV content with summary and detailed data
+    const csvContent = [
+      // Summary section
+      [`Visitor Report - ${periodLabel}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ["Summary"],
+      ["Total Sign-Ins", data.totalVisitors],
+      ["Unique Visitors", data.uniqueVisitors],
+      ["Average Duration (min)", data.avgDuration],
+      [],
+      ["Visitors by Type"],
+      ["Type", "Count"],
+      ...data.byType.map(t => [t.name, t.count]),
+      [],
+      ["Top Hosts"],
+      ["Host", "Count"],
+      ...data.byHost.map(h => [h.name, h.count]),
+      [],
+      ["Daily Breakdown"],
+      ["Day", "Count"],
+      ...data.byDay.map(d => [d.day, d.count]),
+      [],
+      ["Detailed Sign-Ins"],
+      ["Visitor Name", "Email", "Company", "Type", "Host", "Sign In", "Sign Out", "Duration (min)"],
+      ...data.rawSignIns.map(s => {
+        const duration = s.sign_out_time 
+          ? Math.round((new Date(s.sign_out_time).getTime() - new Date(s.sign_in_time).getTime()) / (1000 * 60))
+          : ""
+        return [
+          s.visitor ? `${s.visitor.first_name} ${s.visitor.last_name}` : "",
+          s.visitor?.email || "",
+          s.visitor?.company || "",
+          s.visitor_type?.name || "",
+          s.host?.name || "",
+          new Date(s.sign_in_time).toLocaleString(),
+          s.sign_out_time ? new Date(s.sign_out_time).toLocaleString() : "",
+          duration,
+        ]
+      }),
+    ]
+    
+    const csv = csvContent.map(row => 
+      Array.isArray(row) ? row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",") : `"${row}"`
+    ).join("\n")
+    
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `visitor-report-${period}-days-${new Date().toISOString().split("T")[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   useEffect(() => {
     async function loadReportData() {
@@ -108,6 +175,7 @@ export default function ReportsPage() {
         byType,
         byHost,
         byDay,
+        rawSignIns: signIns,
       })
       setIsLoading(false)
     }
@@ -134,7 +202,7 @@ export default function ReportsPage() {
               <SelectItem value="90">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={exportReportCSV} disabled={!data}>
             <Download className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Export Report</span>
           </Button>

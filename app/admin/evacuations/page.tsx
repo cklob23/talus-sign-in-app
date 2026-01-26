@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { AlertTriangle, CheckCircle, Siren } from "lucide-react"
+import { AlertTriangle, CheckCircle, Siren, Download } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Evacuation, SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -27,23 +28,30 @@ interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'loca
   location: Location | null
 }
 
+interface SignInWithLocation extends Omit<SignIn, 'location'> {
+  location?: Location | null
+}
+
 export default function EvacuationsPage() {
   const [evacuations, setEvacuations] = useState<Evacuation[]>([])
-  const [currentVisitors, setCurrentVisitors] = useState<SignIn[]>([])
+  const [currentVisitors, setCurrentVisitors] = useState<SignInWithLocation[]>([])
   const [currentEmployees, setCurrentEmployees] = useState<EmployeeSignInWithJoins[]>([])
   const [activeEvacuation, setActiveEvacuation] = useState<Evacuation | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [reason, setReason] = useState("")
+  const [locations, setLocations] = useState<Location[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("")
 
   async function loadData() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: evacData }, { data: visitorsData }, { data: employeesData }] = await Promise.all([
+    const [{ data: evacData }, { data: visitorsData }, { data: employeesData }, { data: locationsData }] = await Promise.all([
       supabase.from("evacuations").select("*, location:locations(*)").order("started_at", { ascending: false }),
-      supabase.from("sign_ins").select("*, visitor:visitors(*), host:hosts(*)").is("sign_out_time", null),
+      supabase.from("sign_ins").select("*, visitor:visitors(*), host:hosts(*), location:locations(*)").is("sign_out_time", null),
       supabase.from("employee_sign_ins").select("*, profile:profiles(*), location:locations(*)").is("sign_out_time", null),
+      supabase.from("locations").select("*").order("name"),
     ])
 
     if (evacData) {
@@ -51,8 +59,14 @@ export default function EvacuationsPage() {
       const active = evacData.find((e) => !e.all_clear)
       setActiveEvacuation(active || null)
     }
-    if (visitorsData) setCurrentVisitors(visitorsData as SignIn[])
+    if (visitorsData) setCurrentVisitors(visitorsData as SignInWithLocation[])
     if (employeesData) setCurrentEmployees(employeesData as EmployeeSignInWithJoins[])
+    if (locationsData) {
+      setLocations(locationsData as Location[])
+      if (locationsData.length > 0 && !selectedLocationId) {
+        setSelectedLocationId(locationsData[0].id)
+      }
+    }
     setIsLoading(false)
   }
 
@@ -60,17 +74,72 @@ export default function EvacuationsPage() {
     loadData()
   }, [])
 
+  // Get visitors and employees for the selected location
+  const locationVisitors = currentVisitors.filter(v => v.location_id === selectedLocationId)
+  const locationEmployees = currentEmployees.filter(e => e.location_id === selectedLocationId)
+  const selectedLocation = locations.find(l => l.id === selectedLocationId)
+
+  function exportEvacuationCSV() {
+    if (!selectedLocation) return
+    
+    const timestamp = new Date().toLocaleString()
+    const csvContent = [
+      [`EVACUATION LIST - ${selectedLocation.name}`],
+      [`Generated: ${timestamp}`],
+      [`Reason: ${reason || "Not specified"}`],
+      [],
+      ["VISITORS ON-SITE"],
+      ["Name", "Company", "Email", "Badge Number", "Host", "Sign In Time"],
+      ...locationVisitors.map(v => [
+        v.visitor ? `${v.visitor.first_name} ${v.visitor.last_name}` : "",
+        v.visitor?.company || "",
+        v.visitor?.email || "",
+        v.badge_number || "",
+        v.host?.name || "",
+        new Date(v.sign_in_time).toLocaleString(),
+      ]),
+      [],
+      ["EMPLOYEES ON-SITE"],
+      ["Name", "Email", "Role", "Sign In Time"],
+      ...locationEmployees.map(e => [
+        e.profile?.full_name || "",
+        e.profile?.email || "",
+        e.profile?.role || "",
+        new Date(e.sign_in_time).toLocaleString(),
+      ]),
+      [],
+      [`Total Visitors: ${locationVisitors.length}`],
+      [`Total Employees: ${locationEmployees.length}`],
+      [`TOTAL PEOPLE ON-SITE: ${locationVisitors.length + locationEmployees.length}`],
+    ]
+    
+    const csv = csvContent.map(row => 
+      Array.isArray(row) ? row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",") : `"${row}"`
+    ).join("\n")
+    
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `evacuation-${selectedLocation.name.replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function handleStartEvacuation(e: React.FormEvent) {
     e.preventDefault()
+    
+    if (!selectedLocationId) return
+    
     const supabase = createClient()
 
-    const { data: locations } = await supabase.from("locations").select("id").limit(1)
-    if (!locations || locations.length === 0) return
-
     await supabase.from("evacuations").insert({
-      location_id: locations[0].id,
+      location_id: selectedLocationId,
       reason: reason || null,
     })
+
+    // Export CSV automatically when evacuation starts
+    exportEvacuationCSV()
 
     setReason("")
     setIsDialogOpen(false)
@@ -122,6 +191,26 @@ export default function EvacuationsPage() {
               </DialogHeader>
               <form onSubmit={handleStartEvacuation} className="space-y-4">
                 <div className="space-y-2">
+                  <Label htmlFor="location">Location *</Label>
+                  <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedLocation && (
+                    <p className="text-xs text-muted-foreground">
+                      {locationVisitors.length} visitors and {locationEmployees.length} employees currently on-site
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="reason">Reason (optional)</Label>
                   <Input
                     id="reason"
@@ -130,12 +219,13 @@ export default function EvacuationsPage() {
                     onChange={(e) => setReason(e.target.value)}
                   />
                 </div>
-                <DialogFooter>
+                <DialogFooter className="flex-col sm:flex-row gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" variant="destructive" className="bg-destructive">
-                    Confirm Evacuation
+                  <Button type="submit" variant="destructive" className="bg-destructive" disabled={!selectedLocationId}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Start & Export List
                   </Button>
                 </DialogFooter>
               </form>
@@ -147,78 +237,106 @@ export default function EvacuationsPage() {
       {activeEvacuation && (
         <Card className="border-destructive bg-destructive/5">
           <CardHeader className="p-4 sm:p-6">
-            <CardTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
-              <Siren className="w-5 h-5 animate-pulse" />
-              EVACUATION IN PROGRESS
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Started {new Date(activeEvacuation.started_at).toLocaleString()}
-              {activeEvacuation.reason && ` - ${activeEvacuation.reason}`}
-            </CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
+                  <Siren className="w-5 h-5 animate-pulse" />
+                  EVACUATION IN PROGRESS
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  Started {new Date(activeEvacuation.started_at).toLocaleString()}
+                  {activeEvacuation.reason && ` - ${activeEvacuation.reason}`}
+                  {(activeEvacuation as Evacuation & { location?: Location }).location && 
+                    ` at ${(activeEvacuation as Evacuation & { location?: Location }).location?.name}`}
+                </CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  // Set the location to the active evacuation's location and export
+                  if (activeEvacuation.location_id) {
+                    setSelectedLocationId(activeEvacuation.location_id)
+                    setTimeout(exportEvacuationCSV, 100)
+                  }
+                }}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export List
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-4 sm:space-y-6">
-            <div>
-              <h3 className="font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
-                <span className="w-3 h-3 rounded-full bg-green-500" />
-                Visitors to Account For ({currentVisitors.length})
-              </h3>
-              {currentVisitors.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No visitors currently on-site</p>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {currentVisitors.map((visitor) => (
-                    <div key={visitor.id} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-background rounded-lg border">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center font-semibold text-green-600 text-xs sm:text-sm">
-                        {visitor.visitor?.first_name?.[0]}
-                        {visitor.visitor?.last_name?.[0]}
+            {(() => {
+              const evacVisitors = currentVisitors.filter(v => v.location_id === activeEvacuation.location_id)
+              const evacEmployees = currentEmployees.filter(e => e.location_id === activeEvacuation.location_id)
+              return (
+                <>
+                  <div>
+                    <h3 className="font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                      <span className="w-3 h-3 rounded-full bg-green-500" />
+                      Visitors to Account For ({evacVisitors.length})
+                    </h3>
+                    {evacVisitors.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">No visitors currently on-site at this location</p>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {evacVisitors.map((visitor) => (
+                          <div key={visitor.id} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-background rounded-lg border">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center font-semibold text-green-600 text-xs sm:text-sm">
+                              {visitor.visitor?.first_name?.[0]}
+                              {visitor.visitor?.last_name?.[0]}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">
+                                {visitor.visitor?.first_name} {visitor.visitor?.last_name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Badge: {visitor.badge_number}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate">
-                          {visitor.visitor?.first_name} {visitor.visitor?.last_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Badge: {visitor.badge_number}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    )}
+                  </div>
 
-            <div>
-              <h3 className="font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
-                <span className="w-3 h-3 rounded-full bg-blue-500" />
-                Employees to Account For ({currentEmployees.length})
-              </h3>
-              {currentEmployees.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No employees currently on-site</p>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {currentEmployees.map((employee) => (
-                    <div key={employee.id} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-background rounded-lg border">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600 text-xs sm:text-sm">
-                        {employee.profile?.full_name?.[0] || employee.profile?.email?.[0]?.toUpperCase() || "E"}
+                  <div>
+                    <h3 className="font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                      <span className="w-3 h-3 rounded-full bg-blue-500" />
+                      Employees to Account For ({evacEmployees.length})
+                    </h3>
+                    {evacEmployees.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">No employees currently on-site at this location</p>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {evacEmployees.map((employee) => (
+                          <div key={employee.id} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-background rounded-lg border">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600 text-xs sm:text-sm">
+                              {employee.profile?.full_name?.[0] || employee.profile?.email?.[0]?.toUpperCase() || "E"}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">
+                                {employee.profile?.full_name || employee.profile?.email || "Unknown"}
+                              </p>
+                              <p className="text-xs text-muted-foreground capitalize">
+                                {employee.profile?.role || "Employee"}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate">
-                          {employee.profile?.full_name || employee.profile?.email || "Unknown"}
-                        </p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {employee.profile?.role || "Employee"}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    )}
+                  </div>
 
-            <div className="pt-3 sm:pt-4 border-t">
-              <p className="text-sm font-medium">
-                Total people on-site: <span className="text-destructive">{currentVisitors.length + currentEmployees.length}</span>
-              </p>
-            </div>
+                  <div className="pt-3 sm:pt-4 border-t">
+                    <p className="text-sm font-medium">
+                      Total people on-site at this location: <span className="text-destructive">{evacVisitors.length + evacEmployees.length}</span>
+                    </p>
+                  </div>
+                </>
+              )
+            })()}
           </CardContent>
         </Card>
       )}

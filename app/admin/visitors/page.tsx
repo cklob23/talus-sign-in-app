@@ -179,6 +179,7 @@ export default function CurrentVisitorsPage() {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
                           <span>Badge: {signIn.badge_number}</span>
                           <span>Duration: {formatDuration(signIn.sign_in_time)}</span>
@@ -198,6 +199,7 @@ export default function CurrentVisitorsPage() {
                           <TableHead>Visitor</TableHead>
                           <TableHead>Company</TableHead>
                           <TableHead>Type</TableHead>
+                          <TableHead>Location</TableHead>
                           <TableHead>Host</TableHead>
                           <TableHead>Badge</TableHead>
                           <TableHead>Duration</TableHead>
@@ -227,6 +229,7 @@ export default function CurrentVisitorsPage() {
                                 </Badge>
                               )}
                             </TableCell>
+                            <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
                             <TableCell className="font-mono">{signIn.badge_number}</TableCell>
                             <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>

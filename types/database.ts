@@ -76,6 +76,7 @@ export interface Visitor {
   email: string | null
   phone: string | null
   company: string | null
+  location: string | null
   photo_url: string | null
   created_at: string
   updated_at: string

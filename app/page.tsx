@@ -53,7 +53,7 @@ export default function HomePage() {
                 <ClipboardList className="w-6 h-6 text-primary" />
               </div>
               <CardTitle>Pre-Registration</CardTitle>
-              <CardDescription>Already registered? Check in with your booking code</CardDescription>
+              <CardDescription>Have an appointment? Check in with your booking code</CardDescription>
             </CardHeader>
             <CardContent>
               <Link href="/kiosk?mode=booking">
@@ -70,7 +70,7 @@ export default function HomePage() {
                 <Shield className="w-6 h-6 text-primary" />
               </div>
               <CardTitle>Administration</CardTitle>
-              <CardDescription>Staff access to visitor reports and management</CardDescription>
+              <CardDescription>Admin access to visitor reports and management</CardDescription>
             </CardHeader>
             <CardContent>
               <Link href="/auth/login">

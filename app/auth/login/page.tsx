@@ -45,13 +45,14 @@ export default function LoginPage() {
     setError(null)
 
     try {
+      // First, sign out any existing session to ensure clean OAuth flow
+      // This prevents stale refresh token issues
+      await supabase.auth.signOut()
+      
       // Construct redirect URL - must match what's configured in Supabase Auth settings
-      // The callback URL should be: https://[your-domain]/auth/callback
       const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
       
-      console.log("[v0] Microsoft login - redirect URL:", callbackUrl)
-      
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
           redirectTo: callbackUrl,
@@ -62,11 +63,8 @@ export default function LoginPage() {
         },
       })
       
-      console.log("[v0] Microsoft login - OAuth response:", { data, error })
-      
       if (error) throw error
     } catch (error: unknown) {
-      console.error("[v0] Microsoft login error:", error)
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsLoading(false)
     }

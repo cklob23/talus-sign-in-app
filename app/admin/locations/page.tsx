@@ -48,42 +48,26 @@ export default function LocationsPage() {
     loadData()
   }, [])
 
-  // Geocode address using OpenStreetMap Nominatim API (free, no API key required)
-  async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-    if (!address.trim()) return null
-    
-    setIsGeocoding(true)
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
-        {
-          headers: {
-            'User-Agent': 'TalusAg-VisitorManagement/1.0'
-          }
-        }
-      )
-      const data = await response.json()
-      
-      if (data && data.length > 0) {
-        return {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon)
-        }
-      }
-      return null
-    } catch (error) {
-      console.error('Geocoding error:', error)
-      return null
-    } finally {
-      setIsGeocoding(false)
+  async function geocodeAddress(address: string) {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`
+    )
+
+    const data = await res.json()
+    console.log("Geocode data:", data)
+    if (data.status === "OK") {
+      const { lat, lng } = data.results[0].geometry.location
+      return { lat, lng }
     }
+
+    return null
   }
 
   function openCreateDialog() {
     setEditingLocation(null)
-    setForm({ 
-      name: "", 
-      address: "", 
+    setForm({
+      name: "",
+      address: "",
       timezone: "America/New_York",
       latitude: null,
       longitude: null,
@@ -112,9 +96,9 @@ export default function LocationsPage() {
     // Try to geocode if address changed and no coords set
     let latitude = form.latitude
     let longitude = form.longitude
-    
+
     if (form.address && (
-      !editingLocation || 
+      !editingLocation ||
       editingLocation.address !== form.address ||
       !latitude || !longitude
     )) {

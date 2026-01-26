@@ -2,28 +2,16 @@ import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
+  const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
   const errorParam = searchParams.get("error")
   const errorDescription = searchParams.get("error_description")
   const next = searchParams.get("next") ?? "/admin"
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
-  const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
-
-  console.log("[v0] Auth callback received:", { 
-    hasCode: !!code, 
-    error: errorParam,
-    errorDescription,
-    type, 
-    next, 
-    locationId,
-    origin 
-  })
 
   // Handle OAuth errors from the provider
   if (errorParam) {
-    console.error("[v0] OAuth provider error:", errorParam, errorDescription)
     return NextResponse.redirect(
       `${origin}/auth/login?error=${encodeURIComponent(errorDescription || errorParam)}`
     )
@@ -31,19 +19,14 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createClient()
-    
-    console.log("[v0] Exchanging code for session...")
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (error) {
-      console.error("[v0] Error exchanging code for session:", error.message, error)
       // Redirect to login page with the error message
       return NextResponse.redirect(
         `${origin}/auth/login?error=${encodeURIComponent(error.message)}`
       )
     }
-
-    console.log("[v0] Session exchange successful, user:", data.user?.email)
 
     if (data.user) {
       // If this is an employee login from kiosk, record the sign-in

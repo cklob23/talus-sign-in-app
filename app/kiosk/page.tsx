@@ -32,6 +32,7 @@ import {
   Search
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
@@ -45,7 +46,7 @@ interface RememberedEmployee {
   fullName: string
   locationId: string | null
   role: string
-  avatar_url: string | null
+  avatar_url?: string | null
 }
 
 interface SignInForm {
@@ -165,8 +166,8 @@ export default function KioskPage() {
             location_id: profile.location_id,
             role: profile.role,
             avatar_url: profile.avatar_url,
-            created_at: "",
-            updated_at: "",
+            created_at: profile.created_at,
+            updated_at: profile.updated_at,
           })
           setEmployeeSignedIn(true)
           setMode("employee-dashboard")
@@ -366,7 +367,7 @@ export default function KioskPage() {
         full_name: employee.fullName,
         role: employee.role as "admin" | "staff" | "viewer" | "employee",
         location_id: employee.locationId,
-        avatar_url: employee.avatar_url,
+        avatar_url: employee.avatar_url ?? null,
         created_at: "",
         updated_at: "",
       })
@@ -460,8 +461,10 @@ export default function KioskPage() {
           expected_departure,
           purpose,
           status,
-          host:hosts(id, name, email),
-          visitor_type:visitor_types(id, name, badge_color, requires_training)
+          host_id,
+          hosts!inner(id, name, email),
+          visitor_type_id,
+          visitor_types!inner(id, name, badge_color, requires_training)
         `)
         .ilike("visitor_email", bookingEmail.trim())
         .eq("status", "pending")
@@ -474,14 +477,13 @@ export default function KioskPage() {
         return
       }
 
-      // Transform bookings to match expected format (convert arrays to single objects)
       const transformedBookings = bookings.map((booking: any) => ({
         ...booking,
-        host: Array.isArray(booking.host) ? booking.host[0] || null : booking.host,
-        visitor_type: Array.isArray(booking.visitor_type) ? booking.visitor_type[0] || null : booking.visitor_type,
+        host: booking.hosts?.[0] || null,
+        visitor_type: booking.visitor_types?.[0] || null,
       }))
 
-      setBookingResults(transformedBookings as unknown as typeof bookingResults)
+      setBookingResults(transformedBookings)
 
       // If only one booking, auto-select it
       if (transformedBookings.length === 1) {
@@ -749,8 +751,8 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Simulate 60 seconds of required watching time
-    const totalDuration = 60
+    // Required watching time of approximately 47 minutes and 39 seconds
+    const totalDuration = 2843.4
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -1089,9 +1091,11 @@ export default function KioskPage() {
     try {
       const supabase = createClient()
 
-      const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
+      // First, sign out any existing session to ensure clean OAuth flow
+      // This prevents stale refresh token issues
+      await supabase.auth.signOut()
 
-      console.log("[v0] Employee Microsoft login - redirect URL:", redirectUrl)
+      const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
@@ -1104,11 +1108,10 @@ export default function KioskPage() {
         },
       })
 
-      console.log("[v0] Employee Microsoft login - OAuth response:", { data, error })
+
 
       if (error) throw error
     } catch (err) {
-      console.error("[v0] Employee Microsoft login error:", err)
       setError(err instanceof Error ? err.message : "Failed to sign in with Microsoft")
       setIsLoading(false)
     }
@@ -1217,7 +1220,7 @@ export default function KioskPage() {
                 </>
               )}
             </div>
-            {/* Location selector if multiple locations */}
+            {/* Location selector if multiple locations
             {locations.length > 1 && (
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                 <SelectTrigger className="w-[140px] sm:w-[180px]">
@@ -1231,7 +1234,7 @@ export default function KioskPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
+            )} */}
           </div>
         </div>
       </header>
@@ -1241,7 +1244,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to TalusAg. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
             {/* Visitor options - always shown */}
@@ -1308,9 +1311,12 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold shrink-0">
-                          {currentEmployee.full_name?.charAt(0) || currentEmployee.email?.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          <AvatarImage src={currentEmployee.avatar_url || undefined} />
+                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                            {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
@@ -1345,7 +1351,7 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">TalusAg employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -1360,9 +1366,12 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                          {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          <AvatarImage src={rememberedEmployee.avatar_url || undefined} />
+                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                            {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
@@ -1616,8 +1625,8 @@ export default function KioskPage() {
                         <Card
                           key={booking.id}
                           className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
-                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                              : "hover:border-blue-300"
+                            ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                            : "hover:border-blue-300"
                             }`}
                           onClick={() => setSelectedBooking(booking)}
                         >
@@ -1766,7 +1775,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your TalusAg credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1867,9 +1876,12 @@ export default function KioskPage() {
           <div className="max-w-md mx-auto">
             <Card className="border-blue-200">
               <CardHeader className="text-center p-4 sm:p-6">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
-                  {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
-                </div>
+                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                  <AvatarImage src={currentEmployee.avatar_url || undefined} />
+                  <AvatarFallback className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                    {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <CardTitle className="text-xl sm:text-2xl">
                   Welcome, {currentEmployee.full_name || currentEmployee.email}!
                 </CardTitle>
@@ -2026,7 +2038,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on TalusAg premises. I understand that failure
+                        all safety guidelines and procedures while on Talus premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -2084,7 +2096,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting TalusAg."}
+                    : "Thank you for visiting Talus."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

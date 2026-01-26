@@ -15,10 +15,10 @@ interface AvatarUploadProps {
   size?: "sm" | "md" | "lg"
 }
 
-export function AvatarUpload({ 
-  profileId, 
-  currentUrl, 
-  name, 
+export function AvatarUpload({
+  profileId,
+  currentUrl,
+  name,
   onUploadComplete,
   size = "lg"
 }: AvatarUploadProps) {
@@ -93,19 +93,19 @@ export function AvatarUpload({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <div 
+      <div
         className="relative group cursor-pointer"
         onClick={() => fileInputRef.current?.click()}
       >
         <Avatar className={cn(sizeClasses[size], "border-2 border-muted")}>
           {displayUrl ? (
             <AvatarImage src={displayUrl || "/placeholder.svg"} alt={name || "Avatar"} />
-          ) : null}
+          ) : <AvatarImage src={"/placeholder.svg"} alt={"Avatar"} />}
           <AvatarFallback className="text-lg font-medium bg-muted">
             {initials}
           </AvatarFallback>
         </Avatar>
-        
+
         {/* Hover overlay */}
         <div className={cn(
           "absolute inset-0 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity",
@@ -131,7 +131,7 @@ export function AvatarUpload({
       {error && (
         <p className="text-xs text-destructive text-center max-w-[200px]">{error}</p>
       )}
-      
+
       <p className="text-xs text-muted-foreground">Click to upload photo</p>
     </div>
   )
