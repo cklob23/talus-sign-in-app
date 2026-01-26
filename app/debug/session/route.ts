@@ -14,7 +14,8 @@ export async function GET() {
   return NextResponse.json({
     cookies: {
       total: allCookies.length,
-      supabaseCookies: sbCookies.map(c => ({ name: c.name, valueLength: c.value.length })),
+      allCookieNames: allCookies.map(c => c.name),
+      supabaseCookies: sbCookies.map(c => ({ name: c.name, valueLength: c.value.length, preview: c.value.substring(0, 50) })),
     },
     session: {
       hasSession: !!session,
