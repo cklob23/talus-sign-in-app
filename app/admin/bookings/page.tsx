@@ -53,7 +53,8 @@ export default function BookingsPage() {
           `
           *,
           host:hosts(*),
-          visitor_type:visitor_types(*)
+          visitor_type:visitor_types(*),
+          location:locations(*)
         `,
         )
         .order("expected_arrival", { ascending: true }),
@@ -320,6 +321,7 @@ export default function BookingsPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Location: {(booking as Booking & { location?: { name: string } }).location?.name || "-"}</span>
                       <span>Host: {booking.host?.name || "-"}</span>
                       <span>
                         {new Date(booking.expected_arrival).toLocaleString([], {
@@ -370,6 +372,7 @@ export default function BookingsPage() {
                       </TableHead>
                       <TableHead>Visitor</TableHead>
                       <TableHead>Company</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Host</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Expected</TableHead>
@@ -393,6 +396,7 @@ export default function BookingsPage() {
                           )}
                         </TableCell>
                         <TableCell>{booking.visitor_company || "-"}</TableCell>
+                        <TableCell>{(booking as Booking & { location?: { name: string } }).location?.name || "-"}</TableCell>
                         <TableCell>{booking.host?.name || "-"}</TableCell>
                         <TableCell>
                           {booking.visitor_type && (
