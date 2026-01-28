@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     if (isLocalEnv) {
       return `${origin}${path}`
     } else if (origin) {
-      return `https://${origin}${path}`
+      return `${origin}${path}`
     }
     return `${origin}${path}`
   }
