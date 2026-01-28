@@ -19,8 +19,8 @@ export async function GET(request: Request) {
   function getRedirectUrl(path: string) {
     if (isLocalEnv) {
       return `${origin}${path}`
-    } else if (forwardedHost) {
-      return `https://${forwardedHost}${path}`
+    } else if (origin) {
+      return `https://${origin}${path}`
     }
     return `${origin}${path}`
   }
