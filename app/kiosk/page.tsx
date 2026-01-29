@@ -32,7 +32,6 @@ import {
   Search
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import Link from "next/link"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
@@ -45,8 +44,10 @@ interface RememberedEmployee {
   email: string
   fullName: string
   locationId: string | null
-  role: string
-  avatar_url?: string | null
+  role: "admin" | "staff" | "viewer" | "employee"
+  avatar_url: string | null
+  created_at: string
+  updated_at: string
 }
 
 interface SignInForm {
@@ -365,9 +366,9 @@ export default function KioskPage() {
         id: employee.id,
         email: employee.email,
         full_name: employee.fullName,
-        role: employee.role as "admin" | "staff" | "viewer" | "employee",
+        role: employee.role,
         location_id: employee.locationId,
-        avatar_url: employee.avatar_url ?? null,
+        avatar_url: null,
         created_at: "",
         updated_at: "",
       })
@@ -461,10 +462,8 @@ export default function KioskPage() {
           expected_departure,
           purpose,
           status,
-          host_id,
-          hosts!inner(id, name, email),
-          visitor_type_id,
-          visitor_types!inner(id, name, badge_color, requires_training)
+          host:hosts(id, name, email),
+          visitor_type:visitor_types(id, name, badge_color, requires_training)
         `)
         .ilike("visitor_email", bookingEmail.trim())
         .eq("status", "pending")
@@ -477,17 +476,23 @@ export default function KioskPage() {
         return
       }
 
+      // Transform the results to match expected type (convert array fields to single objects)
       const transformedBookings = bookings.map((booking: any) => ({
         ...booking,
-        host: booking.hosts?.[0] || null,
-        visitor_type: booking.visitor_types?.[0] || null,
-      }))
+        host: Array.isArray(booking.host) && booking.host.length > 0 ? booking.host[0] : null,
+        visitor_type: Array.isArray(booking.visitor_type) && booking.visitor_type.length > 0 ? booking.visitor_type[0] : null,
+      })) as typeof bookingResults
 
       setBookingResults(transformedBookings)
 
       // If only one booking, auto-select it
-      if (transformedBookings.length === 1) {
-        setSelectedBooking(transformedBookings[0])
+      if (bookings.length === 1) {
+        const transformedBooking = {
+          ...bookings[0],
+          host: Array.isArray(bookings[0].host) && bookings[0].host.length > 0 ? bookings[0].host[0] : null,
+          visitor_type: Array.isArray(bookings[0].visitor_type) && bookings[0].visitor_type.length > 0 ? bookings[0].visitor_type[0] : null,
+        } as typeof bookingResults[0]
+        setSelectedBooking(transformedBooking)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to lookup booking")
@@ -751,8 +756,8 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Required watching time of approximately 47 minutes and 39 seconds
-    const totalDuration = 2843.4
+    // Simulate 60 seconds of required watching time
+    const totalDuration = 60
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -1070,6 +1075,8 @@ export default function KioskPage() {
           locationId: profile.location_id,
           role: profile.role,
           avatar_url: profile.avatar_url || null,
+          created_at: profile.created_at,
+          updated_at: profile.updated_at,
         }
         localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
         setRememberedEmployee(rememberedData)
@@ -1220,7 +1227,7 @@ export default function KioskPage() {
                 </>
               )}
             </div>
-            {/* Location selector if multiple locations
+            {/* Location selector if multiple locations */}
             {locations.length > 1 && (
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                 <SelectTrigger className="w-[140px] sm:w-[180px]">
@@ -1234,7 +1241,7 @@ export default function KioskPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )} */}
+            )}
           </div>
         </div>
       </header>
@@ -1311,12 +1318,9 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                          <AvatarImage src={currentEmployee.avatar_url || undefined} />
-                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                            {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold shrink-0">
+                          {currentEmployee.full_name?.charAt(0) || currentEmployee.email?.charAt(0).toUpperCase()}
+                        </div>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
@@ -1366,12 +1370,9 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                          <AvatarImage src={rememberedEmployee.avatar_url || undefined} />
-                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                            {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
+                        </div>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
@@ -1625,8 +1626,8 @@ export default function KioskPage() {
                         <Card
                           key={booking.id}
                           className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
-                            ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                            : "hover:border-blue-300"
+                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                              : "hover:border-blue-300"
                             }`}
                           onClick={() => setSelectedBooking(booking)}
                         >
@@ -1876,12 +1877,9 @@ export default function KioskPage() {
           <div className="max-w-md mx-auto">
             <Card className="border-blue-200">
               <CardHeader className="text-center p-4 sm:p-6">
-                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
-                  <AvatarImage src={currentEmployee.avatar_url || undefined} />
-                  <AvatarFallback className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
-                    {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                  {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                </div>
                 <CardTitle className="text-xl sm:text-2xl">
                   Welcome, {currentEmployee.full_name || currentEmployee.email}!
                 </CardTitle>
