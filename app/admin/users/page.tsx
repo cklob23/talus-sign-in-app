@@ -22,7 +22,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, Trash2, UsersRound, RefreshCw, Cloud, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, UsersRound, RefreshCw, Cloud, Loader2, KeyRound, MoreHorizontal } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { Location, Host } from "@/types/database"
 import { AvatarUpload } from "@/components/admin/avatar-upload"
 
@@ -61,6 +69,12 @@ export default function UsersPage() {
     selected: boolean
   }>>([])
   const [isAzurePreviewOpen, setIsAzurePreviewOpen] = useState(false)
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
+  const [isBulkActionOpen, setIsBulkActionOpen] = useState(false)
+  const [bulkAction, setBulkAction] = useState<"role" | "location" | "host" | null>(null)
+  const [bulkValue, setBulkValue] = useState("")
+  const [isPasswordResetDialogOpen, setIsPasswordResetDialogOpen] = useState(false)
+  const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null)
   const [form, setForm] = useState({
     email: "",
     fullName: "",
@@ -143,7 +157,7 @@ export default function UsersPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: editingProfile.id, ...profileData }),
         })
-
+        
         if (!response.ok) {
           const result = await response.json()
           throw new Error(result.error || "Failed to update profile")
@@ -152,7 +166,7 @@ export default function UsersPage() {
         // Handle host status
         const supabase = createClient()
         const existingHost = hosts.find(h => h.profile_id === editingProfile.id || h.email?.toLowerCase() === editingProfile.email?.toLowerCase())
-
+        
         if (form.isHost && !existingHost) {
           // Create new host entry
           await supabase.from("hosts").insert({
@@ -182,7 +196,7 @@ export default function UsersPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(profileData),
         })
-
+        
         if (!response.ok) {
           const result = await response.json()
           throw new Error(result.error || "Failed to create profile")
@@ -203,17 +217,17 @@ export default function UsersPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this user profile? This action cannot be undone.")) return
-
+    
     try {
       const response = await fetch(`/api/admin/profiles?id=${id}`, {
         method: "DELETE",
       })
-
+      
       if (!response.ok) {
         const result = await response.json()
         throw new Error(result.error || "Failed to delete profile")
       }
-
+      
       loadData()
     } catch (error) {
       setSyncMessage({
@@ -298,7 +312,7 @@ export default function UsersPage() {
   }
 
   function toggleAzureUserSelection(id: string) {
-    setAzureUsers(users => users.map(u =>
+    setAzureUsers(users => users.map(u => 
       u.id === id ? { ...u, selected: !u.selected } : u
     ))
   }
@@ -337,6 +351,117 @@ export default function UsersPage() {
 
   const handleSyncFromAzure = async () => {
     // Placeholder function for handleSyncFromAzure
+  }
+
+  function toggleUserSelection(id: string) {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedUserIds.size === profiles.length) {
+      setSelectedUserIds(new Set())
+    } else {
+      setSelectedUserIds(new Set(profiles.map(p => p.id)))
+    }
+  }
+
+  async function handleBulkAction() {
+    if (!bulkAction || !bulkValue || selectedUserIds.size === 0) return
+    
+    setIsLoading(true)
+    const supabase = createClient()
+    
+    try {
+      const selectedProfiles = profiles.filter(p => selectedUserIds.has(p.id))
+      
+      if (bulkAction === "role") {
+        // Update roles via API
+        for (const profile of selectedProfiles) {
+          await fetch("/api/admin/profiles", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: profile.id, role: bulkValue }),
+          })
+        }
+        setSyncMessage({ type: "success", text: `Updated role for ${selectedProfiles.length} users` })
+      } else if (bulkAction === "location") {
+        // Update locations
+        for (const profile of selectedProfiles) {
+          await fetch("/api/admin/profiles", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: profile.id, location_id: bulkValue }),
+          })
+        }
+        setSyncMessage({ type: "success", text: `Updated location for ${selectedProfiles.length} users` })
+      } else if (bulkAction === "host") {
+        // Set users as hosts
+        const setAsHost = bulkValue === "true"
+        for (const profile of selectedProfiles) {
+          const existingHost = hosts.find(h => h.profile_id === profile.id || h.email?.toLowerCase() === profile.email?.toLowerCase())
+          
+          if (setAsHost && !existingHost) {
+            await supabase.from("hosts").insert({
+              name: profile.full_name || profile.email,
+              email: profile.email,
+              profile_id: profile.id,
+              avatar_url: profile.avatar_url || null,
+              location_id: profile.location_id || locations[0]?.id,
+              is_active: true,
+            })
+          } else if (!setAsHost && existingHost) {
+            await supabase.from("hosts").delete().eq("id", existingHost.id)
+          }
+        }
+        setSyncMessage({ type: "success", text: setAsHost ? `Added ${selectedProfiles.length} users as hosts` : `Removed ${selectedProfiles.length} users from hosts` })
+      }
+      
+      setSelectedUserIds(new Set())
+      setIsBulkActionOpen(false)
+      setBulkAction(null)
+      setBulkValue("")
+      loadData()
+    } catch (error) {
+      setSyncMessage({ type: "error", text: error instanceof Error ? error.message : "Bulk action failed" })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handlePasswordReset(userId: string) {
+    const profile = profiles.find(p => p.id === userId)
+    if (!profile?.email) {
+      setSyncMessage({ type: "error", text: "User does not have an email address" })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, email: profile.email }),
+      })
+
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to send password reset")
+      }
+
+      setSyncMessage({ type: "success", text: `Password reset email sent to ${profile.email}` })
+      setIsPasswordResetDialogOpen(false)
+      setPasswordResetUserId(null)
+    } catch (error) {
+      setSyncMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to send password reset" })
+    }
   }
 
   return (
@@ -503,7 +628,7 @@ export default function UsersPage() {
               Select which users you want to import. Users already in the system are unchecked by default.
             </DialogDescription>
           </DialogHeader>
-
+          
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
@@ -518,14 +643,14 @@ export default function UsersPage() {
                 </Button>
               </div>
             </div>
-
+            
             <div className="border rounded-lg max-h-[400px] overflow-y-auto">
               {azureUsers.length === 0 ? (
                 <p className="p-4 text-center text-muted-foreground">No users found in Azure AD</p>
               ) : (
                 <div className="divide-y">
                   {azureUsers.map(user => {
-                    const existsInSystem = profiles.some(p =>
+                    const existsInSystem = profiles.some(p => 
                       p.email?.toLowerCase() === (user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
                     )
                     return (
@@ -562,7 +687,7 @@ export default function UsersPage() {
               )}
             </div>
           </div>
-
+          
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAzurePreviewOpen(false)} className="bg-transparent">
               Cancel
@@ -583,24 +708,144 @@ export default function UsersPage() {
 
       {syncMessage && (
         <div
-          className={`p-4 rounded-lg ${syncMessage.type === "success"
-            ? "bg-green-50 text-green-800 border border-green-200"
-            : "bg-red-50 text-red-800 border border-red-200"
-            }`}
+          className={`p-4 rounded-lg ${
+            syncMessage.type === "success"
+              ? "bg-green-50 text-green-800 border border-green-200"
+              : "bg-red-50 text-red-800 border border-red-200"
+          }`}
         >
           {syncMessage.text}
         </div>
       )}
 
+      {/* Bulk Action Dialog */}
+      <Dialog open={isBulkActionOpen} onOpenChange={setIsBulkActionOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk Update {selectedUserIds.size} Users</DialogTitle>
+            <DialogDescription>
+              Select an action to apply to all selected users
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Action</Label>
+              <Select value={bulkAction || ""} onValueChange={(v) => { setBulkAction(v as "role" | "location" | "host"); setBulkValue(""); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select action" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="role">Change Role</SelectItem>
+                  <SelectItem value="location">Change Location</SelectItem>
+                  <SelectItem value="host">Set Host Status</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {bulkAction === "role" && (
+              <div className="space-y-2">
+                <Label>New Role</Label>
+                <Select value={bulkValue} onValueChange={setBulkValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLES.map(role => (
+                      <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {bulkAction === "location" && (
+              <div className="space-y-2">
+                <Label>New Location</Label>
+                <Select value={bulkValue} onValueChange={setBulkValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map(loc => (
+                      <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {bulkAction === "host" && (
+              <div className="space-y-2">
+                <Label>Host Status</Label>
+                <Select value={bulkValue} onValueChange={setBulkValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Set as Host</SelectItem>
+                    <SelectItem value="false">Remove as Host</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBulkActionOpen(false)} className="bg-transparent">Cancel</Button>
+            <Button onClick={handleBulkAction} disabled={!bulkAction || !bulkValue || isLoading}>
+              {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Apply to {selectedUserIds.size} Users
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password Reset Dialog */}
+      <Dialog open={isPasswordResetDialogOpen} onOpenChange={setIsPasswordResetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Send a password reset email to this user?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              A password reset link will be sent to the user{"'"}s email address. They can use this link to set a new password.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPasswordResetDialogOpen(false)} className="bg-transparent">Cancel</Button>
+            <Button onClick={() => passwordResetUserId && handlePasswordReset(passwordResetUserId)}>
+              Send Reset Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader className="p-4 sm:p-6">
-          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-            <UsersRound className="w-5 h-5" />
-            All Users
-          </CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
-            {profiles.length} registered user{profiles.length !== 1 ? "s" : ""}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <UsersRound className="w-5 h-5" />
+                All Users
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                {profiles.length} registered user{profiles.length !== 1 ? "s" : ""}
+              </CardDescription>
+            </div>
+            {selectedUserIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">{selectedUserIds.size} selected</span>
+                <Button size="sm" onClick={() => setIsBulkActionOpen(true)}>
+                  Bulk Actions
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setSelectedUserIds(new Set())} className="bg-transparent">
+                  Clear
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           {isLoading ? (
@@ -618,49 +863,74 @@ export default function UsersPage() {
               {/* Mobile card view */}
               <div className="space-y-3 md:hidden">
                 {profiles.map((profile) => (
-                  <div key={profile.id} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={profile.avatar_url || undefined} />
-                          <AvatarFallback>
-                            {getInitials(profile.full_name, profile.email)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium text-sm">
-                            {profile.full_name || profile.email || "Unknown"}
+                  <div key={profile.id} className={`border rounded-lg p-3 space-y-2 ${selectedUserIds.has(profile.id) ? "border-primary bg-primary/5" : ""}`}>
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedUserIds.has(profile.id)}
+                        onCheckedChange={() => toggleUserSelection(profile.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={profile.avatar_url || undefined} />
+                              <AvatarFallback>
+                                {getInitials(profile.full_name, profile.email)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium text-sm">
+                                {profile.full_name || profile.email || "Unknown"}
+                              </p>
+                              {profile.email && profile.full_name && (
+                                <p className="text-xs text-muted-foreground">{profile.email}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {getRoleBadge(profile.role)}
                             {isUserHost(profile) && (
-                              <Badge variant="outline" className="ml-2 border-amber-500 text-amber-600">
+                              <Badge variant="outline" className="border-amber-500 text-amber-600">
                                 Host
                               </Badge>
                             )}
-                          </p>
-                          {profile.email && profile.full_name && (
-                            <p className="text-xs text-muted-foreground">{profile.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
+                          {profile.location_id && (
+                            <span>
+                              Location: {locations.find((l) => l.id === profile.location_id)?.name || "-"}
+                            </span>
                           )}
                         </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => openEditDialog(profile)}>
+                                <Pencil className="w-4 h-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setPasswordResetUserId(profile.id); setIsPasswordResetDialogOpen(true); }}>
+                                <KeyRound className="w-4 h-4 mr-2" />
+                                Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(profile.id)}>
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        {getRoleBadge(profile.role)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      {profile.location_id && (
-                        <span>
-                          Location: {locations.find((l) => l.id === profile.location_id)?.name || "-"}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex justify-end gap-2 pt-1">
-                      <Button variant="ghost" size="sm" onClick={() => openEditDialog(profile)}>
-                        <Pencil className="w-4 h-4 mr-1" />
-                        Edit
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(profile.id)}>
-                        <Trash2 className="w-4 h-4 mr-1 text-destructive" />
-                        Delete
-                      </Button>
                     </div>
                   </div>
                 ))}
@@ -670,6 +940,12 @@ export default function UsersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedUserIds.size === profiles.length && profiles.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>User</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
@@ -679,7 +955,13 @@ export default function UsersPage() {
                   </TableHeader>
                   <TableBody>
                     {profiles.map((profile) => (
-                      <TableRow key={profile.id}>
+                      <TableRow key={profile.id} className={selectedUserIds.has(profile.id) ? "bg-primary/5" : ""}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedUserIds.has(profile.id)}
+                            onCheckedChange={() => toggleUserSelection(profile.id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
@@ -691,6 +973,12 @@ export default function UsersPage() {
                             <span className="font-medium">
                               {profile.full_name || "No name"}
                             </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{profile.email || "-"}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {getRoleBadge(profile.role)}
                             {isUserHost(profile) && (
                               <Badge variant="outline" className="border-amber-500 text-amber-600">
                                 Host
@@ -698,24 +986,34 @@ export default function UsersPage() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{profile.email || "-"}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {getRoleBadge(profile.role)}
-                          </div>
-                        </TableCell>
                         <TableCell>
                           {locations.find((l) => l.id === profile.location_id)?.name || "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(profile)}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(profile.id)}>
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            </Button>
-                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => openEditDialog(profile)}>
+                                <Pencil className="w-4 h-4 mr-2" />
+                                Edit User
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setPasswordResetUserId(profile.id); setIsPasswordResetDialogOpen(true); }}>
+                                <KeyRound className="w-4 h-4 mr-2" />
+                                Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(profile.id)}>
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete User
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))}

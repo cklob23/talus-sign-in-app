@@ -62,7 +62,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
       <div className="p-4 border-t">
-        <p className="text-xs text-muted-foreground">TalusAg Visitor Management</p>
+        <p className="text-xs text-muted-foreground">Talus Visitor Management</p>
       </div>
     </>
   )

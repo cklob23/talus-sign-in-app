@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, UserCheck, Clock, AlertTriangle, Briefcase } from "lucide-react"
 import { DashboardCharts } from "@/components/admin/dashboard-charts"
 import { RecentVisitors } from "@/components/admin/recent-visitors"
+import { DashboardMap } from "@/components/admin/dashboard-map"
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -63,8 +64,11 @@ export default async function AdminDashboardPage() {
     <div className="space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at Talus facilities</p>
+        <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at TalusAg facilities</p>
       </div>
+
+      {/* Location Map */}
+      <DashboardMap />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <Card>
