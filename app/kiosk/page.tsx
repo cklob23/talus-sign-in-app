@@ -199,7 +199,7 @@ export default function KioskPage() {
       loadEmployeeAfterOAuth()
     }
   }, [searchParams, router])
-
+  
   // Load settings from database based on selected location
   useEffect(() => {
     async function loadSettings() {
@@ -1470,7 +1470,7 @@ export default function KioskPage() {
               {employeeSignedIn && currentEmployee ? (
                 <Card className="border-green-200 bg-green-50/50 mb-4 sm:mb-6">
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
                         <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
                           <AvatarImage src={currentEmployee.avatar_url || undefined} />
