@@ -139,12 +139,12 @@ export default function LoginPage() {
                     Sign in with Microsoft
                   </Button>
                 </div>
-                <div className="mt-4 text-center text-xs sm:text-sm">
+                {/* <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
                   <Link href="/auth/sign-up" className="underline underline-offset-4 text-primary">
                     Sign up
                   </Link>
-                </div>
+                </div> */}
               </form>
             </CardContent>
           </Card>
