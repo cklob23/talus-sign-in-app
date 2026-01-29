@@ -199,7 +199,7 @@ export default function KioskPage() {
       loadEmployeeAfterOAuth()
     }
   }, [searchParams, router])
-  
+
   // Load settings from database based on selected location
   useEffect(() => {
     async function loadSettings() {
@@ -400,6 +400,13 @@ export default function KioskPage() {
       }
     }
   }, [nearestLocation])
+
+  // Pre-fill employee email when entering employee-login mode with a remembered employee
+  useEffect(() => {
+    if (mode === "employee-login" && rememberedEmployee?.email) {
+      setEmployeeEmail(rememberedEmployee.email)
+    }
+  }, [mode, rememberedEmployee])
 
   async function autoSignInEmployee(employee: RememberedEmployee) {
     if (!selectedLocation) {
