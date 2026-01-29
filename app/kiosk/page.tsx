@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -96,6 +97,7 @@ export default function KioskPage() {
   const [employeePassword, setEmployeePassword] = useState("")
   const [rememberedEmployee, setRememberedEmployee] = useState<RememberedEmployee | null>(null)
   const [currentEmployee, setCurrentEmployee] = useState<Profile | null>(null)
+  const [employeeSignIn, setEmployeeSignIn] = useState("")
   const [employeeSignedIn, setEmployeeSignedIn] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
 
@@ -368,10 +370,15 @@ export default function KioskPage() {
         full_name: employee.fullName,
         role: employee.role,
         location_id: employee.locationId,
-        avatar_url: null,
-        created_at: "",
-        updated_at: "",
+        avatar_url: employee.avatar_url,
+        created_at: employee.created_at,
+        updated_at: employee.updated_at,
       })
+      setEmployeeSignIn(new Date(existingSignIn.sign_in_time).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }))
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
@@ -663,29 +670,75 @@ export default function KioskPage() {
       const printWindow = window.open("", "_blank", "width=400,height=300")
       if (printWindow) {
         printWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Visitor Badge</title>
-            <style>
-              body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-              .badge { border: 2px solid #333; padding: 20px; width: 300px; margin: 0 auto; }
-              .badge-number { font-size: 32px; font-weight: bold; color: ${selectedBooking.visitor_type?.badge_color || "#10B981"}; }
-              .visitor-name { font-size: 24px; margin: 10px 0; }
-              .company { font-size: 14px; color: #666; }
-              .date { font-size: 12px; color: #999; margin-top: 10px; }
-            </style>
-          </head>
-          <body>
-            <div class="badge">
-              <div class="badge-number">${badgeNumber}</div>
-              <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
-              ${selectedBooking.visitor_company ? `<div class="company">${selectedBooking.visitor_company}</div>` : ""}
-              <div class="date">${new Date().toLocaleDateString()}</div>
+         <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Visitor Badge</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              text-align: center;
+              padding: 20px;
+            }
+
+            .badge {
+              border: 2px solid #333;
+              padding: 20px;
+              width: 300px;
+              margin: 0 auto;
+            }
+
+            .logo {
+              max-width: 180px;
+              height: auto;
+              margin-bottom: 15px;
+            }
+
+            .badge-number {
+              font-size: 32px;
+              font-weight: bold;
+              color: ${selectedBooking.visitor_type?.badge_color || "#10B981"};
+            }
+
+            .visitor-name {
+              font-size: 24px;
+              margin: 10px 0;
+            }
+
+            .company {
+              font-size: 14px;
+              color: #666;
+            }
+
+            .date {
+              font-size: 12px;
+              color: #999;
+              margin-top: 10px;
+            }
+          </style>      
+        </head>
+        <body>
+          <div class="badge">
+            <!-- Logo -->
+            <img src="./talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
+
+            <div class="badge-number">${badgeNumber}</div>
+            <div class="visitor-name">
+              ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}
             </div>
-            <script>window.print(); window.close();</script>
-          </body>
-          </html>
+            ${selectedBooking.visitor_company
+            ? `<div class="company">${selectedBooking.visitor_company}</div>`
+            : ""
+          }
+            <div class="date">${new Date().toLocaleDateString()}</div>
+          </div>
+
+          <script>
+            window.print();
+            window.close();
+          </script>
+        </body>
+        </html>
         `)
         printWindow.document.close()
       }
@@ -756,8 +809,8 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Simulate 60 seconds of required watching time
-    const totalDuration = 60
+    // Simulate 47.39 minutes of required watching time
+    const totalDuration = 2843.4
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -875,6 +928,8 @@ export default function KioskPage() {
             </head>
             <body>
               <div class="badge">
+              <!-- Logo -->
+              <img src="./talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
                 <div class="badge-number">${badgeNumber}</div>
                 <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                 ${form.company ? `<div class="company">${form.company}</div>` : ""}
@@ -1081,7 +1136,11 @@ export default function KioskPage() {
         localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
         setRememberedEmployee(rememberedData)
       }
-
+      setEmployeeSignIn(new Date().toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }))
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
@@ -1227,7 +1286,7 @@ export default function KioskPage() {
                 </>
               )}
             </div>
-            {/* Location selector if multiple locations */}
+            {/* Location selector if multiple locations
             {locations.length > 1 && (
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                 <SelectTrigger className="w-[140px] sm:w-[180px]">
@@ -1241,7 +1300,7 @@ export default function KioskPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
+            )} */}
           </div>
         </div>
       </header>
@@ -1318,9 +1377,12 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold shrink-0">
-                          {currentEmployee.full_name?.charAt(0) || currentEmployee.email?.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          <AvatarImage src={currentEmployee.avatar_url || undefined} />
+                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                            {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
@@ -1370,9 +1432,12 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
-                          {rememberedEmployee.fullName.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          <AvatarImage src={rememberedEmployee.avatar_url || undefined} />
+                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                            {rememberedEmployee.fullName?.charAt(0) || rememberedEmployee.email.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
@@ -1626,8 +1691,8 @@ export default function KioskPage() {
                         <Card
                           key={booking.id}
                           className={`cursor-pointer transition-all ${selectedBooking?.id === booking.id
-                              ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                              : "hover:border-blue-300"
+                            ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
+                            : "hover:border-blue-300"
                             }`}
                           onClick={() => setSelectedBooking(booking)}
                         >
@@ -1901,11 +1966,7 @@ export default function KioskPage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Signed in at</p>
                       <p className="font-medium">
-                        {new Date().toLocaleTimeString("en-US", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          hour12: true,
-                        })}
+                        {employeeSignIn}
                       </p>
                     </div>
                   </div>
