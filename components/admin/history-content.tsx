@@ -174,7 +174,7 @@ export function HistoryContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4 w-full sm:w-auto">
+        <TabsList className="w-60 sm:w-70">
           <TabsTrigger value="all" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Visitors</span> ({filteredSignIns.length})

@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label"
 import { AlertTriangle, CheckCircle, Siren, Download } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Evacuation, SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
   profile: Profile | null
@@ -82,10 +83,11 @@ export default function EvacuationsPage() {
   function exportEvacuationCSV() {
     if (!selectedLocation) return
     
-    const timestamp = new Date().toLocaleString()
+    const timezone = selectedLocation.timezone || "UTC"
+    const timestamp = formatFullDateTime(new Date().toISOString(), timezone)
     const csvContent = [
       [`EVACUATION LIST - ${selectedLocation.name}`],
-      [`Generated: ${timestamp}`],
+      [`Generated: ${timestamp} (${timezone})`],
       [`Reason: ${reason || "Not specified"}`],
       [],
       ["VISITORS ON-SITE"],
@@ -96,7 +98,7 @@ export default function EvacuationsPage() {
         v.visitor?.email || "",
         v.badge_number || "",
         v.host?.name || "",
-        new Date(v.sign_in_time).toLocaleString(),
+        formatFullDateTime(v.sign_in_time, timezone),
       ]),
       [],
       ["EMPLOYEES ON-SITE"],
@@ -105,7 +107,7 @@ export default function EvacuationsPage() {
         e.profile?.full_name || "",
         e.profile?.email || "",
         e.profile?.role || "",
-        new Date(e.sign_in_time).toLocaleString(),
+        formatFullDateTime(e.sign_in_time, timezone),
       ]),
       [],
       [`Total Visitors: ${locationVisitors.length}`],
@@ -244,7 +246,7 @@ export default function EvacuationsPage() {
                   EVACUATION IN PROGRESS
                 </CardTitle>
                 <CardDescription className="text-xs sm:text-sm">
-                  Started {new Date(activeEvacuation.started_at).toLocaleString()}
+                  Started {formatFullDateTime(activeEvacuation.started_at, (activeEvacuation as Evacuation & { location?: Location }).location?.timezone || "UTC")}
                   {activeEvacuation.reason && ` - ${activeEvacuation.reason}`}
                   {(activeEvacuation as Evacuation & { location?: Location }).location && 
                     ` at ${(activeEvacuation as Evacuation & { location?: Location }).location?.name}`}
@@ -359,7 +361,7 @@ export default function EvacuationsPage() {
                   <div key={evac.id} className="border rounded-lg p-3 space-y-2">
                     <div className="flex items-start justify-between">
                       <p className="font-medium text-sm">
-                        {new Date(evac.started_at).toLocaleDateString()}
+                        {formatDateTime(evac.started_at, (evac as Evacuation & { location?: Location }).location?.timezone || "UTC")}
                       </p>
                       {evac.all_clear ? (
                         <Badge variant="secondary" className="text-xs">All Clear</Badge>
@@ -370,7 +372,6 @@ export default function EvacuationsPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Location: {evac.location?.name || "-"}</span>
                       <span>Reason: {evac.reason || "-"}</span>
                       <span>
                         Duration: {evac.ended_at
@@ -387,7 +388,6 @@ export default function EvacuationsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
-                      <TableHead>Location</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Duration</TableHead>
                       <TableHead>Status</TableHead>
@@ -396,8 +396,7 @@ export default function EvacuationsPage() {
                   <TableBody>
                     {evacuations.map((evac) => (
                       <TableRow key={evac.id}>
-                        <TableCell>{new Date(evac.started_at).toLocaleString()}</TableCell>
-                        <TableCell>{evac.location?.name || "-"}</TableCell>
+                        <TableCell>{formatDateTime(evac.started_at, (evac as Evacuation & { location?: Location }).location?.timezone || "UTC")}</TableCell>
                         <TableCell>{evac.reason || "-"}</TableCell>
                         <TableCell>
                           {evac.ended_at

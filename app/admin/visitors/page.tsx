@@ -130,7 +130,7 @@ export default function CurrentVisitorsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full sm:w-auto">
+        <TabsList className="w-60 sm:w-70">
           <TabsTrigger value="visitors" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Visitors</span> ({visitors.length})

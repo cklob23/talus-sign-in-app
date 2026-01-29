@@ -34,6 +34,7 @@ import {
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
 
@@ -91,6 +92,8 @@ export default function KioskPage() {
   const [geoError, setGeoError] = useState<string | null>(null)
   const [isDetectingLocation, setIsDetectingLocation] = useState(true)
   const [nearestLocation, setNearestLocation] = useState<{ location: Location; distance: number } | null>(null)
+  const [selectedLocationDistance, setSelectedLocationDistance] = useState<number | null>(null)
+  const [userLocationName, setUserLocationName] = useState<string | null>(null)
 
   // Employee login state
   const [employeeEmail, setEmployeeEmail] = useState("")
@@ -114,6 +117,9 @@ export default function KioskPage() {
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
   const [badgePrintingEnabled, setBadgePrintingEnabled] = useState(false)
+
+  // Clock state for displaying local time
+  const [currentTime, setCurrentTime] = useState(new Date())
 
   // Booking lookup state
   const [bookingEmail, setBookingEmail] = useState("")
@@ -301,6 +307,39 @@ export default function KioskPage() {
     )
   }, [])
 
+  // Reverse geocode user coordinates to get location name
+  useEffect(() => {
+    if (!userCoords) return
+
+    async function reverseGeocode() {
+      try {
+        // Using OpenStreetMap's Nominatim API for reverse geocoding (free, no API key needed)
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${userCoords?.lat}&lon=${userCoords?.lng}&zoom=10`,
+          { headers: { "User-Agent": "TalusSignIn/1.0" } }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          // Get city/town/village name, falling back to county or state
+          const locationName =
+            data.address?.city ||
+            data.address?.town ||
+            data.address?.village ||
+            data.address?.county ||
+            data.address?.state ||
+            null
+          setUserLocationName(locationName)
+        }
+      } catch (err) {
+        console.log("[v0] Reverse geocoding error:", err)
+        // Non-critical, just won't show the location name
+      }
+    }
+
+    reverseGeocode()
+  }, [userCoords])
+
   // Auto-select nearest location when coordinates and locations are available
   useEffect(() => {
     if (userCoords && locations.length > 0) {
@@ -311,6 +350,39 @@ export default function KioskPage() {
       }
     }
   }, [userCoords, locations, findNearestLocation])
+
+  // Calculate distance to selected location when it changes
+  useEffect(() => {
+    if (userCoords && selectedLocation) {
+      const selectedLoc = locations.find(l => l.id === selectedLocation)
+      if (selectedLoc?.latitude && selectedLoc?.longitude) {
+        const distance = calculateDistance(
+          userCoords.lat,
+          userCoords.lng,
+          selectedLoc.latitude,
+          selectedLoc.longitude
+        )
+        setSelectedLocationDistance(distance)
+      } else {
+        setSelectedLocationDistance(null)
+      }
+    } else {
+      setSelectedLocationDistance(null)
+    }
+  }, [userCoords, selectedLocation, locations, calculateDistance])
+
+  // Get the current selected location object
+  const currentLocation = locations.find(l => l.id === selectedLocation)
+  const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
+  const currentTimezone = currentLocation?.timezone || "UTC"
+
+  // Update clock every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   // Check for remembered employee and auto-login
   useEffect(() => {
@@ -730,7 +802,7 @@ export default function KioskPage() {
             ? `<div class="company">${selectedBooking.visitor_company}</div>`
             : ""
           }
-            <div class="date">${new Date().toLocaleDateString()}</div>
+            <div class="date">${formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}</div>
           </div>
 
           <script>
@@ -933,7 +1005,7 @@ export default function KioskPage() {
                 <div class="badge-number">${badgeNumber}</div>
                 <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                 ${form.company ? `<div class="company">${form.company}</div>` : ""}
-                <div class="date">${new Date().toLocaleDateString()}</div>
+                <div class="date">${formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}</div>
               </div>
               <script>window.print(); window.close();</script>
             </body>
@@ -1136,11 +1208,7 @@ export default function KioskPage() {
         localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
         setRememberedEmployee(rememberedData)
       }
-      setEmployeeSignIn(new Date().toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      }))
+      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
@@ -1262,6 +1330,20 @@ export default function KioskPage() {
             </Link>
           </div>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            {/* Clock display with location timezone */}
+            <div className="hidden md:flex items-center gap-2 text-sm border-r pr-4 mr-2">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <span className="font-mono text-foreground">
+                {currentTime.toLocaleTimeString("en-US", {
+                  timeZone: toIANATimezone(currentTimezone),
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {getTimezoneAbbreviation(currentTimezone)}
+              </span>
+            </div>
             {/* Location indicator */}
             <div className="hidden sm:flex items-center gap-2 text-sm">
               {isDetectingLocation ? (
@@ -1269,24 +1351,37 @@ export default function KioskPage() {
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                   <span className="text-muted-foreground">Detecting location...</span>
                 </>
+              ) : isSelectedDifferentFromNearest && currentLocation ? (
+                <>
+                  <Building2 className="w-4 h-4 text-amber-500" />
+                  <span className="text-foreground font-medium">{currentLocation.name}</span>
+                  {selectedLocationDistance !== null && (
+                    <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
+                      {formatDistance(selectedLocationDistance)}
+                    </Badge>
+                  )}
+                </>
               ) : nearestLocation ? (
                 <>
                   <MapPin className="w-4 h-4 text-primary" />
-                  <span className="text-foreground font-medium">{nearestLocation.location.name}</span>
+                  <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
                   <Badge variant="secondary" className="text-xs">
                     {formatDistance(nearestLocation.distance)}
                   </Badge>
                 </>
+              ) : currentLocation ? (
+                <>
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">{currentLocation.name}</span>
+                </>
               ) : (
                 <>
                   <Building2 className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    {locations.find((l) => l.id === selectedLocation)?.name || "Select location"}
-                  </span>
+                  <span className="text-muted-foreground">Select location</span>
                 </>
               )}
             </div>
-            {/* Location selector if multiple locations
+
             {locations.length > 1 && (
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                 <SelectTrigger className="w-[140px] sm:w-[180px]">
@@ -1300,7 +1395,7 @@ export default function KioskPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )} */}
+            )}
           </div>
         </div>
       </header>
@@ -1480,12 +1575,7 @@ export default function KioskPage() {
 
               <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
                 <Clock className="w-4 h-4" />
-                {new Date().toLocaleDateString("en-US", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
+                {formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}
               </p>
             </div>
           </div>
@@ -1711,10 +1801,7 @@ export default function KioskPage() {
                                 <div className="flex flex-wrap gap-2 mt-2">
                                   <Badge variant="secondary" className="text-xs">
                                     <Clock className="w-3 h-3 mr-1" />
-                                    {new Date(booking.expected_arrival).toLocaleTimeString([], {
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
+                                    {formatTime(booking.expected_arrival, locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}
                                   </Badge>
                                   {booking.host && (
                                     <Badge variant="outline" className="text-xs">
@@ -1882,15 +1969,27 @@ export default function KioskPage() {
                     </label>
                   </div>
 
-                  {nearestLocation && (
-                    <div className="bg-muted/50 rounded-lg p-3 flex items-center gap-3">
-                      <MapPin className="w-5 h-5 text-primary" />
-                      <div>
-                        <p className="text-sm font-medium">Signing in at {nearestLocation.location.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDistance(nearestLocation.distance, "from location")}
-                        </p>
+                  {currentLocation && (
+                    <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <Building2 className="w-5 h-5 text-primary" />
+                        <div>
+                          <p className="text-sm font-medium">Signing in at {currentLocation.name}</p>
+                          {selectedLocationDistance !== null && (
+                            <p className="text-xs text-muted-foreground">
+                              {formatDistance(selectedLocationDistance, "from your location")}
+                            </p>
+                          )}
+                        </div>
                       </div>
+                      {/* {userLocationName && (
+                        <div className="flex items-center gap-3 pt-1 border-t border-border/50">
+                          <MapPin className="w-4 h-4 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Your current location: <span className="font-medium text-foreground">{userLocationName}</span>
+                          </p>
+                        </div>
+                      )} */}
                     </div>
                   )}
 

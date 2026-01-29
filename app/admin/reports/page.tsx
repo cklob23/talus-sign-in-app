@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Pie, PieChart, Cell, Legend } from "recharts"
 import { Download } from "lucide-react"
+import { formatFullDateTime } from "@/lib/timezone"
 
 interface ReportData {
   totalVisitors: number
@@ -34,11 +35,11 @@ export default function ReportsPage() {
 
     const periodLabel = period === "7" ? "Last 7 days" : period === "14" ? "Last 14 days" : period === "30" ? "Last 30 days" : "Last 90 days"
     
-    // Create CSV content with summary and detailed data
+    // Create CSV content with summary and detailed data (all times in UTC)
     const csvContent = [
       // Summary section
       [`Visitor Report - ${periodLabel}`],
-      [`Generated: ${new Date().toLocaleString()}`],
+      [`Generated: ${formatFullDateTime(new Date().toISOString(), "UTC")} (UTC)`],
       [],
       ["Summary"],
       ["Total Sign-Ins", data.totalVisitors],
@@ -57,8 +58,8 @@ export default function ReportsPage() {
       ["Day", "Count"],
       ...data.byDay.map(d => [d.day, d.count]),
       [],
-      ["Detailed Sign-Ins"],
-      ["Visitor Name", "Email", "Company", "Type", "Host", "Sign In", "Sign Out", "Duration (min)"],
+      ["Detailed Sign-Ins (Times in UTC)"],
+      ["Visitor Name", "Email", "Company", "Type", "Host", "Sign In (UTC)", "Sign Out (UTC)", "Duration (min)"],
       ...data.rawSignIns.map(s => {
         const duration = s.sign_out_time 
           ? Math.round((new Date(s.sign_out_time).getTime() - new Date(s.sign_in_time).getTime()) / (1000 * 60))
@@ -69,8 +70,8 @@ export default function ReportsPage() {
           s.visitor?.company || "",
           s.visitor_type?.name || "",
           s.host?.name || "",
-          new Date(s.sign_in_time).toLocaleString(),
-          s.sign_out_time ? new Date(s.sign_out_time).toLocaleString() : "",
+          formatFullDateTime(s.sign_in_time, "UTC"),
+          s.sign_out_time ? formatFullDateTime(s.sign_out_time, "UTC") : "",
           duration,
         ]
       }),
