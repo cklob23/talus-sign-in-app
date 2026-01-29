@@ -1333,14 +1333,14 @@ export default function KioskPage() {
             {/* Clock display with location timezone */}
             <div className="hidden md:flex items-center gap-2 text-sm border-r pr-4 mr-2">
               <Clock className="w-4 h-4 text-muted-foreground" />
-              <span className="font-mono text-foreground">
+              <span className="font-medium text-foreground">
                 {currentTime.toLocaleTimeString("en-US", {
                   timeZone: toIANATimezone(currentTimezone),
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="font-medium text-xs text-muted-foreground">
                 {getTimezoneAbbreviation(currentTimezone)}
               </span>
             </div>
