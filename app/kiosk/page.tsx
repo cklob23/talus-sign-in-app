@@ -747,77 +747,87 @@ export default function KioskPage() {
     // Handle badge printing if enabled
     if (badgePrintingEnabled) {
       const printWindow = window.open("", "_blank", "width=400,height=300")
+
       if (printWindow) {
+        printWindow.document.open()
         printWindow.document.write(`
-         <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Visitor Badge</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              text-align: center;
-              padding: 20px;
-            }
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Visitor Badge</title>
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                text-align: center;
+                padding: 20px;
+              }
 
-            .badge {
-              border: 2px solid #333;
-              padding: 20px;
-              width: 300px;
-              margin: 0 auto;
-            }
+              .badge {
+                border: 2px solid #333;
+                padding: 20px;
+                width: 300px;
+                margin: 0 auto;
+              }
 
-            .logo {
-              max-width: 180px;
-              height: auto;
-              margin-bottom: 15px;
-            }
+              .logo {
+                max-width: 180px;
+                height: auto;
+                margin-bottom: 15px;
+              }
 
-            .badge-number {
-              font-size: 32px;
-              font-weight: bold;
-              color: ${selectedBooking.visitor_type?.badge_color || "#10B981"};
-            }
+              .badge-number {
+                font-size: 32px;
+                font-weight: bold;
+                color: ${selectedBooking.visitor_type?.badge_color || "#10B981"};
+              }
 
-            .visitor-name {
-              font-size: 24px;
-              margin: 10px 0;
-            }
+              .visitor-name {
+                font-size: 24px;
+                margin: 10px 0;
+              }
 
-            .company {
-              font-size: 14px;
-              color: #666;
-            }
+              .company {
+                font-size: 14px;
+                color: #666;
+              }
 
-            .date {
-              font-size: 12px;
-              color: #999;
-              margin-top: 10px;
-            }
-          </style>      
-        </head>
-        <body>
-          <div class="badge">
-            <!-- Logo -->
-            <img src="./talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
+              .date {
+                font-size: 12px;
+                color: #999;
+                margin-top: 10px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="badge">
+              <img src="${window.location.origin}/talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
 
-            <div class="badge-number">${badgeNumber}</div>
-            <div class="visitor-name">
-              ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}
-            </div>
-            ${selectedBooking.visitor_company
+              <div class="badge-number">${badgeNumber}</div>
+              <div class="visitor-name">
+                ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}
+              </div>
+              ${selectedBooking.visitor_company
             ? `<div class="company">${selectedBooking.visitor_company}</div>`
             : ""
           }
-            <div class="date">${formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}</div>
-          </div>
+              <div class="date">
+                ${formatDate(
+            new Date().toISOString(),
+            locations.find(l => l.id === selectedLocation)?.timezone || "UTC"
+          )}
+              </div>
+            </div>
 
-          <script>
-            window.print();
-            window.close();
-          </script>
-        </body>
-        </html>
+            <script>
+              window.onload = () => {
+                setTimeout(() => {
+                  window.print()
+                  window.close()
+                }, 300)
+              }
+            </script>
+          </body>
+          </html>
         `)
         printWindow.document.close()
       }
@@ -988,33 +998,73 @@ export default function KioskPage() {
 
       // Trigger badge printing if enabled
       if (badgePrintingEnabled) {
-        // Open print dialog for badge
         const printWindow = window.open("", "_blank", "width=400,height=300")
+
         if (printWindow) {
+          printWindow.document.open()
           printWindow.document.write(`
             <!DOCTYPE html>
             <html>
             <head>
               <title>Visitor Badge</title>
               <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-                .badge { border: 2px solid #333; padding: 20px; width: 300px; margin: 0 auto; }
-                .badge-number { font-size: 32px; font-weight: bold; color: #10B981; }
-                .visitor-name { font-size: 24px; margin: 10px 0; }
-                .company { font-size: 14px; color: #666; }
-                .date { font-size: 12px; color: #999; margin-top: 10px; }
+                body {
+                  font-family: Arial, sans-serif;
+                  text-align: center;
+                  padding: 20px;
+                }
+                .badge {
+                  border: 2px solid #333;
+                  padding: 20px;
+                  width: 300px;
+                  margin: 0 auto;
+                }
+                .logo {
+                  max-width: 150px;
+                  margin-bottom: 10px;
+                }
+                .badge-number {
+                  font-size: 32px;
+                  font-weight: bold;
+                  color: #10B981;
+                }
+                .visitor-name {
+                  font-size: 24px;
+                  margin: 10px 0;
+                }
+                .company {
+                  font-size: 14px;
+                  color: #666;
+                }
+                .date {
+                  font-size: 12px;
+                  color: #999;
+                  margin-top: 10px;
+                }
               </style>
             </head>
             <body>
               <div class="badge">
-              <!-- Logo -->
-              <img src="./talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
+                <img src="${window.location.origin}/talusAg_Logo.png" class="logo" />
                 <div class="badge-number">${badgeNumber}</div>
                 <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                 ${form.company ? `<div class="company">${form.company}</div>` : ""}
-                <div class="date">${formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}</div>
+                <div class="date">
+                  ${formatDate(
+            new Date().toISOString(),
+            locations.find(l => l.id === selectedLocation)?.timezone || "UTC"
+          )}
+                </div>
               </div>
-              <script>window.print(); window.close();</script>
+
+              <script>
+                window.onload = () => {
+                  setTimeout(() => {
+                    window.print()
+                    window.close()
+                  }, 300)
+                }
+              </script>
             </body>
             </html>
           `)
@@ -1235,6 +1285,8 @@ export default function KioskPage() {
       // First, sign out any existing session to ensure clean OAuth flow
       // This prevents stale refresh token issues
       await supabase.auth.signOut()
+      
+      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
 
       const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
 
@@ -1248,8 +1300,6 @@ export default function KioskPage() {
           },
         },
       })
-
-      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
 
       if (error) throw error
     } catch (err) {
