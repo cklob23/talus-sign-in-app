@@ -1964,18 +1964,21 @@ export default function KioskPage() {
                       placeholder="Enter your password"
                     />
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="rememberMe"
-                      checked={rememberMe}
-                      onCheckedChange={(checked) => setRememberMe(checked === true)}
-                    />
-                    <label htmlFor="rememberMe" className="text-sm cursor-pointer">
-                      Remember me on this device
-                    </label>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="rememberMe"
+                        checked={rememberMe}
+                        onCheckedChange={(checked) => setRememberMe(checked === true)}
+                      />
+                      <label htmlFor="rememberMe" className="text-sm cursor-pointer">
+                        Remember me on this device
+                      </label>
+                    </div>
+                    <Link href="/kiosk/forgot-password" className="text-sm text-primary hover:underline">
+                      Forgot password?
+                    </Link>
                   </div>
-
                   {currentLocation && (
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2">
                       <div className="flex items-center gap-3">
