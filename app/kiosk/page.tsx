@@ -1249,7 +1249,7 @@ export default function KioskPage() {
         },
       })
 
-
+      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
 
       if (error) throw error
     } catch (err) {
