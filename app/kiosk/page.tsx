@@ -1479,9 +1479,9 @@ export default function KioskPage() {
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                        <Avatar className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center shrink-0">
                           <AvatarImage src={currentEmployee.avatar_url || undefined} />
-                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-600">
+                          <AvatarFallback className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-semibold shrink-0 bg-blue-500">
                             {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
@@ -2051,9 +2051,9 @@ export default function KioskPage() {
           <div className="max-w-md mx-auto">
             <Card className="border-blue-200">
               <CardHeader className="text-center p-4 sm:p-6">
-                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                <Avatar className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mx-auto">
                   <AvatarImage src={currentEmployee.avatar_url || undefined} />
-                  <AvatarFallback className="w-16 h-16 sm:w-20 sm:h-20 bg-blue-600 flex items-center justify-center mx-auto mb-3 sm:mb-4 text-white text-xl sm:text-2xl font-bold">
+                  <AvatarFallback className="w-16 h-16 sm:w-20 sm:h-20 bg-blue-500 flex items-center justify-center mx-auto text-white text-xl sm:text-2xl font-semibold">
                     {currentEmployee.full_name?.charAt(0) || currentEmployee.email.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
