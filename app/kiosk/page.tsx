@@ -100,7 +100,7 @@ export default function KioskPage() {
   const [employeePassword, setEmployeePassword] = useState("")
   const [rememberedEmployee, setRememberedEmployee] = useState<RememberedEmployee | null>(null)
   const [currentEmployee, setCurrentEmployee] = useState<Profile | null>(null)
-  const [employeeSignIn, setEmployeeSignIn] = useState("")
+  const [employeeSignInRecord, setEmployeeSignInRecord] = useState<{ sign_in_time: string; location_name?: string; timezone?: string } | null>(null)
   const [employeeSignedIn, setEmployeeSignedIn] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
 
@@ -168,6 +168,16 @@ export default function KioskPage() {
           .single()
 
         if (profile) {
+          // Fetch the latest sign-in record to get time and location
+          const { data: signInRecord } = await supabase
+            .from("employee_sign_ins")
+            .select("sign_in_time, location:locations(name, timezone)")
+            .eq("profile_id", profile.id)
+            .is("sign_out_time", null)
+            .order("sign_in_time", { ascending: false })
+            .limit(1)
+            .single()
+
           setCurrentEmployee({
             id: profile.id,
             full_name: profile.full_name,
@@ -178,6 +188,16 @@ export default function KioskPage() {
             created_at: profile.created_at,
             updated_at: profile.updated_at,
           })
+
+          if (signInRecord) {
+            const locations = Array.isArray(signInRecord.location) ? signInRecord.location : [signInRecord.location]
+            const loc = locations?.[0] as { name: string; timezone: string } | null | undefined
+            setEmployeeSignInRecord({
+              sign_in_time: signInRecord.sign_in_time,
+              location_name: loc?.name,
+              timezone: loc?.timezone,
+            })
+          }
           setEmployeeSignedIn(true)
           setMode("employee-dashboard")
 
@@ -428,6 +448,11 @@ export default function KioskPage() {
         .is("sign_out_time", null)
         .single()
 
+      const currentLoc = locations.find(l => l.id === selectedLocation)
+      const locationName = currentLoc?.name
+      const locationTimezone = currentLoc?.timezone
+      let signInTime = new Date().toISOString()
+
       if (!existingSignIn) {
         // Auto sign in - use selectedLocation instead of nearestLocation
         const { error: insertError } = await supabase.from("employee_sign_ins").insert({
@@ -441,6 +466,8 @@ export default function KioskPage() {
           console.log("[v0] Employee sign-in insert error:", insertError)
           throw insertError
         }
+      } else {
+        signInTime = existingSignIn.sign_in_time
       }
 
       setCurrentEmployee({
@@ -450,14 +477,10 @@ export default function KioskPage() {
         role: employee.role,
         location_id: employee.locationId,
         avatar_url: employee.avatar_url,
-        created_at: employee.created_at,
-        updated_at: employee.updated_at,
+        created_at: "",
+        updated_at: "",
       })
-      setEmployeeSignIn(new Date(existingSignIn.sign_in_time).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      }))
+      setEmployeeSignInRecord({ sign_in_time: signInTime, location_name: locationName, timezone: locationTimezone })
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
@@ -488,12 +511,20 @@ export default function KioskPage() {
           // Check if they have an active sign-in
           const { data: activeSignIn } = await supabase
             .from("employee_sign_ins")
-            .select("*")
+            .select("*, location:locations(name, timezone)")
             .eq("profile_id", profile.id)
             .is("sign_out_time", null)
+            .order("sign_in_time", { ascending: false })
+            .limit(1)
             .single()
 
           if (activeSignIn) {
+            const loc = activeSignIn.location as { name: string; timezone: string } | null
+            setEmployeeSignInRecord({
+              sign_in_time: activeSignIn.sign_in_time,
+              location_name: loc?.name,
+              timezone: loc?.timezone,
+            })
             setEmployeeSignedIn(true)
             setMode("employee-dashboard")
           }
@@ -1238,6 +1269,11 @@ export default function KioskPage() {
 
       // Create employee sign-in record
       console.log("[v0] Creating employee sign-in for profile:", profile.id, "at location:", selectedLocation)
+      const signInTime = new Date().toISOString()
+      const selectedLoc = locations.find(l => l.id === selectedLocation)
+      const locationName = selectedLoc?.name
+      const locationTimezone = selectedLoc?.timezone
+
       const { error: signInError } = await supabase.from("employee_sign_ins").insert({
         profile_id: profile.id,
         location_id: selectedLocation,
@@ -1249,6 +1285,8 @@ export default function KioskPage() {
         console.log("[v0] Employee sign-in insert error:", signInError)
         throw signInError
       }
+
+      setEmployeeSignInRecord({ sign_in_time: signInTime, location_name: locationName, timezone: locationTimezone })
 
       // Remember employee if checkbox is checked
       if (rememberMe) {
@@ -1265,7 +1303,6 @@ export default function KioskPage() {
         localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
         setRememberedEmployee(rememberedData)
       }
-      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
@@ -1285,8 +1322,6 @@ export default function KioskPage() {
       // First, sign out any existing session to ensure clean OAuth flow
       // This prevents stale refresh token issues
       await supabase.auth.signOut()
-      
-      setEmployeeSignIn(formatTime(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC"))
 
       const redirectUrl = `${window.location.origin}/auth/callback?type=employee&location_id=${selectedLocation}`
 
@@ -1348,6 +1383,7 @@ export default function KioskPage() {
       })
       setCurrentEmployee(null)
       setEmployeeSignedIn(false)
+      setEmployeeSignInRecord(null)
       setEmployeeEmail("")
       setEmployeePassword("")
       setMode("success")
@@ -1371,6 +1407,7 @@ export default function KioskPage() {
     // Reset employee-related state
     setCurrentEmployee(null)
     setEmployeeSignedIn(false)
+    setEmployeeSignInRecord(null)
     setEmployeeEmail("")
     setEmployeePassword("")
   }
@@ -2128,7 +2165,9 @@ export default function KioskPage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Signed in at</p>
                       <p className="font-medium">
-                        {employeeSignIn}
+                        {employeeSignInRecord?.sign_in_time
+                          ? `${formatTime(employeeSignInRecord.sign_in_time, employeeSignInRecord.timezone || "UTC")} ${getTimezoneAbbreviation(employeeSignInRecord.timezone || "UTC")}`
+                          : "—"}
                       </p>
                     </div>
                   </div>
