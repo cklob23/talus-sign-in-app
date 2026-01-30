@@ -1,11 +1,14 @@
 "use client"
 
+import React from "react"
+
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
-import { TalusAgLogo } from "@/components/talusag-logo"
+import { useState, useEffect, createContext, useContext } from "react"
+import { TalusAgLogo, TalusAgLogoIcon } from "@/components/talusag-logo"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   LayoutDashboard,
   Users,
@@ -17,10 +20,27 @@ import {
   UserCog,
   FileText,
   Menu,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 import { UsersRound } from "lucide-react"
+
+const SIDEBAR_COLLAPSED_KEY = "admin-sidebar-collapsed"
+
+// Context to share collapsed state
+const SidebarContext = createContext<{
+  collapsed: boolean
+  setCollapsed: (collapsed: boolean) => void
+}>({
+  collapsed: false,
+  setCollapsed: () => {},
+})
+
+export function useSidebar() {
+  return useContext(SidebarContext)
+}
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -35,50 +55,132 @@ const navItems = [
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ]
 
-function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname()
 
   return (
     <>
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50",
-              )}
-            >
-              <item.icon className="w-5 h-5" />
-              {item.label}
-            </Link>
-          )
-        })}
+      <nav className={cn("flex-1 space-y-1", collapsed ? "p-2" : "p-4")}>
+        <TooltipProvider delayDuration={0}>
+          {navItems.map((item) => {
+            const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
+            
+            const linkContent = (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center rounded-md text-sm font-medium transition-colors",
+                  collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <item.icon className="w-5 h-5 shrink-0" />
+                {!collapsed && item.label}
+              </Link>
+            )
+
+            if (collapsed) {
+              return (
+                <Tooltip key={item.href}>
+                  <TooltipTrigger asChild>
+                    {linkContent}
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={10}>
+                    {item.label}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            }
+
+            return linkContent
+          })}
+        </TooltipProvider>
       </nav>
-      <div className="p-4 border-t">
-        <p className="text-xs text-muted-foreground">Talus Visitor Management</p>
-      </div>
+      {!collapsed && (
+        <div className="p-4 border-t">
+          <p className="text-xs text-muted-foreground">TalusAg Visitor Management</p>
+        </div>
+      )}
     </>
   )
 }
 
 // Desktop sidebar
-export function AdminSidebar() {
+export function AdminSidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
-    <aside className="hidden lg:flex w-64 border-r bg-sidebar flex-col">
-      <div className="p-4 border-b">
+    <aside 
+      className={cn(
+        "hidden lg:flex border-r bg-sidebar flex-col transition-all duration-300",
+        collapsed ? "w-16" : "w-64"
+      )}
+    >
+      <div className={cn("border-b flex items-center", collapsed ? "p-2 justify-center" : "p-4 justify-between")}>
         <Link href="/admin">
-          <TalusAgLogo />
+          {collapsed ? <TalusAgLogoIcon className="w-8 h-8" /> : <TalusAgLogo />}
         </Link>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggle}
+          className={cn("shrink-0", collapsed && "hidden")}
+        >
+          <PanelLeftClose className="w-5 h-5" />
+          <span className="sr-only">Collapse sidebar</span>
+        </Button>
       </div>
-      <NavContent />
+      {collapsed && (
+        <div className="p-2 border-b">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggle}
+            className="w-full"
+          >
+            <PanelLeft className="w-5 h-5" />
+            <span className="sr-only">Expand sidebar</span>
+          </Button>
+        </div>
+      )}
+      <NavContent collapsed={collapsed} />
     </aside>
+  )
+}
+
+// Sidebar provider to manage state
+export function SidebarProvider({ children }: { children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (stored !== null) {
+      setCollapsed(stored === "true")
+    }
+    setMounted(true)
+  }, [])
+
+  const handleSetCollapsed = (value: boolean) => {
+    setCollapsed(value)
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(value))
+  }
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <SidebarContext.Provider value={{ collapsed: false, setCollapsed: handleSetCollapsed }}>
+        {children}
+      </SidebarContext.Provider>
+    )
+  }
+
+  return (
+    <SidebarContext.Provider value={{ collapsed, setCollapsed: handleSetCollapsed }}>
+      {children}
+    </SidebarContext.Provider>
   )
 }
 

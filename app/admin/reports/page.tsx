@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTheme } from "next-themes"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -69,10 +70,46 @@ interface ReportData {
   combinedByDay: { day: string; visitors: number; employees: number }[]
 }
 
+// Theme-aware chart colors
+const chartColors = {
+  light: {
+    primary: "#16a34a", // green-600
+    secondary: "#3b82f6", // blue-500
+    tertiary: "#f59e0b", // amber-500
+    quaternary: "#8b5cf6", // violet-500
+    success: "#22c55e", // green-500
+    danger: "#ef4444", // red-500
+    warning: "#f59e0b", // amber-500
+    muted: "#9ca3af", // gray-400
+    axis: "#6b7280", // gray-500
+    tooltip: { bg: "#ffffff", border: "#e5e7eb" },
+  },
+  dark: {
+    primary: "#22c55e", // green-500
+    secondary: "#60a5fa", // blue-400
+    tertiary: "#fbbf24", // amber-400
+    quaternary: "#a78bfa", // violet-400
+    success: "#4ade80", // green-400
+    danger: "#f87171", // red-400
+    warning: "#fbbf24", // amber-400
+    muted: "#6b7280", // gray-500
+    axis: "#9ca3af", // gray-400
+    tooltip: { bg: "#1f2937", border: "#374151" },
+  },
+}
+
 export default function ReportsPage() {
+  const { resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [period, setPeriod] = useState("7")
   const [data, setData] = useState<ReportData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  const colors = chartColors[resolvedTheme === "dark" ? "dark" : "light"]
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const getPeriodLabel = (p: string) => {
     switch (p) {
@@ -558,12 +595,12 @@ export default function ReportsPage() {
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={data.combinedByDay}>
-                      <XAxis dataKey="day" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={30} />
-                      <Tooltip />
+                      <XAxis dataKey="day" stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} width={30} />
+                      <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
                       <Legend wrapperStyle={{ fontSize: "12px" }} />
-                      <Bar dataKey="visitors" name="Visitors" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="employees" name="Employees" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="visitors" name="Visitors" fill={colors.primary} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="employees" name="Employees" fill={colors.secondary} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -578,10 +615,10 @@ export default function ReportsPage() {
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={data.peakHours.filter((_, i) => i >= 6 && i <= 20)}>
-                      <XAxis dataKey="hour" stroke="#888888" fontSize={9} tickLine={false} axisLine={false} interval={1} />
-                      <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={25} />
-                      <Tooltip />
-                      <Bar dataKey="count" name="Sign-Ins" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                      <XAxis dataKey="hour" stroke={colors.axis} fontSize={9} tickLine={false} axisLine={false} interval={1} />
+                      <YAxis stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} width={25} />
+                      <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+                      <Bar dataKey="count" name="Sign-Ins" fill={colors.tertiary} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -634,13 +671,13 @@ export default function ReportsPage() {
                     {data.byType.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
                         <PieChart>
-                          <Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(entry) => entry.name}>
-                            {data.byType.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
+<Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(entry) => entry.name}>
+  {data.byType.map((entry, index) => (
+  <Cell key={`cell-${index}`} fill={entry.color} />
+  ))}
+  </Pie>
+  <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+  </PieChart>
                       </ResponsiveContainer>
                     ) : (
                       <p className="text-center py-8 text-muted-foreground text-sm">No data</p>
@@ -676,10 +713,10 @@ export default function ReportsPage() {
                     {data.byCompany.length > 0 ? (
                       <ResponsiveContainer width="100%" height={180}>
                         <BarChart data={data.byCompany} layout="vertical">
-                          <XAxis type="number" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                          <YAxis dataKey="name" type="category" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={100} />
-                          <Tooltip />
-                          <Bar dataKey="count" name="Visits" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                          <XAxis type="number" stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} />
+                          <YAxis dataKey="name" type="category" stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} width={100} />
+                          <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+                          <Bar dataKey="count" name="Visits" fill={colors.primary} radius={[0, 4, 4, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
@@ -749,10 +786,10 @@ export default function ReportsPage() {
                             innerRadius={40}
                             outerRadius={70}
                           >
-                            <Cell fill="#22c55e" />
-                            <Cell fill="#3b82f6" />
+                            <Cell fill={colors.success} />
+                            <Cell fill={colors.secondary} />
                           </Pie>
-                          <Tooltip />
+                          <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-2">
@@ -787,12 +824,12 @@ export default function ReportsPage() {
                     <>
                       <ResponsiveContainer width="100%" height={200}>
                         <BarChart data={data.byLocation}>
-                          <XAxis dataKey="name" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                          <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} width={30} />
-                          <Tooltip />
+                          <XAxis dataKey="name" stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} />
+                          <YAxis stroke={colors.axis} fontSize={10} tickLine={false} axisLine={false} width={30} />
+                          <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
                           <Legend wrapperStyle={{ fontSize: "12px" }} />
-                          <Bar dataKey="visitors" name="Visitors" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="employees" name="Employees" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="visitors" name="Visitors" fill={colors.primary} radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="employees" name="Employees" fill={colors.secondary} radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                       <div className="mt-4 space-y-2">
@@ -870,29 +907,29 @@ export default function ReportsPage() {
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   {data.totalBookings > 0 ? (
                     <div className="flex items-center gap-4">
-                      <ResponsiveContainer width="50%" height={180}>
-                        <PieChart>
-                          <Pie 
-                            data={[
-                              { name: "Checked In", count: data.checkedInBookings },
-                              { name: "Pending", count: data.pendingBookings - data.noShowBookings },
-                              { name: "No-Show", count: data.noShowBookings },
-                              { name: "Cancelled", count: data.cancelledBookings },
-                            ].filter(d => d.count > 0)} 
-                            dataKey="count" 
-                            nameKey="name" 
-                            cx="50%" 
-                            cy="50%" 
-                            innerRadius={40}
-                            outerRadius={70}
-                          >
-                            <Cell fill="#22c55e" />
-                            <Cell fill="#f59e0b" />
-                            <Cell fill="#ef4444" />
-                            <Cell fill="#9ca3af" />
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
+<ResponsiveContainer width="50%" height={180}>
+  <PieChart>
+  <Pie
+  data={[
+  { name: "Checked In", count: data.checkedInBookings },
+  { name: "Pending", count: data.pendingBookings - data.noShowBookings },
+  { name: "No-Show", count: data.noShowBookings },
+  { name: "Cancelled", count: data.cancelledBookings },
+  ].filter(d => d.count > 0)}
+  dataKey="count"
+  nameKey="name"
+  cx="50%"
+  cy="50%"
+  innerRadius={40}
+  outerRadius={70}
+  >
+  <Cell fill={colors.success} />
+  <Cell fill={colors.warning} />
+  <Cell fill={colors.danger} />
+<Cell fill={colors.muted} />
+  </Pie>
+  <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+  </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">

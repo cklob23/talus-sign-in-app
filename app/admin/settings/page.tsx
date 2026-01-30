@@ -20,7 +20,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor } from "lucide-react"
+import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 
 interface SystemSettings {
@@ -37,6 +38,8 @@ interface Location {
 }
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -143,6 +146,11 @@ export default function SettingsPage() {
       })
     }
   }
+
+  // Set mounted state for hydration
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Load locations on mount
   useEffect(() => {
@@ -508,6 +516,71 @@ export default function SettingsPage() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Sun className="w-5 h-5" />
+            Appearance
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Customize the look and feel of the admin dashboard</CardDescription>
+        </CardHeader>
+<CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+          <div className="space-y-3">
+            <Label className="text-sm">Theme</Label>
+            {!mounted ? (
+              <div className="grid grid-cols-3 gap-3">
+                <Button variant="outline" className="bg-transparent">
+                  <Sun className="w-4 h-4 mr-2" />
+                  Light
+                </Button>
+                <Button variant="outline" className="bg-transparent">
+                  <Moon className="w-4 h-4 mr-2" />
+                  Dark
+                </Button>
+                <Button variant="outline" className="bg-transparent">
+                  <Monitor className="w-4 h-4 mr-2" />
+                  System
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <Button
+                  variant={theme === "light" ? "default" : "outline"}
+                  className={theme !== "light" ? "bg-transparent" : ""}
+                  onClick={() => setTheme("light")}
+                >
+                  <Sun className="w-4 h-4 mr-2" />
+                  Light
+                </Button>
+                <Button
+                  variant={theme === "dark" ? "default" : "outline"}
+                  className={theme !== "dark" ? "bg-transparent" : ""}
+                  onClick={() => setTheme("dark")}
+                >
+                  <Moon className="w-4 h-4 mr-2" />
+                  Dark
+                </Button>
+                <Button
+                  variant={theme === "system" ? "default" : "outline"}
+                  className={theme !== "system" ? "bg-transparent" : ""}
+                  onClick={() => setTheme("system")}
+                >
+                  <Monitor className="w-4 h-4 mr-2" />
+                  System
+                </Button>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {!mounted 
+                ? "Loading theme preference..."
+                : theme === "system"
+                  ? "Theme will automatically match your system preferences"
+                  : `Using ${theme} mode`}
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

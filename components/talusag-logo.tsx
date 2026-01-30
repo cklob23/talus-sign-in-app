@@ -15,3 +15,12 @@ export function TalusAgLogo({ variant = "dark", className = "", width = 150, hei
     </div>
   )
 }
+
+// Icon-only version for collapsed sidebar
+export function TalusAgLogoIcon({ className = "" }: { className?: string }) {
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <img src="https://cdn.prod.website-files.com/63e9d2dd3264854461e894e8/63e9d2dd3264850372e89569_Favicon.png" alt="Talus Favicon" />
+    </div>
+  )
+}
