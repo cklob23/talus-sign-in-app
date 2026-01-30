@@ -809,7 +809,7 @@ export default function KioskPage() {
               .badge-number {
                 font-size: 32px;
                 font-weight: bold;
-                color: ${selectedBooking.visitor_type?.badge_color || "#10B981"};
+                color: ${selectedBooking.visitor_type?.badge_color || "#000"};
               }
 
               .visitor-name {
@@ -1057,7 +1057,7 @@ export default function KioskPage() {
                 .badge-number {
                   font-size: 32px;
                   font-weight: bold;
-                  color: #10B981;
+                  color: #000;
                 }
                 .visitor-name {
                   font-size: 24px;
