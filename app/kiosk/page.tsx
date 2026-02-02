@@ -29,7 +29,7 @@ import {
   Loader2,
   User,
   CalendarCheck,
-Search,
+  Search,
   Camera,
   RefreshCw,
 } from "lucide-react"
@@ -37,6 +37,7 @@ import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
+import { useBranding } from "@/hooks/use-branding"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -66,6 +67,7 @@ interface SignInForm {
 }
 
 export default function KioskPage() {
+  const { branding } = useBranding()
   const searchParams = useSearchParams()
   const router = useRouter()
   const [mode, setMode] = useState<KioskMode>("home")
@@ -107,7 +109,7 @@ export default function KioskPage() {
   const [rememberMe, setRememberMe] = useState(true)
 
   // Training video state
-const [trainingWatched, setTrainingWatched] = useState(false)
+  const [trainingWatched, setTrainingWatched] = useState(false)
   const [trainingAcknowledged, setTrainingAcknowledged] = useState(false)
   const [bypassTraining, setBypassTraining] = useState(false)
   const [visitorPhotoUrl, setVisitorPhotoUrl] = useState<string | null>(null)
@@ -132,19 +134,19 @@ const [trainingWatched, setTrainingWatched] = useState(false)
 
   // Booking lookup state
   const [bookingEmail, setBookingEmail] = useState("")
-const [bookingResults, setBookingResults] = useState<Array<{
-  id: string
-  visitor_first_name: string
-  visitor_last_name: string
-  visitor_email: string
-  visitor_company: string | null
-  expected_arrival: string
-  expected_departure: string | null
-  purpose: string | null
-  status: string
-  host_id: string | null
-  visitor_type_id: string | null
-  visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
+  const [bookingResults, setBookingResults] = useState<Array<{
+    id: string
+    visitor_first_name: string
+    visitor_last_name: string
+    visitor_email: string
+    visitor_company: string | null
+    expected_arrival: string
+    expected_departure: string | null
+    purpose: string | null
+    status: string
+    host_id: string | null
+    visitor_type_id: string | null
+    visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
   }>>([])
   const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
@@ -581,7 +583,7 @@ const [bookingResults, setBookingResults] = useState<Array<{
     try {
       const supabase = createClient()
 
-const { data: bookings, error: bookingsError } = await supabase
+      const { data: bookings, error: bookingsError } = await supabase
         .from("bookings")
         .select(`
           id,
@@ -608,27 +610,27 @@ const { data: bookings, error: bookingsError } = await supabase
         return
       }
 
-// Transform the results to match expected type (convert array fields to single objects)
-  // Note: host_id and visitor_type_id are UUID strings - visitor_type join may return as array
-  const transformedBookings = bookings.map((booking: any) => ({
-  ...booking,
-  host_id: booking.host_id, // Preserve host_id as-is (UUID string)
-  visitor_type_id: booking.visitor_type_id, // Preserve visitor_type_id as-is (UUID string)
-  visitor_type: Array.isArray(booking.visitor_type) && booking.visitor_type.length > 0 ? booking.visitor_type[0] : booking.visitor_type,
-  })) as typeof bookingResults
-  
-  setBookingResults(transformedBookings)
-  
-  // If only one booking, auto-select it
-  if (bookings.length === 1) {
-  const transformedBooking = {
-  ...bookings[0],
-  host_id: bookings[0].host_id, // host_id is a UUID string, not an array
-  visitor_type_id: bookings[0].visitor_type_id, // visitor_type_id is a UUID string
-  visitor_type: Array.isArray(bookings[0].visitor_type) && bookings[0].visitor_type.length > 0 ? bookings[0].visitor_type[0] : null,
-  } as typeof bookingResults[0]
-  setSelectedBooking(transformedBooking)
-  }
+      // Transform the results to match expected type (convert array fields to single objects)
+      // Note: host_id and visitor_type_id are UUID strings - visitor_type join may return as array
+      const transformedBookings = bookings.map((booking: any) => ({
+        ...booking,
+        host_id: booking.host_id, // Preserve host_id as-is (UUID string)
+        visitor_type_id: booking.visitor_type_id, // Preserve visitor_type_id as-is (UUID string)
+        visitor_type: Array.isArray(booking.visitor_type) && booking.visitor_type.length > 0 ? booking.visitor_type[0] : booking.visitor_type,
+      })) as typeof bookingResults
+
+      setBookingResults(transformedBookings)
+
+      // If only one booking, auto-select it
+      if (bookings.length === 1) {
+        const transformedBooking = {
+          ...bookings[0],
+          host_id: bookings[0].host_id, // host_id is a UUID string, not an array
+          visitor_type_id: bookings[0].visitor_type_id, // visitor_type_id is a UUID string
+          visitor_type: Array.isArray(bookings[0].visitor_type) && bookings[0].visitor_type.length > 0 ? bookings[0].visitor_type[0] : null,
+        } as typeof bookingResults[0]
+        setSelectedBooking(transformedBooking)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to lookup booking")
     } finally {
@@ -636,30 +638,30 @@ const { data: bookings, error: bookingsError } = await supabase
     }
   }
 
-// Complete sign-in for a pre-registered booking
+  // Complete sign-in for a pre-registered booking
   async function handleBookingSignIn() {
-  if (!selectedBooking) return
-  setIsLoading(true)
-  setError(null)
-  
-  try {
-  const supabase = createClient()
-  
-  // Fetch visitor type if we have an ID but no joined data
-  let visitorTypeData = selectedBooking.visitor_type
-  if (!visitorTypeData && selectedBooking.visitor_type_id) {
-    const { data: fetchedType } = await supabase
-      .from("visitor_types")
-      .select("id, name, badge_color, requires_training")
-      .eq("id", selectedBooking.visitor_type_id)
-      .single()
-    if (fetchedType) {
-      visitorTypeData = fetchedType
-    }
-  }
-  
-  // Check if visitor type requires training
-  if (visitorTypeData?.requires_training) {
+    if (!selectedBooking) return
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const supabase = createClient()
+
+      // Fetch visitor type if we have an ID but no joined data
+      let visitorTypeData = selectedBooking.visitor_type
+      if (!visitorTypeData && selectedBooking.visitor_type_id) {
+        const { data: fetchedType } = await supabase
+          .from("visitor_types")
+          .select("id, name, badge_color, requires_training")
+          .eq("id", selectedBooking.visitor_type_id)
+          .single()
+        if (fetchedType) {
+          visitorTypeData = fetchedType
+        }
+      }
+
+      // Check if visitor type requires training
+      if (visitorTypeData?.requires_training) {
         // First, find or create the visitor
         let visitorId: string | null = null
 
@@ -674,11 +676,11 @@ const { data: bookings, error: bookingsError } = await supabase
 
           // Check for existing training completion
           const { data: trainingCompletion } = await supabase
-.from("training_completions")
-  .select("*")
-  .eq("visitor_id", existingVisitor.id)
-  .eq("visitor_type_id", visitorTypeData!.id)
-  .single()
+            .from("training_completions")
+            .select("*")
+            .eq("visitor_id", existingVisitor.id)
+            .eq("visitor_type_id", visitorTypeData!.id)
+            .single()
 
           if (trainingCompletion) {
             const hasExpired = trainingCompletion.expires_at &&
@@ -692,7 +694,7 @@ const { data: bookings, error: bookingsError } = await supabase
           }
         }
 
-// Need to show training video
+        // Need to show training video
         // Send host notification BEFORE training starts
         if (hostNotificationsEnabled && selectedBooking.host_id) {
           const { data: hostData } = await supabase
@@ -700,24 +702,24 @@ const { data: bookings, error: bookingsError } = await supabase
             .select("id, name, email, profile_id")
             .eq("id", selectedBooking.host_id)
             .single()
-          
+
           if (hostData) {
             let hostEmail = hostData.email
             let hostName = hostData.name
-            
+
             if (hostData.profile_id) {
               const { data: profileData } = await supabase
                 .from("profiles")
                 .select("full_name, email")
                 .eq("id", hostData.profile_id)
                 .single()
-              
+
               if (profileData) {
                 hostName = profileData.full_name || hostName
                 hostEmail = profileData.email || hostEmail
               }
             }
-            
+
             if (hostEmail) {
               try {
                 await fetch("/api/notify-host", {
@@ -740,24 +742,24 @@ const { data: bookings, error: bookingsError } = await supabase
             }
           }
         }
-        
+
         // Pre-fill the form with booking data for after training
         setForm({
           firstName: selectedBooking.visitor_first_name,
           lastName: selectedBooking.visitor_last_name,
-email: selectedBooking.visitor_email,
-  phone: "",
-  company: selectedBooking.visitor_company || "",
-  visitorTypeId: visitorTypeData!.id,
-  hostId: selectedBooking.host_id || "",
-  purpose: selectedBooking.purpose || "",
-  })
+          email: selectedBooking.visitor_email,
+          phone: "",
+          company: selectedBooking.visitor_company || "",
+          visitorTypeId: visitorTypeData!.id,
+          hostId: selectedBooking.host_id || "",
+          purpose: selectedBooking.purpose || "",
+        })
         setMode("training")
         setIsLoading(false)
         return
       }
 
-// No training required, proceed to photo capture
+      // No training required, proceed to photo capture
       setForm({
         firstName: selectedBooking.visitor_first_name,
         lastName: selectedBooking.visitor_last_name,
@@ -821,11 +823,11 @@ email: selectedBooking.visitor_email,
       }
     }
 
-// Upload photo if captured and update visitor
+    // Upload photo if captured and update visitor
     let photoUrl: string | null = null
     if (capturedPhoto && visitorId) {
       photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitorId)
-      
+
       // Update visitor with photo URL using API route to bypass RLS
       if (photoUrl) {
         try {
@@ -837,7 +839,7 @@ email: selectedBooking.visitor_email,
               photoUrl: photoUrl,
             }),
           })
-          
+
           if (!response.ok) {
             const errorData = await response.json()
             console.error("Error updating visitor photo_url:", errorData.error)
@@ -851,7 +853,7 @@ email: selectedBooking.visitor_email,
     // Generate badge number
     const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
 
-// Create sign-in record - use visitor_type_id directly from booking
+    // Create sign-in record - use visitor_type_id directly from booking
     const { error: signInError } = await supabase
       .from("sign_ins")
       .insert({
@@ -903,7 +905,7 @@ email: selectedBooking.visitor_email,
         }
       }
       console.log(hostName, hostEmail)
-if (hostEmail) {
+      if (hostEmail) {
         try {
           await fetch("/api/notify-host", {
             method: "POST",
@@ -1052,10 +1054,10 @@ if (hostEmail) {
             <div class="badge">
               <div class="lanyard-slot"></div>
 <div class="photo-section">
-                ${photoUrl || capturedPhoto 
-                  ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
-                  : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
-                }
+                ${photoUrl || capturedPhoto
+            ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
+            : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
+          }
               </div>
               <div class="info-section">
                 <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
@@ -1133,7 +1135,7 @@ if (hostEmail) {
         }
       }
 
-// No prior training or expired - send pre-training notification and go to training video step
+      // No prior training or expired - send pre-training notification and go to training video step
       if (hostNotificationsEnabled && form.hostId) {
         const supabase = createClient()
         const { data: hostData } = await supabase
@@ -1141,24 +1143,24 @@ if (hostEmail) {
           .select("id, name, email, profile_id")
           .eq("id", form.hostId)
           .single()
-        
+
         if (hostData) {
           let hostEmail = hostData.email
           let hostName = hostData.name
-          
+
           if (hostData.profile_id) {
             const { data: profileData } = await supabase
               .from("profiles")
               .select("full_name, email")
               .eq("id", hostData.profile_id)
               .single()
-            
+
             if (profileData) {
               hostName = profileData.full_name || hostName
               hostEmail = profileData.email || hostEmail
             }
           }
-          
+
           if (hostEmail) {
             try {
               await fetch("/api/notify-host", {
@@ -1181,7 +1183,7 @@ if (hostEmail) {
           }
         }
       }
-      
+
       setMode("training")
     } else {
       // No training required, proceed to photo capture
@@ -1221,7 +1223,7 @@ if (hostEmail) {
     }
   }, [])
 
-async function completeSignIn() {
+  async function completeSignIn() {
     setIsLoading(true)
     setError(null)
     stopCamera() // Ensure camera is stopped
@@ -1248,7 +1250,7 @@ async function completeSignIn() {
       let photoUrl: string | null = null
       if (capturedPhoto) {
         photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitor.id)
-        
+
         // Update visitor with photo URL using API route to bypass RLS
         if (photoUrl) {
           try {
@@ -1260,7 +1262,7 @@ async function completeSignIn() {
                 photoUrl: photoUrl,
               }),
             })
-            
+
             if (!response.ok) {
               const errorData = await response.json()
               console.error("Error updating visitor photo_url:", errorData.error)
@@ -1270,7 +1272,7 @@ async function completeSignIn() {
           }
         }
       }
-      
+
       // Store for badge printing
       setVisitorPhotoUrl(photoUrl)
 
@@ -1330,7 +1332,7 @@ async function completeSignIn() {
           }
         }
 
-if (hostEmail) {
+        if (hostEmail) {
           try {
             await fetch("/api/notify-host", {
               method: "POST",
@@ -1479,10 +1481,10 @@ if (hostEmail) {
               <div class="badge">
                 <div class="lanyard-slot"></div>
                 <div class="photo-section">
-                  ${visitorPhotoUrl || capturedPhoto 
-                    ? `<img src="${visitorPhotoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
-                    : `<div class="photo-placeholder">${form.firstName?.[0] || ""}${form.lastName?.[0] || ""}</div>`
-                  }
+                  ${visitorPhotoUrl || capturedPhoto
+              ? `<img src="${visitorPhotoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
+              : `<div class="photo-placeholder">${form.firstName?.[0] || ""}${form.lastName?.[0] || ""}</div>`
+            }
                 </div>
                 <div class="info-section">
                   <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
@@ -1536,7 +1538,7 @@ if (hostEmail) {
     }
   }
 
-function resetTraining() {
+  function resetTraining() {
     setTrainingWatched(false)
     setTrainingAcknowledged(false)
     setBypassTraining(false)
@@ -1573,20 +1575,20 @@ function resetTraining() {
 
   function capturePhoto() {
     if (!videoRef.current || !canvasRef.current) return
-    
+
     const video = videoRef.current
     const canvas = canvasRef.current
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-    
+
     const ctx = canvas.getContext("2d")
     if (!ctx) return
-    
+
     // Mirror the image horizontally for a more natural selfie look
     ctx.translate(canvas.width, 0)
     ctx.scale(-1, 1)
     ctx.drawImage(video, 0, 0)
-    
+
     const photoData = canvas.toDataURL("image/jpeg", 0.8)
     setCapturedPhoto(photoData)
     stopCamera()
@@ -1600,14 +1602,14 @@ function resetTraining() {
   async function uploadPhotoToSupabase(photoData: string, visitorId: string): Promise<string | null> {
     try {
       const supabase = createClient()
-      
+
       // Convert base64 to blob
       const response = await fetch(photoData)
       const blob = await response.blob()
-      
+
       // Generate unique filename - just use filename, not nested path
       const filename = `${visitorId}_${Date.now()}.jpg`
-      
+
       // Upload to Supabase storage
       const { data, error } = await supabase.storage
         .from("visitor-photos")
@@ -1615,17 +1617,17 @@ function resetTraining() {
           contentType: "image/jpeg",
           upsert: true
         })
-      
+
       if (error) {
         console.error("Photo upload error:", error)
         return null
       }
-      
+
       // Get public URL
       const { data: urlData } = supabase.storage
         .from("visitor-photos")
         .getPublicUrl(filename)
-      
+
       return urlData.publicUrl
     } catch (err) {
       console.error("Photo upload failed:", err)
@@ -1716,20 +1718,20 @@ function resetTraining() {
     }
   }
 
-function resetForm() {
-  setForm({
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  company: "",
-  visitorTypeId: "",
-  hostId: "",
-  purpose: "",
-  })
-  setCapturedPhoto(null)
-  setVisitorPhotoUrl(null)
-  setCameraError(null)
+  function resetForm() {
+    setForm({
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "",
+      company: "",
+      visitorTypeId: "",
+      hostId: "",
+      purpose: "",
+    })
+    setCapturedPhoto(null)
+    setVisitorPhotoUrl(null)
+    setCameraError(null)
   }
 
   function handleReset() {
@@ -2011,7 +2013,7 @@ function resetForm() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding ? branding.companyName : "Talus"}. Please sign in or sign out below.</p>
             </div>
 
             {/* Visitor options - always shown */}
@@ -2782,7 +2784,7 @@ function resetForm() {
                   )}
                 </div>
 
-{/* Progress Bar */}
+                {/* Progress Bar */}
                 {videoStarted && !bypassTraining && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
@@ -2843,7 +2845,7 @@ function resetForm() {
 
                 {error && <p className="text-sm text-destructive">{error}</p>}
 
-{/* Continue to Photo Button */}
+                {/* Continue to Photo Button */}
                 <Button
                   onClick={proceedToPhoto}
                   className="w-full"
@@ -2866,10 +2868,10 @@ function resetForm() {
                     </>
                   )}
                 </Button>
-</CardContent>
-  </Card>
-  </div>
-  )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {mode === "photo" && (
           <div className="max-w-xl mx-auto">
@@ -2908,9 +2910,9 @@ function resetForm() {
                       </Button>
                     </div>
                   ) : capturedPhoto ? (
-                    <img 
-                      src={capturedPhoto || "/placeholder.svg"} 
-                      alt="Captured photo" 
+                    <img
+                      src={capturedPhoto || "/placeholder.svg"}
+                      alt="Captured photo"
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -2940,16 +2942,16 @@ function resetForm() {
                 <div className="flex gap-3">
                   {capturedPhoto ? (
                     <>
-                      <Button 
-                        variant="outline" 
-                        onClick={retakePhoto} 
+                      <Button
+                        variant="outline"
+                        onClick={retakePhoto}
                         className="flex-1 bg-transparent"
                       >
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Retake Photo
                       </Button>
-                      <Button 
-                        onClick={completeSignIn} 
+                      <Button
+                        onClick={completeSignIn}
                         className="flex-1"
                         disabled={isLoading}
                       >
@@ -2963,20 +2965,20 @@ function resetForm() {
                     </>
                   ) : (
                     <>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         onClick={() => {
                           setCapturedPhoto(null)
                           stopCamera()
                           completeSignIn()
-                        }} 
+                        }}
                         className="flex-1 bg-transparent"
                         disabled={isLoading}
                       >
                         Skip Photo
                       </Button>
-                      <Button 
-                        onClick={capturePhoto} 
+                      <Button
+                        onClick={capturePhoto}
                         className="flex-1"
                         disabled={!cameraStream || isLoading}
                       >
@@ -2992,7 +2994,7 @@ function resetForm() {
             </Card>
           </div>
         )}
-  
+
         {mode === "success" && successData && (
           <div className="max-w-md mx-auto text-center">
             <Card className="border-primary/20">
