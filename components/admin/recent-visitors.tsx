@@ -4,18 +4,21 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import type { SignIn, EmployeeSignIn } from "@/types/database"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import type { SignIn, EmployeeSignIn, Location } from "@/types/database"
+import { formatTime } from "@/lib/timezone"
 
 interface CombinedSignIn {
   id: string
   type: "visitor" | "employee"
   name: string
   initials: string
+  photo_url?: string | null
   sign_in_time: string
   badge_color?: string
   badge_text?: string
   subtitle: string
+  timezone: string
 }
 
 export function RecentVisitors() {
@@ -33,7 +36,8 @@ export function RecentVisitors() {
           *,
           visitor:visitors(*),
           host:hosts(*),
-          visitor_type:visitor_types(*)
+          visitor_type:visitor_types(*),
+          location:locations(*)
         `,
         )
         .order("sign_in_time", { ascending: false })
@@ -56,32 +60,36 @@ export function RecentVisitors() {
       const combined: CombinedSignIn[] = []
 
       if (visitorData) {
-        for (const v of visitorData as SignIn[]) {
+        for (const v of visitorData as (SignIn & { location?: Location })[]) {
           combined.push({
             id: v.id,
             type: "visitor",
             name: `${v.visitor?.first_name || ""} ${v.visitor?.last_name || ""}`.trim() || "Unknown Visitor",
             initials: `${v.visitor?.first_name?.[0] || ""}${v.visitor?.last_name?.[0] || ""}`,
+            photo_url: v.visitor?.photo_url,
             sign_in_time: v.sign_in_time,
             badge_color: v.visitor_type?.badge_color,
             badge_text: v.visitor_type?.name,
             subtitle: v.host ? `Visiting ${v.host.name}` : "No host assigned",
+            timezone: v.location?.timezone || "UTC",
           })
         }
       }
 
       if (employeeData) {
-        for (const e of employeeData as EmployeeSignIn[]) {
+        for (const e of employeeData as (EmployeeSignIn & { location?: Location })[]) {
           const name = e.profile?.full_name || e.profile?.email || "Unknown Employee"
           combined.push({
             id: e.id,
             type: "employee",
             name,
             initials: name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase(),
+            photo_url: e.profile?.avatar_url,
             sign_in_time: e.sign_in_time,
             badge_color: "#2563eb", // Blue for employees
             badge_text: "Employee",
             subtitle: e.auto_signed_in ? "Auto sign-in" : "Manual sign-in",
+            timezone: e.location?.timezone || "UTC",
           })
         }
       }
@@ -108,6 +116,7 @@ export function RecentVisitors() {
             signIns.map((signIn) => (
               <div key={signIn.id} className="flex items-center gap-3 sm:gap-4">
                 <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
+                  <AvatarImage src={signIn.photo_url || undefined} alt={signIn.name} />
                   <AvatarFallback 
                     className={`text-xs sm:text-sm ${signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"}`}
                   >
@@ -133,10 +142,7 @@ export function RecentVisitors() {
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {new Date(signIn.sign_in_time).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatTime(signIn.sign_in_time, signIn.timezone)}
                   </span>
                 </div>
               </div>

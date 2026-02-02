@@ -6,6 +6,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useEffect, createContext, useContext } from "react"
 import { TalusAgLogo, TalusAgLogoIcon } from "@/components/talusag-logo"
+import { useBranding } from "@/hooks/use-branding"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -57,6 +58,7 @@ const navItems = [
 
 function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname()
+  const { branding } = useBranding()
 
   return (
     <>
@@ -102,7 +104,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
       </nav>
       {!collapsed && (
         <div className="p-4 border-t">
-          <p className="text-xs text-muted-foreground">TalusAg Visitor Management</p>
+          <p className="text-xs text-muted-foreground">{branding.companyName} Visitor Management</p>
         </div>
       )}
     </>

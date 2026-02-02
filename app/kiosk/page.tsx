@@ -29,14 +29,16 @@ import {
   Loader2,
   User,
   CalendarCheck,
-  Search
+Search,
+  Camera,
+  RefreshCw,
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
 
-type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success"
+type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
 // Storage key for remembered employee
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
@@ -105,8 +107,15 @@ export default function KioskPage() {
   const [rememberMe, setRememberMe] = useState(true)
 
   // Training video state
-  const [trainingWatched, setTrainingWatched] = useState(false)
+const [trainingWatched, setTrainingWatched] = useState(false)
   const [trainingAcknowledged, setTrainingAcknowledged] = useState(false)
+  const [bypassTraining, setBypassTraining] = useState(false)
+  const [visitorPhotoUrl, setVisitorPhotoUrl] = useState<string | null>(null)
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -123,18 +132,19 @@ export default function KioskPage() {
 
   // Booking lookup state
   const [bookingEmail, setBookingEmail] = useState("")
-  const [bookingResults, setBookingResults] = useState<Array<{
-    id: string
-    visitor_first_name: string
-    visitor_last_name: string
-    visitor_email: string
-    visitor_company: string | null
-    expected_arrival: string
-    expected_departure: string | null
-    purpose: string | null
-    status: string
-    host: { id: string; name: string; email: string } | null
-    visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
+const [bookingResults, setBookingResults] = useState<Array<{
+  id: string
+  visitor_first_name: string
+  visitor_last_name: string
+  visitor_email: string
+  visitor_company: string | null
+  expected_arrival: string
+  expected_departure: string | null
+  purpose: string | null
+  status: string
+  host_id: string | null
+  visitor_type_id: string | null
+  visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
   }>>([])
   const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
@@ -182,6 +192,8 @@ export default function KioskPage() {
             id: profile.id,
             full_name: profile.full_name,
             email: profile.email,
+            phone: profile.phone || null,
+            department: profile.department || null,
             location_id: profile.location_id,
             role: profile.role,
             avatar_url: profile.avatar_url,
@@ -474,6 +486,8 @@ export default function KioskPage() {
         id: employee.id,
         email: employee.email,
         full_name: employee.fullName,
+        phone: null,
+        department: null,
         role: employee.role,
         location_id: employee.locationId,
         avatar_url: employee.avatar_url,
@@ -545,7 +559,7 @@ export default function KioskPage() {
     const [{ data: locData }, { data: typesData }, { data: hostsData }] = await Promise.all([
       supabase.from("locations").select("*").order("name"),
       supabase.from("visitor_types").select("*").order("name"),
-      supabase.from("hosts").select("*").eq("is_active", true).order("name"),
+      supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department)").eq("is_active", true).order("name"),
     ])
 
     if (locData && locData.length > 0) {
@@ -567,7 +581,7 @@ export default function KioskPage() {
     try {
       const supabase = createClient()
 
-      const { data: bookings, error: bookingsError } = await supabase
+const { data: bookings, error: bookingsError } = await supabase
         .from("bookings")
         .select(`
           id,
@@ -579,7 +593,8 @@ export default function KioskPage() {
           expected_departure,
           purpose,
           status,
-          host:hosts(id, name, email),
+          host_id,
+          visitor_type_id,
           visitor_type:visitor_types(id, name, badge_color, requires_training)
         `)
         .ilike("visitor_email", bookingEmail.trim())
@@ -593,24 +608,27 @@ export default function KioskPage() {
         return
       }
 
-      // Transform the results to match expected type (convert array fields to single objects)
-      const transformedBookings = bookings.map((booking: any) => ({
-        ...booking,
-        host: Array.isArray(booking.host) && booking.host.length > 0 ? booking.host[0] : null,
-        visitor_type: Array.isArray(booking.visitor_type) && booking.visitor_type.length > 0 ? booking.visitor_type[0] : null,
-      })) as typeof bookingResults
-
-      setBookingResults(transformedBookings)
-
-      // If only one booking, auto-select it
-      if (bookings.length === 1) {
-        const transformedBooking = {
-          ...bookings[0],
-          host: Array.isArray(bookings[0].host) && bookings[0].host.length > 0 ? bookings[0].host[0] : null,
-          visitor_type: Array.isArray(bookings[0].visitor_type) && bookings[0].visitor_type.length > 0 ? bookings[0].visitor_type[0] : null,
-        } as typeof bookingResults[0]
-        setSelectedBooking(transformedBooking)
-      }
+// Transform the results to match expected type (convert array fields to single objects)
+  // Note: host_id and visitor_type_id are UUID strings - visitor_type join may return as array
+  const transformedBookings = bookings.map((booking: any) => ({
+  ...booking,
+  host_id: booking.host_id, // Preserve host_id as-is (UUID string)
+  visitor_type_id: booking.visitor_type_id, // Preserve visitor_type_id as-is (UUID string)
+  visitor_type: Array.isArray(booking.visitor_type) && booking.visitor_type.length > 0 ? booking.visitor_type[0] : booking.visitor_type,
+  })) as typeof bookingResults
+  
+  setBookingResults(transformedBookings)
+  
+  // If only one booking, auto-select it
+  if (bookings.length === 1) {
+  const transformedBooking = {
+  ...bookings[0],
+  host_id: bookings[0].host_id, // host_id is a UUID string, not an array
+  visitor_type_id: bookings[0].visitor_type_id, // visitor_type_id is a UUID string
+  visitor_type: Array.isArray(bookings[0].visitor_type) && bookings[0].visitor_type.length > 0 ? bookings[0].visitor_type[0] : null,
+  } as typeof bookingResults[0]
+  setSelectedBooking(transformedBooking)
+  }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to lookup booking")
     } finally {
@@ -618,17 +636,30 @@ export default function KioskPage() {
     }
   }
 
-  // Complete sign-in for a pre-registered booking
+// Complete sign-in for a pre-registered booking
   async function handleBookingSignIn() {
-    if (!selectedBooking) return
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const supabase = createClient()
-
-      // Check if visitor type requires training
-      if (selectedBooking.visitor_type?.requires_training) {
+  if (!selectedBooking) return
+  setIsLoading(true)
+  setError(null)
+  
+  try {
+  const supabase = createClient()
+  
+  // Fetch visitor type if we have an ID but no joined data
+  let visitorTypeData = selectedBooking.visitor_type
+  if (!visitorTypeData && selectedBooking.visitor_type_id) {
+    const { data: fetchedType } = await supabase
+      .from("visitor_types")
+      .select("id, name, badge_color, requires_training")
+      .eq("id", selectedBooking.visitor_type_id)
+      .single()
+    if (fetchedType) {
+      visitorTypeData = fetchedType
+    }
+  }
+  
+  // Check if visitor type requires training
+  if (visitorTypeData?.requires_training) {
         // First, find or create the visitor
         let visitorId: string | null = null
 
@@ -643,11 +674,11 @@ export default function KioskPage() {
 
           // Check for existing training completion
           const { data: trainingCompletion } = await supabase
-            .from("training_completions")
-            .select("*")
-            .eq("visitor_id", existingVisitor.id)
-            .eq("visitor_type_id", selectedBooking.visitor_type.id)
-            .single()
+.from("training_completions")
+  .select("*")
+  .eq("visitor_id", existingVisitor.id)
+  .eq("visitor_type_id", visitorTypeData!.id)
+  .single()
 
           if (trainingCompletion) {
             const hasExpired = trainingCompletion.expires_at &&
@@ -661,25 +692,84 @@ export default function KioskPage() {
           }
         }
 
-        // Need to show training video
+// Need to show training video
+        // Send host notification BEFORE training starts
+        if (hostNotificationsEnabled && selectedBooking.host_id) {
+          const { data: hostData } = await supabase
+            .from("hosts")
+            .select("id, name, email, profile_id")
+            .eq("id", selectedBooking.host_id)
+            .single()
+          
+          if (hostData) {
+            let hostEmail = hostData.email
+            let hostName = hostData.name
+            
+            if (hostData.profile_id) {
+              const { data: profileData } = await supabase
+                .from("profiles")
+                .select("full_name, email")
+                .eq("id", hostData.profile_id)
+                .single()
+              
+              if (profileData) {
+                hostName = profileData.full_name || hostName
+                hostEmail = profileData.email || hostEmail
+              }
+            }
+            
+            if (hostEmail) {
+              try {
+                await fetch("/api/notify-host", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    hostEmail,
+                    hostName,
+                    visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+                    visitorCompany: selectedBooking.visitor_company,
+                    purpose: selectedBooking.purpose,
+                    locationName: currentLocation?.name,
+                    notificationType: "completing_training",
+                    visitorTypeName: visitorTypeData?.name,
+                  }),
+                })
+              } catch (notifyErr) {
+                console.error("Failed to send pre-training notification:", notifyErr)
+              }
+            }
+          }
+        }
+        
         // Pre-fill the form with booking data for after training
         setForm({
           firstName: selectedBooking.visitor_first_name,
           lastName: selectedBooking.visitor_last_name,
-          email: selectedBooking.visitor_email,
-          phone: "",
-          company: selectedBooking.visitor_company || "",
-          visitorTypeId: selectedBooking.visitor_type.id,
-          hostId: selectedBooking.host?.id || "",
-          purpose: selectedBooking.purpose || "",
-        })
+email: selectedBooking.visitor_email,
+  phone: "",
+  company: selectedBooking.visitor_company || "",
+  visitorTypeId: visitorTypeData!.id,
+  hostId: selectedBooking.host_id || "",
+  purpose: selectedBooking.purpose || "",
+  })
         setMode("training")
         setIsLoading(false)
         return
       }
 
-      // No training required, proceed with sign-in
-      await completeBookingSignIn(null)
+// No training required, proceed to photo capture
+      setForm({
+        firstName: selectedBooking.visitor_first_name,
+        lastName: selectedBooking.visitor_last_name,
+        email: selectedBooking.visitor_email,
+        phone: "",
+        company: selectedBooking.visitor_company || "",
+        visitorTypeId: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || "",
+        hostId: selectedBooking.host_id || "",
+        purpose: selectedBooking.purpose || "",
+      })
+      proceedToPhoto()
+      setIsLoading(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign in")
       setIsLoading(false)
@@ -691,7 +781,7 @@ export default function KioskPage() {
     if (!selectedBooking) return
 
     const supabase = createClient()
-
+    console.log("Completing sign-in for booking:", selectedBooking)
     // Create or update visitor record
     let visitorId = existingVisitorId
 
@@ -731,17 +821,44 @@ export default function KioskPage() {
       }
     }
 
+// Upload photo if captured and update visitor
+    let photoUrl: string | null = null
+    if (capturedPhoto && visitorId) {
+      photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitorId)
+      
+      // Update visitor with photo URL using API route to bypass RLS
+      if (photoUrl) {
+        try {
+          const response = await fetch("/api/visitor-photo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              visitorId: visitorId,
+              photoUrl: photoUrl,
+            }),
+          })
+          
+          if (!response.ok) {
+            const errorData = await response.json()
+            console.error("Error updating visitor photo_url:", errorData.error)
+          }
+        } catch (err) {
+          console.error("Failed to update visitor photo:", err)
+        }
+      }
+    }
+
     // Generate badge number
     const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
 
-    // Create sign-in record
+// Create sign-in record - use visitor_type_id directly from booking
     const { error: signInError } = await supabase
       .from("sign_ins")
       .insert({
         visitor_id: visitorId,
         location_id: selectedLocation,
-        visitor_type_id: selectedBooking.visitor_type?.id,
-        host_id: selectedBooking.host?.id,
+        visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
+        host_id: selectedBooking.host_id,
         purpose: selectedBooking.purpose,
         badge_number: badgeNumber,
         sign_in_time: new Date().toISOString(),
@@ -754,24 +871,57 @@ export default function KioskPage() {
       .from("bookings")
       .update({ status: "checked_in" })
       .eq("id", selectedBooking.id)
+    console.log(hostNotificationsEnabled, selectedBooking.host_id)
+    // Send host notification if enabled and booking has a host
+    if (hostNotificationsEnabled && selectedBooking.host_id) {
+      let hostEmail: string | null = null
+      let hostName: string | null = null
 
-    // Send host notification if enabled
-    if (hostNotificationsEnabled && selectedBooking.host?.email) {
-      try {
-        await fetch("/api/notify-host", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            hostEmail: selectedBooking.host.email,
-            hostName: selectedBooking.host.name,
-            visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-            visitorCompany: selectedBooking.visitor_company,
-            purpose: selectedBooking.purpose,
-            badgeNumber,
-          }),
-        })
-      } catch (notifyErr) {
-        console.error("Failed to send host notification:", notifyErr)
+      // Fetch host with profile data
+      const { data: hostData } = await supabase
+        .from("hosts")
+        .select("id, name, email, profile_id")
+        .eq("id", selectedBooking.host_id)
+        .single()
+      console.log("Host data:", hostData)
+      if (hostData) {
+        hostName = hostData.name
+        hostEmail = hostData.email
+
+        // If host is linked to a profile, fetch profile email
+        if (hostData.profile_id) {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("full_name, email")
+            .eq("id", hostData.profile_id)
+            .single()
+
+          if (profileData) {
+            hostName = profileData.full_name || hostName
+            hostEmail = profileData.email || hostEmail
+          }
+        }
+      }
+      console.log(hostName, hostEmail)
+if (hostEmail) {
+        try {
+          await fetch("/api/notify-host", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              hostEmail,
+              hostName,
+              visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+              visitorCompany: selectedBooking.visitor_company,
+              purpose: selectedBooking.purpose,
+              badgeNumber,
+              locationName: currentLocation?.name,
+              visitorPhotoUrl: photoUrl,
+            }),
+          })
+        } catch (notifyErr) {
+          console.error("Failed to send host notification:", notifyErr)
+        }
       }
     }
 
@@ -785,7 +935,7 @@ export default function KioskPage() {
           <!DOCTYPE html>
           <html>
           <head>
-            <title>Visitor Badge</title>
+<title>Visitor Badge</title>
             <style>
               body {
                 font-family: Arial, sans-serif;
@@ -793,59 +943,126 @@ export default function KioskPage() {
                 padding: 20px;
               }
 
-              .badge {
-                border: 2px solid #333;
-                padding: 20px;
-                width: 300px;
+.badge {
+                width: 3.375in;
+                height: 2.125in;
+                background: #fff;
+                border-radius: 8px;
+                border: 1px dashed #d1d5db;
+                display: flex;
+                padding: 12px;
                 margin: 0 auto;
+                position: relative;
+                box-sizing: border-box;
+              }
+
+              .lanyard-slot {
+                position: absolute;
+                top: 6px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 30px;
+                height: 8px;
+                background: #e5e7eb;
+                border-radius: 4px;
+              }
+
+              .photo-section {
+                width: 40%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding-right: 12px;
+              }
+
+              .visitor-photo {
+                width: 100%;
+                aspect-ratio: 1;
+                object-fit: cover;
+                border: 4px solid #9ca3af;
+                background: #e5e7eb;
+              }
+
+              .photo-placeholder {
+                width: 100%;
+                aspect-ratio: 1;
+                background: #e5e7eb;
+                border: 4px solid #9ca3af;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #9ca3af;
+                font-size: 36px;
+              }
+
+              .info-section {
+                width: 60%;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding-left: 8px;
               }
 
               .logo {
-                max-width: 180px;
+                max-width: 100px;
                 height: auto;
-                margin-bottom: 15px;
-              }
-
-              .badge-number {
-                font-size: 32px;
-                font-weight: bold;
-                color: "#000000";
+                margin-bottom: 8px;
+                align-self: flex-end;
               }
 
               .visitor-name {
-                font-size: 24px;
-                margin: 10px 0;
+                font-size: 20px;
+                font-weight: bold;
+                color: #111;
+                margin: 4px 0;
+                line-height: 1.2;
               }
 
-              .company {
-                font-size: 14px;
-                color: #666;
-              }
-
-              .date {
+              .visitor-type {
                 font-size: 12px;
-                color: #999;
-                margin-top: 10px;
+                font-weight: 600;
+                color: #374151;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin: 2px 0;
+              }
+
+              .location {
+                font-size: 11px;
+                font-weight: 500;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                margin: 2px 0;
+              }
+
+              .badge-number {
+                font-size: 10px;
+                color: #9ca3af;
+                margin-top: 6px;
+              }
+
+              @media print {
+                body { margin: 0; padding: 0; }
+                .badge { border: 1px dashed #d1d5db; }
               }
             </style>
           </head>
           <body>
             <div class="badge">
-              <img src="${window.location.origin}/talusAg_Logo.png" alt="Talus AG Logo" class="logo" />
-
-              <div class="badge-number">${badgeNumber}</div>
-              <div class="visitor-name">
-                ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}
+              <div class="lanyard-slot"></div>
+<div class="photo-section">
+                ${photoUrl || capturedPhoto 
+                  ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
+                  : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
+                }
               </div>
-              ${selectedBooking.visitor_company
-            ? `<div class="company">${selectedBooking.visitor_company}</div>`
-            : ""
-          }
-              <div class="date">
-                ${formatDate(
-            new Date().toISOString(),
-            locations.find(l => l.id === selectedLocation)?.timezone || "UTC"
-          )}
+              <div class="info-section">
+                <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
+                <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
+                <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
+                <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
+                <div class="badge-number">${badgeNumber}</div>
               </div>
             </div>
 
@@ -916,11 +1133,59 @@ export default function KioskPage() {
         }
       }
 
-      // No prior training or expired - go to training video step
+// No prior training or expired - send pre-training notification and go to training video step
+      if (hostNotificationsEnabled && form.hostId) {
+        const supabase = createClient()
+        const { data: hostData } = await supabase
+          .from("hosts")
+          .select("id, name, email, profile_id")
+          .eq("id", form.hostId)
+          .single()
+        
+        if (hostData) {
+          let hostEmail = hostData.email
+          let hostName = hostData.name
+          
+          if (hostData.profile_id) {
+            const { data: profileData } = await supabase
+              .from("profiles")
+              .select("full_name, email")
+              .eq("id", hostData.profile_id)
+              .single()
+            
+            if (profileData) {
+              hostName = profileData.full_name || hostName
+              hostEmail = profileData.email || hostEmail
+            }
+          }
+          
+          if (hostEmail) {
+            try {
+              await fetch("/api/notify-host", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  hostEmail,
+                  hostName,
+                  visitorName: `${form.firstName} ${form.lastName}`,
+                  visitorCompany: form.company,
+                  purpose: form.purpose,
+                  locationName: currentLocation?.name,
+                  notificationType: "completing_training",
+                  visitorTypeName: selectedType?.name,
+                }),
+              })
+            } catch (notifyErr) {
+              console.error("Failed to send pre-training notification:", notifyErr)
+            }
+          }
+        }
+      }
+      
       setMode("training")
     } else {
-      // Proceed directly to sign in
-      completeSignIn()
+      // No training required, proceed to photo capture
+      proceedToPhoto()
     }
   }
 
@@ -956,9 +1221,10 @@ export default function KioskPage() {
     }
   }, [])
 
-  async function completeSignIn() {
+async function completeSignIn() {
     setIsLoading(true)
     setError(null)
+    stopCamera() // Ensure camera is stopped
 
     try {
       const supabase = createClient()
@@ -977,6 +1243,36 @@ export default function KioskPage() {
         .single()
 
       if (visitorError) throw visitorError
+
+      // Upload photo if captured
+      let photoUrl: string | null = null
+      if (capturedPhoto) {
+        photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitor.id)
+        
+        // Update visitor with photo URL using API route to bypass RLS
+        if (photoUrl) {
+          try {
+            const response = await fetch("/api/visitor-photo", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                visitorId: visitor.id,
+                photoUrl: photoUrl,
+              }),
+            })
+            
+            if (!response.ok) {
+              const errorData = await response.json()
+              console.error("Error updating visitor photo_url:", errorData.error)
+            }
+          } catch (err) {
+            console.error("Failed to update visitor photo:", err)
+          }
+        }
+      }
+      
+      // Store for badge printing
+      setVisitorPhotoUrl(photoUrl)
 
       // If training was required, record the completion
       const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
@@ -1005,27 +1301,57 @@ export default function KioskPage() {
 
       // Send host notification email if enabled and host is selected
       if (hostNotificationsEnabled && form.hostId) {
-        const selectedHost = hosts.find(h => h.id === form.hostId)
-        if (selectedHost?.email) {
-          // Call API to send notification email
+        // Fetch host with profile data
+        const { data: hostData } = await supabase
+          .from("hosts")
+          .select("id, name, email, profile_id")
+          .eq("id", form.hostId)
+          .single()
+
+        let hostEmail: string | null = null
+        let hostName: string | null = null
+
+        if (hostData) {
+          hostName = hostData.name
+          hostEmail = hostData.email
+
+          // If host is linked to a profile, fetch profile email
+          if (hostData.profile_id) {
+            const { data: profileData } = await supabase
+              .from("profiles")
+              .select("full_name, email")
+              .eq("id", hostData.profile_id)
+              .single()
+
+            if (profileData) {
+              hostName = profileData.full_name || hostName
+              hostEmail = profileData.email || hostEmail
+            }
+          }
+        }
+
+if (hostEmail) {
           try {
             await fetch("/api/notify-host", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                hostEmail: selectedHost.email,
-                hostName: selectedHost.name,
+                hostEmail,
+                hostName,
                 visitorName: `${form.firstName} ${form.lastName}`,
                 visitorCompany: form.company,
                 purpose: form.purpose,
                 badgeNumber,
+                locationName: currentLocation?.name,
+                visitorPhotoUrl: photoUrl,
               }),
             })
           } catch (notifyErr) {
-            console.error("[v0] Failed to send host notification:", notifyErr)
+            console.error("Failed to send host notification:", notifyErr)
           }
         }
       }
+
 
       // Trigger badge printing if enabled
       if (badgePrintingEnabled) {
@@ -1043,48 +1369,127 @@ export default function KioskPage() {
                   font-family: Arial, sans-serif;
                   text-align: center;
                   padding: 20px;
-                }
-                .badge {
-                  border: 2px solid #333;
-                  padding: 20px;
-                  width: 300px;
-                  margin: 0 auto;
-                }
-                .logo {
-                  max-width: 150px;
-                  margin-bottom: 10px;
-                }
-                .badge-number {
-                  font-size: 32px;
-                  font-weight: bold;
-                  color: #000000;
-                }
-                .visitor-name {
-                  font-size: 24px;
-                  margin: 10px 0;
-                }
-                .company {
-                  font-size: 14px;
-                  color: #666;
-                }
-                .date {
-                  font-size: 12px;
-                  color: #999;
-                  margin-top: 10px;
-                }
+}
+.badge {
+                width: 3.375in;
+                height: 2.125in;
+                background: #fff;
+                border-radius: 8px;
+                border: 1px dashed #d1d5db;
+                display: flex;
+                padding: 12px;
+                margin: 0 auto;
+                position: relative;
+                box-sizing: border-box;
+              }
+
+              .lanyard-slot {
+                position: absolute;
+                top: 6px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 30px;
+                height: 8px;
+                background: #e5e7eb;
+                border-radius: 4px;
+              }
+
+              .photo-section {
+                width: 40%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding-right: 12px;
+              }
+
+              .visitor-photo {
+                width: 100%;
+                aspect-ratio: 1;
+                object-fit: cover;
+                border: 4px solid #9ca3af;
+                background: #e5e7eb;
+              }
+
+              .photo-placeholder {
+                width: 100%;
+                aspect-ratio: 1;
+                background: #e5e7eb;
+                border: 4px solid #9ca3af;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #9ca3af;
+                font-size: 36px;
+              }
+
+              .info-section {
+                width: 60%;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding-left: 8px;
+              }
+
+              .logo {
+                max-width: 100px;
+                height: auto;
+                margin-bottom: 8px;
+                align-self: flex-end;
+              }
+
+              .visitor-name {
+                font-size: 20px;
+                font-weight: bold;
+                color: #111;
+                margin: 4px 0;
+                line-height: 1.2;
+              }
+
+              .visitor-type {
+                font-size: 12px;
+                font-weight: 600;
+                color: #374151;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin: 2px 0;
+              }
+
+              .location {
+                font-size: 11px;
+                font-weight: 500;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                margin: 2px 0;
+              }
+
+              .badge-number {
+                font-size: 10px;
+                color: #9ca3af;
+                margin-top: 6px;
+              }
+
+              @media print {
+                body { margin: 0; padding: 0; }
+                .badge { border: 1px dashed #d1d5db; }
+              }
               </style>
             </head>
             <body>
               <div class="badge">
-                <img src="${window.location.origin}/talusAg_Logo.png" class="logo" />
-                <div class="badge-number">${badgeNumber}</div>
-                <div class="visitor-name">${form.firstName} ${form.lastName}</div>
-                ${form.company ? `<div class="company">${form.company}</div>` : ""}
-                <div class="date">
-                  ${formatDate(
-            new Date().toISOString(),
-            locations.find(l => l.id === selectedLocation)?.timezone || "UTC"
-          )}
+                <div class="lanyard-slot"></div>
+                <div class="photo-section">
+                  ${visitorPhotoUrl || capturedPhoto 
+                    ? `<img src="${visitorPhotoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
+                    : `<div class="photo-placeholder">${form.firstName?.[0] || ""}${form.lastName?.[0] || ""}</div>`
+                  }
+                </div>
+                <div class="info-section">
+                  <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
+                  <div class="visitor-name">${form.firstName} ${form.lastName}</div>
+                  <div class="visitor-type">${form.company || selectedType?.name || "Visitor"}</div>
+                  <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
+                  <div class="badge-number">${badgeNumber}</div>
                 </div>
               </div>
 
@@ -1131,14 +1536,118 @@ export default function KioskPage() {
     }
   }
 
-  function resetTraining() {
+function resetTraining() {
     setTrainingWatched(false)
     setTrainingAcknowledged(false)
+    setBypassTraining(false)
     setVideoProgress(0)
     setVideoStarted(false)
     if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current)
     }
+  }
+
+  // Camera functions for visitor photo
+  async function startCamera() {
+    try {
+      setCameraError(null)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+      })
+      setCameraStream(stream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+    } catch (err) {
+      console.error("Camera access error:", err)
+      setCameraError("Unable to access camera. Please allow camera access or skip photo.")
+    }
+  }
+
+  function stopCamera() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop())
+      setCameraStream(null)
+    }
+  }
+
+  function capturePhoto() {
+    if (!videoRef.current || !canvasRef.current) return
+    
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    
+    // Mirror the image horizontally for a more natural selfie look
+    ctx.translate(canvas.width, 0)
+    ctx.scale(-1, 1)
+    ctx.drawImage(video, 0, 0)
+    
+    const photoData = canvas.toDataURL("image/jpeg", 0.8)
+    setCapturedPhoto(photoData)
+    stopCamera()
+  }
+
+  function retakePhoto() {
+    setCapturedPhoto(null)
+    startCamera()
+  }
+
+  async function uploadPhotoToSupabase(photoData: string, visitorId: string): Promise<string | null> {
+    try {
+      const supabase = createClient()
+      
+      // Convert base64 to blob
+      const response = await fetch(photoData)
+      const blob = await response.blob()
+      
+      // Generate unique filename - just use filename, not nested path
+      const filename = `${visitorId}_${Date.now()}.jpg`
+      
+      // Upload to Supabase storage
+      const { data, error } = await supabase.storage
+        .from("visitor-photos")
+        .upload(filename, blob, {
+          contentType: "image/jpeg",
+          upsert: true
+        })
+      
+      if (error) {
+        console.error("Photo upload error:", error)
+        return null
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("visitor-photos")
+        .getPublicUrl(filename)
+      
+      return urlData.publicUrl
+    } catch (err) {
+      console.error("Photo upload failed:", err)
+      return null
+    }
+  }
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera()
+    }
+  }, [])
+
+  // Go to photo mode after training (or directly if no training needed)
+  function proceedToPhoto() {
+    stopCamera()
+    setMode("photo")
+    // Start camera after a brief delay to allow mode change
+    setTimeout(() => {
+      startCamera()
+    }, 100)
   }
 
   async function handleSignOut(e: React.FormEvent) {
@@ -1207,17 +1716,20 @@ export default function KioskPage() {
     }
   }
 
-  function resetForm() {
-    setForm({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      company: "",
-      visitorTypeId: "",
-      hostId: "",
-      purpose: "",
-    })
+function resetForm() {
+  setForm({
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  company: "",
+  visitorTypeId: "",
+  hostId: "",
+  purpose: "",
+  })
+  setCapturedPhoto(null)
+  setVisitorPhotoUrl(null)
+  setCameraError(null)
   }
 
   function handleReset() {
@@ -1897,10 +2409,10 @@ export default function KioskPage() {
                                     <Clock className="w-3 h-3 mr-1" />
                                     {formatTime(booking.expected_arrival, locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}
                                   </Badge>
-                                  {booking.host && (
+                                  {booking.host_id && (
                                     <Badge variant="outline" className="text-xs">
                                       <User className="w-3 h-3 mr-1" />
-                                      {booking.host.name}
+                                      {hosts.find((h) => h.id === booking.host_id)?.name}
                                     </Badge>
                                   )}
                                   {booking.visitor_type && (
@@ -2270,8 +2782,8 @@ export default function KioskPage() {
                   )}
                 </div>
 
-                {/* Progress Bar */}
-                {videoStarted && (
+{/* Progress Bar */}
+                {videoStarted && !bypassTraining && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Training Progress</span>
@@ -2286,8 +2798,32 @@ export default function KioskPage() {
                   </div>
                 )}
 
+                {/* Bypass Training Option */}
+                {!trainingWatched && !bypassTraining && (
+                  <div className="border border-dashed border-muted-foreground/30 rounded-lg p-4 bg-muted/30">
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        id="bypass"
+                        checked={bypassTraining}
+                        onCheckedChange={(checked) => {
+                          setBypassTraining(checked === true)
+                          if (checked === true) {
+                            setTrainingWatched(true)
+                          }
+                        }}
+                        className="mt-1"
+                      />
+                      <label htmlFor="bypass" className="text-sm leading-relaxed cursor-pointer text-muted-foreground">
+                        <span className="font-medium text-foreground">Already watched this training?</span>
+                        <br />
+                        If you watched this training video with other visitors (e.g., checking in as a group), you may skip re-watching. You will still need to acknowledge the safety guidelines.
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 {/* Acknowledgment Checkbox */}
-                {trainingWatched && (
+                {(trainingWatched || bypassTraining) && (
                   <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <Checkbox
@@ -2307,16 +2843,16 @@ export default function KioskPage() {
 
                 {error && <p className="text-sm text-destructive">{error}</p>}
 
-                {/* Complete Button */}
+{/* Continue to Photo Button */}
                 <Button
-                  onClick={completeSignIn}
+                  onClick={proceedToPhoto}
                   className="w-full"
                   size="lg"
-                  disabled={!trainingWatched || !trainingAcknowledged || isLoading}
+                  disabled={(!trainingWatched && !bypassTraining) || !trainingAcknowledged || isLoading}
                 >
                   {isLoading ? (
-                    "Completing Sign In..."
-                  ) : !trainingWatched ? (
+                    "Processing..."
+                  ) : (!trainingWatched && !bypassTraining) ? (
                     <>
                       <Clock className="w-4 h-4 mr-2" />
                       Complete Training to Continue
@@ -2325,16 +2861,138 @@ export default function KioskPage() {
                     "Please Acknowledge to Continue"
                   ) : (
                     <>
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Complete Sign In
+                      <Camera className="w-4 h-4 mr-2" />
+                      Continue to Photo
                     </>
                   )}
                 </Button>
+</CardContent>
+  </Card>
+  </div>
+  )}
+
+        {mode === "photo" && (
+          <div className="max-w-xl mx-auto">
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => {
+              stopCamera()
+              setCapturedPhoto(null)
+              setMode(selectedBooking ? "booking" : "sign-in")
+            }}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+
+            <Card>
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex items-start sm:items-center gap-3 mb-2">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Camera className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg sm:text-2xl">Visitor Photo</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">
+                      Please take a photo for your visitor badge
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
+                {/* Camera/Photo Preview */}
+                <div className="relative aspect-[4/3] bg-muted rounded-lg overflow-hidden">
+                  {cameraError ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-4">
+                      <Camera className="w-16 h-16 mb-4 opacity-50" />
+                      <p className="text-center">{cameraError}</p>
+                      <Button variant="outline" onClick={startCamera} className="mt-4 bg-transparent">
+                        Try Again
+                      </Button>
+                    </div>
+                  ) : capturedPhoto ? (
+                    <img 
+                      src={capturedPhoto || "/placeholder.svg"} 
+                      alt="Captured photo" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <>
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                        style={{ transform: "scaleX(-1)" }}
+                      />
+                      {!cameraStream && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
+                          <Camera className="w-16 h-16 mb-4 opacity-50 text-muted-foreground" />
+                          <p className="text-muted-foreground">Starting camera...</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Hidden canvas for capturing */}
+                <canvas ref={canvasRef} className="hidden" />
+
+                {/* Camera Controls */}
+                <div className="flex gap-3">
+                  {capturedPhoto ? (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        onClick={retakePhoto} 
+                        className="flex-1 bg-transparent"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Retake Photo
+                      </Button>
+                      <Button 
+                        onClick={completeSignIn} 
+                        className="flex-1"
+                        disabled={isLoading}
+                      >
+                        {isLoading ? "Completing Sign In..." : (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Complete Sign In
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setCapturedPhoto(null)
+                          stopCamera()
+                          completeSignIn()
+                        }} 
+                        className="flex-1 bg-transparent"
+                        disabled={isLoading}
+                      >
+                        Skip Photo
+                      </Button>
+                      <Button 
+                        onClick={capturePhoto} 
+                        className="flex-1"
+                        disabled={!cameraStream || isLoading}
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Take Photo
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+                {error && <p className="text-sm text-destructive">{error}</p>}
               </CardContent>
             </Card>
           </div>
         )}
-
+  
         {mode === "success" && successData && (
           <div className="max-w-md mx-auto text-center">
             <Card className="border-primary/20">

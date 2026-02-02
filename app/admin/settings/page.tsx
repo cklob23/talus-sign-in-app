@@ -20,15 +20,30 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
+import Image from "next/image"
 
 interface SystemSettings {
   auto_sign_out: boolean
   host_notifications: boolean
   badge_printing: boolean
   use_miles: boolean
+}
+
+interface BrandingSettings {
+  company_name: string
+  company_logo: string
+  company_logo_small: string
+}
+
+interface SmtpSettings {
+  smtp_host: string
+  smtp_port: string
+  smtp_user: string
+  smtp_pass: string
+  smtp_from_email: string
 }
 
 interface Location {
@@ -53,6 +68,25 @@ export default function SettingsPage() {
     use_miles: false,
   })
   const [settingsLoading, setSettingsLoading] = useState(true)
+  const [branding, setBranding] = useState<BrandingSettings>({
+    company_name: "",
+    company_logo: "",
+    company_logo_small: "",
+  })
+  const [smtp, setSmtp] = useState<SmtpSettings>({
+    smtp_host: "",
+    smtp_port: "587",
+    smtp_user: "",
+    smtp_pass: "",
+    smtp_from_email: "",
+  })
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [uploadingSmallLogo, setUploadingSmallLogo] = useState(false)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [smallLogoPreview, setSmallLogoPreview] = useState<string | null>(null)
+  const [savingBranding, setSavingBranding] = useState(false)
+  const [savingSmtp, setSavingSmtp] = useState(false)
   const [form, setForm] = useState({
     name: "",
     badgeColor: "#10B981",
@@ -112,6 +146,203 @@ export default function SettingsPage() {
     setSettingsLoading(false)
   }
 
+  async function loadBrandingSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["company_name", "company_logo", "company_logo_small"])
+    
+    if (data && data.length > 0) {
+      const loadedBranding: BrandingSettings = {
+        company_name: "",
+        company_logo: "",
+        company_logo_small: "",
+      }
+      for (const setting of data) {
+        if (setting.key === "company_name") loadedBranding.company_name = String(setting.value || "")
+        if (setting.key === "company_logo") loadedBranding.company_logo = String(setting.value || "")
+        if (setting.key === "company_logo_small") loadedBranding.company_logo_small = String(setting.value || "")
+      }
+      setBranding(loadedBranding)
+    }
+  }
+
+  async function loadSmtpSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"])
+    
+    if (data && data.length > 0) {
+      const loadedSmtp: SmtpSettings = {
+        smtp_host: "",
+        smtp_port: "587",
+        smtp_user: "",
+        smtp_pass: "",
+        smtp_from_email: "",
+      }
+      for (const setting of data) {
+        if (setting.key === "smtp_host") loadedSmtp.smtp_host = String(setting.value || "")
+        if (setting.key === "smtp_port") loadedSmtp.smtp_port = String(setting.value || "587")
+        if (setting.key === "smtp_user") loadedSmtp.smtp_user = String(setting.value || "")
+        if (setting.key === "smtp_pass") loadedSmtp.smtp_pass = String(setting.value || "")
+        if (setting.key === "smtp_from_email") loadedSmtp.smtp_from_email = String(setting.value || "")
+      }
+      setSmtp(loadedSmtp)
+    }
+  }
+
+  async function saveBrandingSettings() {
+    setSavingBranding(true)
+    const supabase = createClient()
+    
+    const brandingKeys = ["company_name", "company_logo", "company_logo_small"] as const
+    for (const key of brandingKeys) {
+      // First try to update existing record
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+      
+      if (existing) {
+        // Update existing record
+        await supabase
+          .from("settings")
+          .update({ value: branding[key] })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        // Insert new record
+        await supabase
+          .from("settings")
+          .insert({
+            key,
+            value: branding[key],
+            location_id: null,
+          })
+      }
+    }
+    
+    setSavingBranding(false)
+  }
+
+  async function saveSmtpSettings() {
+    setSavingSmtp(true)
+    const supabase = createClient()
+    
+    const smtpKeys = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"] as const
+    for (const key of smtpKeys) {
+      // First try to update existing record
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+      
+      if (existing) {
+        // Update existing record
+        await supabase
+          .from("settings")
+          .update({ value: smtp[key] })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        // Insert new record
+        await supabase
+          .from("settings")
+          .insert({
+            key,
+            value: smtp[key],
+            location_id: null,
+          })
+      }
+    }
+    
+    setSavingSmtp(false)
+  }
+
+  async function handleLogoUpload(file: File, type: "full" | "small") {
+    if (type === "full") setUploadingLogo(true)
+    else setUploadingSmallLogo(true)
+
+    // Show preview immediately
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const result = e.target?.result as string
+      if (type === "full") {
+        setLogoPreview(result)
+      } else {
+        setSmallLogoPreview(result)
+      }
+    }
+    reader.readAsDataURL(file)
+
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("type", type)
+
+      const response = await fetch("/api/admin/upload-logo", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Upload failed")
+      }
+
+      const { url } = await response.json()
+      // Add cache buster to force refresh
+      const urlWithCacheBuster = `${url}?t=${Date.now()}`
+      
+      if (type === "full") {
+        setBranding(prev => ({ ...prev, company_logo: urlWithCacheBuster }))
+        setLogoPreview(null)
+      } else {
+        setBranding(prev => ({ ...prev, company_logo_small: urlWithCacheBuster }))
+        setSmallLogoPreview(null)
+      }
+    } catch (error) {
+      console.error("Upload error:", error)
+      alert(error instanceof Error ? error.message : "Failed to upload image")
+      // Clear preview on error
+      if (type === "full") setLogoPreview(null)
+      else setSmallLogoPreview(null)
+    } finally {
+      if (type === "full") setUploadingLogo(false)
+      else setUploadingSmallLogo(false)
+    }
+  }
+
+  async function removeLogo(type: "full" | "small") {
+    const url = type === "full" ? branding.company_logo : branding.company_logo_small
+    if (!url) return
+
+    try {
+      await fetch("/api/admin/upload-logo", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      })
+    } catch {
+      // Ignore delete errors
+    }
+
+    if (type === "full") {
+      setBranding(prev => ({ ...prev, company_logo: "" }))
+    } else {
+      setBranding(prev => ({ ...prev, company_logo_small: "" }))
+    }
+  }
+
   async function updateSetting(key: keyof SystemSettings, value: boolean) {
     if (!selectedLocationId) return
     
@@ -152,10 +383,12 @@ export default function SettingsPage() {
     setMounted(true)
   }, [])
 
-  // Load locations on mount
+  // Load locations and global settings on mount
   useEffect(() => {
     loadLocations()
     loadData()
+    loadBrandingSettings()
+    loadSmtpSettings()
   }, [])
 
   // Load settings when location changes
@@ -580,6 +813,286 @@ export default function SettingsPage() {
                   ? "Theme will automatically match your system preferences"
                   : `Using ${theme} mode`}
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Branding Settings Card */}
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Building2 className="w-5 h-5" />
+            Company Branding
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Customize the company logo and name displayed on the kiosk and admin portal
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+          {/* Company Name */}
+          <div className="space-y-2">
+            <Label htmlFor="company_name">Company Name</Label>
+            <Input
+              id="company_name"
+              placeholder="Enter your company name"
+              value={branding.company_name}
+              onChange={(e) => setBranding(prev => ({ ...prev, company_name: e.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              This name will be displayed in the header and emails
+            </p>
+          </div>
+
+          {/* Full Logo */}
+          <div className="space-y-2">
+            <Label>Company Logo (Full)</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Main logo for headers and larger displays. Recommended: 200x50px or similar aspect ratio.
+            </p>
+            {(logoPreview || branding.company_logo) ? (
+              <div className="flex items-center gap-4">
+                <div className="relative w-[200px] h-[60px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-2">
+                  <Image
+                    src={logoPreview || branding.company_logo || "/placeholder.svg"}
+                    alt="Company Logo"
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                  {uploadingLogo && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleLogoUpload(file, "full")
+                      }}
+                      disabled={uploadingLogo}
+                    />
+                    <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingLogo}>
+                      <span>
+                        <Upload className="w-4 h-4 mr-1" />
+                        Change
+                      </span>
+                    </Button>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent"
+                    onClick={() => removeLogo("full")}
+                    disabled={uploadingLogo}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleLogoUpload(file, "full")
+                    }}
+                    disabled={uploadingLogo}
+                  />
+                  <Button variant="outline" className="bg-transparent" asChild disabled={uploadingLogo}>
+                    <span>
+                      <Upload className="w-4 h-4 mr-2" />
+                      {uploadingLogo ? "Uploading..." : "Upload Logo"}
+                    </span>
+                  </Button>
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Small Logo / Icon */}
+          <div className="space-y-2">
+            <Label>Company Logo (Small / Icon)</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Square icon for favicons, collapsed sidebar, and small displays. Recommended: 64x64px.
+            </p>
+            {(smallLogoPreview || branding.company_logo_small) ? (
+              <div className="flex items-center gap-4">
+                <div className="relative w-[64px] h-[64px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-1">
+                  <Image
+                    src={smallLogoPreview || branding.company_logo_small || "/placeholder.svg"}
+                    alt="Company Icon"
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                  {uploadingSmallLogo && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleLogoUpload(file, "small")
+                      }}
+                      disabled={uploadingSmallLogo}
+                    />
+                    <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
+                      <span>
+                        <Upload className="w-4 h-4 mr-1" />
+                        Change
+                      </span>
+                    </Button>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent"
+                    onClick={() => removeLogo("small")}
+                    disabled={uploadingSmallLogo}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleLogoUpload(file, "small")
+                    }}
+                    disabled={uploadingSmallLogo}
+                  />
+                  <Button variant="outline" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
+                    <span>
+                      <ImageIcon className="w-4 h-4 mr-2" />
+                      {uploadingSmallLogo ? "Uploading..." : "Upload Icon"}
+                    </span>
+                  </Button>
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2">
+            <Button onClick={saveBrandingSettings} disabled={savingBranding}>
+              {savingBranding ? "Saving..." : "Save Branding Settings"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* SMTP Settings Card */}
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Mail className="w-5 h-5" />
+            Email Notifications (SMTP)
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Configure SMTP settings for sending email notifications to hosts
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="smtp_host">SMTP Host</Label>
+              <Input
+                id="smtp_host"
+                placeholder="smtp.example.com"
+                value={smtp.smtp_host}
+                onChange={(e) => setSmtp(prev => ({ ...prev, smtp_host: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="smtp_port">SMTP Port</Label>
+              <Input
+                id="smtp_port"
+                placeholder="587"
+                value={smtp.smtp_port}
+                onChange={(e) => setSmtp(prev => ({ ...prev, smtp_port: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="smtp_user">SMTP Username</Label>
+              <Input
+                id="smtp_user"
+                placeholder="user@example.com"
+                value={smtp.smtp_user}
+                onChange={(e) => setSmtp(prev => ({ ...prev, smtp_user: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="smtp_pass">SMTP Password</Label>
+              <div className="relative">
+                <Input
+                  id="smtp_pass"
+                  type={showSmtpPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={smtp.smtp_pass}
+                  onChange={(e) => setSmtp(prev => ({ ...prev, smtp_pass: e.target.value }))}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                >
+                  {showSmtpPassword ? (
+                    <EyeOff className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="smtp_from_email">From Email Address</Label>
+            <Input
+              id="smtp_from_email"
+              type="email"
+              placeholder="noreply@yourcompany.com"
+              value={smtp.smtp_from_email}
+              onChange={(e) => setSmtp(prev => ({ ...prev, smtp_from_email: e.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              The email address that notifications will be sent from
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <Button onClick={saveSmtpSettings} disabled={savingSmtp}>
+              {savingSmtp ? "Saving..." : "Save SMTP Settings"}
+            </Button>
           </div>
         </CardContent>
       </Card>

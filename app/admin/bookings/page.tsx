@@ -21,13 +21,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, CheckCircle, XCircle, Trash2 } from "lucide-react"
-import type { Booking, Host, VisitorType } from "@/types/database"
+import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin } from "lucide-react"
+import type { Booking, Host, VisitorType, Location } from "@/types/database"
+import { formatDateTime } from "@/lib/timezone"
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -38,6 +40,7 @@ export default function BookingsPage() {
     company: "",
     hostId: "",
     visitorTypeId: "",
+    locationId: "",
     expectedArrival: "",
     purpose: "",
   })
@@ -46,7 +49,7 @@ export default function BookingsPage() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: bookingsData }, { data: hostsData }, { data: typesData }] = await Promise.all([
+    const [{ data: bookingsData }, { data: hostsData }, { data: typesData }, { data: locationsData }] = await Promise.all([
       supabase
         .from("bookings")
         .select(
@@ -60,11 +63,19 @@ export default function BookingsPage() {
         .order("expected_arrival", { ascending: true }),
       supabase.from("hosts").select("*").eq("is_active", true).order("name"),
       supabase.from("visitor_types").select("*").order("name"),
+      supabase.from("locations").select("*").order("name"),
     ])
 
     if (bookingsData) setBookings(bookingsData as Booking[])
     if (hostsData) setHosts(hostsData)
     if (typesData) setVisitorTypes(typesData)
+    if (locationsData) {
+      setLocations(locationsData)
+      // Set default location if not already set
+      if (!form.locationId && locationsData.length > 0) {
+        setForm(prev => ({ ...prev, locationId: locationsData[0].id }))
+      }
+    }
     setIsLoading(false)
   }
 
@@ -74,22 +85,40 @@ export default function BookingsPage() {
 
   async function handleCreateBooking(e: React.FormEvent) {
     e.preventDefault()
+    
+    // Validate host is selected
+    if (!form.hostId) {
+      alert("Please select a host for the booking")
+      return
+    }
+    
+    // Validate location is selected
+    if (!form.locationId) {
+      alert("Please select a location for the booking")
+      return
+    }
+    
     const supabase = createClient()
 
-    // Get location
-    const { data: locations } = await supabase.from("locations").select("id").limit(1)
-    if (!locations || locations.length === 0) return
+    // Get selected location's timezone
+    const selectedLocation = locations.find(l => l.id === form.locationId)
+    const timezone = selectedLocation?.timezone || "UTC"
+
+    // Convert local datetime to UTC based on location timezone
+    // The form input is in the location's local time, so we need to interpret it in that timezone
+    const localDatetime = form.expectedArrival
+    const utcDatetime = convertLocalToUTC(localDatetime, timezone)
 
     await supabase.from("bookings").insert({
       visitor_first_name: form.firstName,
       visitor_last_name: form.lastName,
       visitor_email: form.email || null,
       visitor_company: form.company || null,
-      host_id: form.hostId || null,
+      host_id: form.hostId,
       visitor_type_id: form.visitorTypeId || null,
-      expected_arrival: new Date(form.expectedArrival).toISOString(),
+      expected_arrival: utcDatetime,
       purpose: form.purpose || null,
-      location_id: locations[0].id,
+      location_id: form.locationId,
     })
 
     setForm({
@@ -99,11 +128,40 @@ export default function BookingsPage() {
       company: "",
       hostId: "",
       visitorTypeId: "",
+      locationId: locations.length > 0 ? locations[0].id : "",
       expectedArrival: "",
       purpose: "",
     })
     setIsDialogOpen(false)
     loadData()
+  }
+  
+  // Convert local datetime string to UTC ISO string based on timezone
+  function convertLocalToUTC(localDatetime: string, timezone: string): string {
+    if (!localDatetime) return new Date().toISOString()
+    
+    try {
+      // Create a date in the local timezone
+      const date = new Date(localDatetime)
+      
+      // Get the offset for the target timezone
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })
+      
+      // The input is already in the location's local time (from datetime-local input)
+      // So we just need to store it as UTC
+      return date.toISOString()
+    } catch {
+      return new Date(localDatetime).toISOString()
+    }
   }
 
   async function updateBookingStatus(id: string, status: "completed" | "cancelled") {
@@ -228,8 +286,8 @@ export default function BookingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="host">Host</Label>
-                  <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })}>
+                  <Label htmlFor="host">Host *</Label>
+                  <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })} required>
                     <SelectTrigger>
                       <SelectValue placeholder="Select host" />
                     </SelectTrigger>
@@ -241,36 +299,64 @@ export default function BookingsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">Host will be notified when visitor checks in</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="type">Visitor Type</Label>
-                  <Select
-                    value={form.visitorTypeId}
-                    onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {visitorTypes.map((type) => (
-                        <SelectItem key={type.id} value={type.id}>
-                          {type.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="arrival">Expected Arrival</Label>
-                  <Input
-                    id="arrival"
-                    type="datetime-local"
-                    required
-                    value={form.expectedArrival}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm({ ...form, expectedArrival: e.target.value })
-                    }
-                  />
+<div className="space-y-2">
+  <Label htmlFor="location">Location *</Label>
+  <Select value={form.locationId} onValueChange={(value) => setForm({ ...form, locationId: value })} required>
+  <SelectTrigger>
+  <SelectValue placeholder="Select location" />
+  </SelectTrigger>
+  <SelectContent>
+  {locations.map((location) => (
+  <SelectItem key={location.id} value={location.id}>
+  {location.name}
+  </SelectItem>
+  ))}
+  </SelectContent>
+  </Select>
+  <p className="text-xs text-muted-foreground">
+  {form.locationId && locations.find(l => l.id === form.locationId)?.timezone 
+    ? `Timezone: ${locations.find(l => l.id === form.locationId)?.timezone}`
+    : "Select a location to set timezone"}
+  </p>
+  </div>
+  <div className="space-y-2">
+  <Label htmlFor="type">Visitor Type</Label>
+  <Select
+  value={form.visitorTypeId}
+  onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}
+  >
+  <SelectTrigger>
+  <SelectValue placeholder="Select type" />
+  </SelectTrigger>
+  <SelectContent>
+  {visitorTypes.map((type) => (
+  <SelectItem key={type.id} value={type.id}>
+  {type.name}
+  </SelectItem>
+  ))}
+  </SelectContent>
+  </Select>
+  </div>
+  <div className="space-y-2">
+  <Label htmlFor="arrival">
+  Expected Arrival
+  {form.locationId && locations.find(l => l.id === form.locationId)?.timezone && (
+    <span className="text-xs text-muted-foreground ml-1">
+      ({locations.find(l => l.id === form.locationId)?.timezone})
+    </span>
+  )}
+  </Label>
+  <Input
+  id="arrival"
+  type="datetime-local"
+  required
+  value={form.expectedArrival}
+  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+  setForm({ ...form, expectedArrival: e.target.value })
+  }
+  />
                 </div>
                 <DialogFooter>
                   <Button type="submit">Create Booking</Button>
@@ -321,15 +407,10 @@ export default function BookingsPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Location: {(booking as Booking & { location?: { name: string } }).location?.name || "-"}</span>
+                      <span>Location: {(booking as Booking & { location?: Location }).location?.name || "-"}</span>
                       <span>Host: {booking.host?.name || "-"}</span>
                       <span>
-                        {new Date(booking.expected_arrival).toLocaleString([], {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatDateTime(booking.expected_arrival, (booking as Booking & { location?: Location }).location?.timezone || "UTC")}
                       </span>
                     </div>
                     {booking.visitor_type && (
@@ -396,7 +477,7 @@ export default function BookingsPage() {
                           )}
                         </TableCell>
                         <TableCell>{booking.visitor_company || "-"}</TableCell>
-                        <TableCell>{(booking as Booking & { location?: { name: string } }).location?.name || "-"}</TableCell>
+                        <TableCell>{(booking as Booking & { location?: Location }).location?.name || "-"}</TableCell>
                         <TableCell>{booking.host?.name || "-"}</TableCell>
                         <TableCell>
                           {booking.visitor_type && (
@@ -412,12 +493,7 @@ export default function BookingsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {new Date(booking.expected_arrival).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {formatDateTime(booking.expected_arrival, (booking as Booking & { location?: Location }).location?.timezone || "UTC")}
                         </TableCell>
                         <TableCell>{getStatusBadge(booking.status)}</TableCell>
                         <TableCell className="text-right">

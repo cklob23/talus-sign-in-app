@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { LogOut, RefreshCw, Users, Briefcase } from "lucide-react"
+import { LogOut, RefreshCw, Users, Briefcase, User } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -130,14 +131,14 @@ export default function CurrentVisitorsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-60 sm:w-70">
-          <TabsTrigger value="visitors" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
+        <TabsList className="w-fit">
+          <TabsTrigger value="visitors" className="flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
-            <span className="hidden sm:inline">Visitors</span> ({visitors.length})
+            Visitors ({visitors.length})
           </TabsTrigger>
-          <TabsTrigger value="employees" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="employees" className="flex items-center gap-2 text-xs sm:text-sm">
             <Briefcase className="w-4 h-4" />
-            <span className="hidden sm:inline">Employees</span> ({employees.length})
+            Employees ({employees.length})
           </TabsTrigger>
         </TabsList>
 
@@ -156,27 +157,37 @@ export default function CurrentVisitorsPage() {
                   <div className="space-y-3 md:hidden">
                     {visitors.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-sm">
-                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
-                            </p>
-                            {signIn.visitor?.company && (
-                              <p className="text-xs text-muted-foreground">{signIn.visitor.company}</p>
-                            )}
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                              {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">
+                                  {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                                </p>
+                                {signIn.visitor?.company && (
+                                  <p className="text-xs text-muted-foreground truncate">{signIn.visitor.company}</p>
+                                )}
+                              </div>
+                              {signIn.visitor_type && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs shrink-0"
+                                  style={{
+                                    borderColor: signIn.visitor_type.badge_color,
+                                    color: signIn.visitor_type.badge_color,
+                                  }}
+                                >
+                                  {signIn.visitor_type.name}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          {signIn.visitor_type && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs"
-                              style={{
-                                borderColor: signIn.visitor_type.badge_color,
-                                color: signIn.visitor_type.badge_color,
-                              }}
-                            >
-                              {signIn.visitor_type.name}
-                            </Badge>
-                          )}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
@@ -209,11 +220,23 @@ export default function CurrentVisitorsPage() {
                       <TableBody>
                         {visitors.map((signIn) => (
                           <TableRow key={signIn.id}>
-                            <TableCell className="font-medium">
-                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
-                              {signIn.visitor?.email && (
-                                <span className="block text-xs text-muted-foreground">{signIn.visitor.email}</span>
-                              )}
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9">
+                                  <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
+                                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                    {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">
+                                    {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                                  </p>
+                                  {signIn.visitor?.email && (
+                                    <p className="text-xs text-muted-foreground">{signIn.visitor.email}</p>
+                                  )}
+                                </div>
+                              </div>
                             </TableCell>
                             <TableCell>{signIn.visitor?.company || "-"}</TableCell>
                             <TableCell>
@@ -265,14 +288,24 @@ export default function CurrentVisitorsPage() {
                   <div className="space-y-3 md:hidden">
                     {employees.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-sm">{signIn.profile?.full_name || "Unknown"}</p>
-                            <p className="text-xs text-muted-foreground">{signIn.profile?.email || "-"}</p>
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
+                            <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                              {signIn.profile?.full_name?.split(" ").map(n => n[0]).join("").slice(0, 2) || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">{signIn.profile?.full_name || "Unknown"}</p>
+                                <p className="text-xs text-muted-foreground truncate">{signIn.profile?.email || "-"}</p>
+                              </div>
+                              <Badge variant="outline" className="capitalize border-blue-500 text-blue-500 text-xs shrink-0">
+                                {signIn.profile?.role || "-"}
+                              </Badge>
+                            </div>
                           </div>
-                          <Badge variant="outline" className="capitalize border-blue-500 text-blue-500 text-xs">
-                            {signIn.profile?.role || "-"}
-                          </Badge>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
@@ -303,8 +336,16 @@ export default function CurrentVisitorsPage() {
                       <TableBody>
                         {employees.map((signIn) => (
                           <TableRow key={signIn.id}>
-                            <TableCell className="font-medium">
-                              {signIn.profile?.full_name || "Unknown"}
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9">
+                                  <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
+                                  <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                                    {signIn.profile?.full_name?.split(" ").map(n => n[0]).join("").slice(0, 2) || "?"}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <p className="font-medium">{signIn.profile?.full_name || "Unknown"}</p>
+                              </div>
                             </TableCell>
                             <TableCell>{signIn.profile?.email || "-"}</TableCell>
                             <TableCell>

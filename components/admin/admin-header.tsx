@@ -16,7 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Bell, LogOut, User, LogIn, Clock, Building2 } from "lucide-react"
@@ -24,6 +24,8 @@ import { useRouter } from "next/navigation"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { formatDistanceToNow } from "date-fns"
 import { MobileSidebar } from "./admin-sidebar"
+import { useBranding } from "@/hooks/use-branding"
+import { ProfileModal } from "./profile-modal"
 
 interface CombinedActivity {
   id: string
@@ -58,17 +60,38 @@ interface SignInActivityRaw {
   location: { name: string }[] | { name: string } | null
 }
 
+interface UserProfile {
+  full_name: string | null
+  avatar_url: string | null
+}
+
 export function AdminHeader() {
   const [user, setUser] = useState<SupabaseUser | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [notifications, setNotifications] = useState<CombinedActivity[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
   const router = useRouter()
+  const { branding } = useBranding()
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       setUser(data.user)
+      
+      // Fetch profile with avatar
+      if (data.user) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("full_name, avatar_url")
+          .eq("id", data.user.id)
+          .single()
+        
+        if (profileData) {
+          setProfile(profileData)
+        }
+      }
     })
   }, [])
 
@@ -211,13 +234,16 @@ export function AdminHeader() {
     }
   }
 
-  const initials = user?.email?.slice(0, 2).toUpperCase() || "AD"
+  // Generate initials from full name or email
+  const initials = profile?.full_name
+    ? profile.full_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+    : user?.email?.slice(0, 2).toUpperCase() || "AD"
 
   return (
     <header className="h-14 sm:h-16 border-b bg-background flex items-center justify-between px-3 sm:px-6">
       <div className="flex items-center gap-2">
         <MobileSidebar />
-        <h2 className="text-base sm:text-lg font-semibold">Admin Portal</h2>
+        <h2 className="text-base sm:text-lg font-semibold">{branding.companyName} Admin</h2>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
         <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -332,6 +358,9 @@ export function AdminHeader() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-8 w-8 rounded-full">
               <Avatar className="h-8 w-8">
+                {profile?.avatar_url && (
+                  <AvatarImage src={profile.avatar_url || "/placeholder.svg"} alt={profile.full_name || "User avatar"} />
+                )}
                 <AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback>
               </Avatar>
             </Button>
@@ -339,12 +368,12 @@ export function AdminHeader() {
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">Account</p>
+                <p className="text-sm font-medium leading-none">{profile?.full_name || "Account"}</p>
                 <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setProfileModalOpen(true)}>
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>
@@ -355,6 +384,30 @@ export function AdminHeader() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Profile Modal */}
+        {user && (
+          <ProfileModal
+            open={profileModalOpen}
+            onOpenChange={(open: any) => {
+              setProfileModalOpen(open)
+              // Refresh profile when modal closes
+              if (!open) {
+                const supabase = createClient()
+                supabase
+                  .from("profiles")
+                  .select("full_name, avatar_url")
+                  .eq("id", user.id)
+                  .single()
+                  .then(({ data }) => {
+                    if (data) setProfile(data)
+                  })
+              }
+            }}
+            userId={user.id}
+            userEmail={user.email || ""}
+          />
+        )}
       </div>
     </header>
   )

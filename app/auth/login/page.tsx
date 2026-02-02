@@ -11,8 +11,10 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { TalusAgLogo } from "@/components/talusag-logo"
+import { useBranding } from "@/hooks/use-branding"
 
 export default function LoginPage() {
+  const { branding } = useBranding()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +95,7 @@ export default function LoginPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder="admin@talusag.com"
+                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}

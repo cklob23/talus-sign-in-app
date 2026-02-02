@@ -22,11 +22,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, UserCog } from "lucide-react"
-import type { Host, Location } from "@/types/database"
+import type { Host, Location, Profile } from "@/types/database"
 
 export default function HostsPage() {
   const [hosts, setHosts] = useState<Host[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingHost, setEditingHost] = useState<Host | null>(null)
@@ -37,15 +38,17 @@ export default function HostsPage() {
     department: "",
     locationId: "",
     isActive: true,
+    profileId: "",
   })
 
   async function loadData() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: hostsData }, { data: locationsData }] = await Promise.all([
-      supabase.from("hosts").select("*").order("name"),
+    const [{ data: hostsData }, { data: locationsData }, { data: profilesData }] = await Promise.all([
+      supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department, avatar_url, role, location_id, created_at, updated_at)").order("name"),
       supabase.from("locations").select("*").order("name"),
+      supabase.from("profiles").select("id, full_name, email, phone, department, avatar_url, role, location_id, created_at, updated_at").order("full_name"),
     ])
 
     if (hostsData) setHosts(hostsData)
@@ -55,6 +58,7 @@ export default function HostsPage() {
         setForm((f) => ({ ...f, locationId: locationsData[0].id }))
       }
     }
+    if (profilesData) setProfiles(profilesData)
     setIsLoading(false)
   }
 
@@ -71,19 +75,23 @@ export default function HostsPage() {
       department: "",
       locationId: locations[0]?.id || "",
       isActive: true,
+      profileId: "",
     })
     setIsDialogOpen(true)
   }
 
   function openEditDialog(host: Host) {
     setEditingHost(host)
+    // Use profile data if linked, otherwise use host's own data
+    const linkedProfile = host.profile
     setForm({
-      name: host.name,
-      email: host.email || "",
-      phone: host.phone || "",
-      department: host.department || "",
+      name: linkedProfile?.full_name || host.name,
+      email: linkedProfile?.email || host.email || "",
+      phone: linkedProfile?.phone || host.phone || "",
+      department: linkedProfile?.department || host.department || "",
       locationId: host.location_id,
       isActive: host.is_active,
+      profileId: host.profile_id || "",
     })
     setIsDialogOpen(true)
   }
@@ -92,13 +100,18 @@ export default function HostsPage() {
     e.preventDefault()
     const supabase = createClient()
 
+    // Get linked profile data if selected
+    const linkedProfile = form.profileId ? profiles.find(p => p.id === form.profileId) : null
+
     const data = {
-      name: form.name,
-      email: form.email || null,
-      phone: form.phone || null,
-      department: form.department || null,
+      name: linkedProfile?.full_name || form.name,
+      email: linkedProfile?.email || form.email || null,
+      phone: linkedProfile?.phone || form.phone || null,
+      department: linkedProfile?.department || form.department || null,
       location_id: form.locationId,
       is_active: form.isActive,
+      profile_id: form.profileId || null,
+      avatar_url: linkedProfile?.avatar_url || null,
     }
 
     if (editingHost) {
@@ -156,12 +169,49 @@ export default function HostsPage() {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="profile">Link to User Profile (Optional)</Label>
+                <Select 
+                  value={form.profileId} 
+                  onValueChange={(value) => {
+                    const selectedProfile = profiles.find(p => p.id === value)
+                    if (selectedProfile) {
+                      setForm({ 
+                        ...form, 
+                        profileId: value,
+                        name: selectedProfile.full_name || form.name,
+                        email: selectedProfile.email || form.email,
+                        phone: selectedProfile.phone || form.phone,
+                        department: selectedProfile.department || form.department,
+                      })
+                    } else {
+                      setForm({ ...form, profileId: value })
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a user profile..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (Manual Entry)</SelectItem>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.full_name || profile.email} {profile.department ? `(${profile.department})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Link to an existing user to sync their profile info
+                </p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="name">Name *</Label>
                 <Input
                   id="name"
                   required
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  disabled={!!form.profileId}
                 />
               </div>
               <div className="space-y-2">
@@ -171,11 +221,17 @@ export default function HostsPage() {
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  disabled={!!form.profileId}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone</Label>
-                <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <Input 
+                  id="phone" 
+                  value={form.phone} 
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })} 
+                  disabled={!!form.profileId}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="department">Department</Label>
@@ -183,6 +239,7 @@ export default function HostsPage() {
                   id="department"
                   value={form.department}
                   onChange={(e) => setForm({ ...form, department: e.target.value })}
+                  disabled={!!form.profileId}
                 />
               </div>
               <div className="space-y-2">
@@ -225,31 +282,43 @@ export default function HostsPage() {
             <>
               {/* Mobile card view */}
               <div className="space-y-3 md:hidden">
-                {hosts.map((host) => (
+                {hosts.map((host) => {
+                  const displayName = host.profile?.full_name || host.name
+                  const displayEmail = host.profile?.email || host.email
+                  const displayPhone = host.profile?.phone || host.phone
+                  const displayDept = host.profile?.department || host.department
+                  const displayAvatar = host.profile?.avatar_url || host.avatar_url
+                  
+                  return (
                   <div key={host.id} className="border rounded-lg p-3 space-y-2">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
-                          <AvatarImage src={host.avatar_url || undefined} />
-                          <AvatarFallback>{getInitials(host.name)}</AvatarFallback>
+                          <AvatarImage src={displayAvatar || undefined} />
+                          <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium text-sm">{host.name}</p>
-                          {host.email && <p className="text-xs text-muted-foreground">{host.email}</p>}
+                          <p className="font-medium text-sm">{displayName}</p>
+                          {displayEmail && <p className="text-xs text-muted-foreground">{displayEmail}</p>}
                         </div>
                       </div>
-                      <Badge
-                        variant={host.is_active ? "default" : "secondary"}
-                        className="cursor-pointer text-xs"
-                        onClick={() => toggleActive(host)}
-                      >
-                        {host.is_active ? "Active" : "Inactive"}
-                      </Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge
+                          variant={host.is_active ? "default" : "secondary"}
+                          className="cursor-pointer text-xs"
+                          onClick={() => toggleActive(host)}
+                        >
+                          {host.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                        {host.profile_id && (
+                          <Badge variant="outline" className="text-xs">Linked</Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>Location: {locations.find(l => l.id === host.location_id)?.name || "-"}</span>
-                      {host.phone && <span>Phone: {host.phone}</span>}
-                      {host.department && <span>Dept: {host.department}</span>}
+                      {displayPhone && <span>Phone: {displayPhone}</span>}
+                      {displayDept && <span>Dept: {displayDept}</span>}
                     </div>
                     <div className="flex justify-end gap-2 pt-1">
                       <Button variant="ghost" size="sm" onClick={() => openEditDialog(host)}>
@@ -262,7 +331,7 @@ export default function HostsPage() {
                       </Button>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
               {/* Desktop table view */}
               <div className="hidden md:block overflow-x-auto">
@@ -279,21 +348,33 @@ export default function HostsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {hosts.map((host) => (
+                    {hosts.map((host) => {
+                      const displayName = host.profile?.full_name || host.name
+                      const displayEmail = host.profile?.email || host.email
+                      const displayPhone = host.profile?.phone || host.phone
+                      const displayDept = host.profile?.department || host.department
+                      const displayAvatar = host.profile?.avatar_url || host.avatar_url
+                      
+                      return (
                       <TableRow key={host.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
-                              <AvatarImage src={host.avatar_url || undefined} />
-                              <AvatarFallback className="text-xs">{getInitials(host.name)}</AvatarFallback>
+                              <AvatarImage src={displayAvatar || undefined} />
+                              <AvatarFallback className="text-xs">{getInitials(displayName)}</AvatarFallback>
                             </Avatar>
-                            <span className="font-medium">{host.name}</span>
+                            <div>
+                              <span className="font-medium">{displayName}</span>
+                              {host.profile_id && (
+                                <Badge variant="outline" className="ml-2 text-xs">Linked</Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell>{host.email || "-"}</TableCell>
+                        <TableCell>{displayEmail || "-"}</TableCell>
                         <TableCell>{locations.find(l => l.id === host.location_id)?.name || "-"}</TableCell>
-                        <TableCell>{host.phone || "-"}</TableCell>
-                        <TableCell>{host.department || "-"}</TableCell>
+                        <TableCell>{displayPhone || "-"}</TableCell>
+                        <TableCell>{displayDept || "-"}</TableCell>
                         <TableCell>
                           <Badge
                             variant={host.is_active ? "default" : "secondary"}
@@ -314,7 +395,7 @@ export default function HostsPage() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )})}
                   </TableBody>
                 </Table>
               </div>

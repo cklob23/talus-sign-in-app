@@ -10,8 +10,10 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Download, Search, Users, Briefcase } from "lucide-react"
+import { Download, Search, Users, Briefcase, User } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
 
 // Use Omit to override the profile and location types from the base EmployeeSignIn
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -90,23 +92,14 @@ export function HistoryContent() {
     )
   })
 
-  function formatDateTime(dateStr: string) {
-    return new Date(dateStr).toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+  // Format datetime using location timezone (defaults to UTC if no location)
+  function formatDateTimeLocal(dateStr: string, location: Location | null | undefined) {
+    const timezone = location?.timezone || "UTC"
+    return formatDateTimeTz(dateStr, timezone)
   }
 
-  function formatDuration(signIn: SignIn | EmployeeSignInWithJoins) {
-    if (!signIn.sign_out_time) return "Active"
-    const mins = Math.floor(
-      (new Date(signIn.sign_out_time).getTime() - new Date(signIn.sign_in_time).getTime()) / (1000 * 60),
-    )
-    if (mins < 60) return `${mins}m`
-    const hrs = Math.floor(mins / 60)
-    return `${hrs}h ${mins % 60}m`
+  function getDuration(signIn: SignIn | EmployeeSignInWithJoins) {
+    return formatDurationUtil(signIn.sign_in_time, signIn.sign_out_time)
   }
 
   function handleExport() {
@@ -120,7 +113,7 @@ export function HistoryContent() {
           s.location?.name || "",
           s.sign_in_time,
           s.sign_out_time || "",
-          formatDuration(s),
+          getDuration(s),
           s.auto_signed_in ? "Yes" : "No",
         ]),
       ]
@@ -145,7 +138,7 @@ export function HistoryContent() {
           s.host?.name || "",
           s.sign_in_time,
           s.sign_out_time || "",
-          formatDuration(s),
+          getDuration(s),
         ]),
       ]
         .map((row) => row.join(","))
@@ -174,14 +167,14 @@ export function HistoryContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-60 sm:w-70">
-          <TabsTrigger value="all" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
+        <TabsList className="mb-4 w-fit">
+          <TabsTrigger value="all" className="flex items-center gap-2 text-xs sm:text-sm">
             <Users className="w-4 h-4" />
-            <span className="hidden sm:inline">Visitors</span> ({filteredSignIns.length})
+            Visitors ({filteredSignIns.length})
           </TabsTrigger>
-          <TabsTrigger value="employees" className="flex-1 sm:flex-none flex items-center gap-2 text-xs sm:text-sm">
+          <TabsTrigger value="employees" className="flex items-center gap-2 text-xs sm:text-sm">
             <Briefcase className="w-4 h-4" />
-            <span className="hidden sm:inline">Employees</span> ({filteredEmployeeSignIns.length})
+            Employees ({filteredEmployeeSignIns.length})
           </TabsTrigger>
         </TabsList>
 
@@ -215,36 +208,46 @@ export function HistoryContent() {
                   <div className="space-y-3 md:hidden">
                     {filteredSignIns.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-sm">
-                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
-                            </p>
-                            {signIn.visitor?.company && (
-                              <p className="text-xs text-muted-foreground">{signIn.visitor.company}</p>
-                            )}
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                              {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">
+                                  {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                                </p>
+                                {signIn.visitor?.company && (
+                                  <p className="text-xs text-muted-foreground truncate">{signIn.visitor.company}</p>
+                                )}
+                              </div>
+                              {signIn.visitor_type && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs shrink-0"
+                                  style={{
+                                    borderColor: signIn.visitor_type.badge_color,
+                                    color: signIn.visitor_type.badge_color,
+                                  }}
+                                >
+                                  {signIn.visitor_type.name}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          {signIn.visitor_type && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs"
-                              style={{
-                                borderColor: signIn.visitor_type.badge_color,
-                                color: signIn.visitor_type.badge_color,
-                              }}
-                            >
-                              {signIn.visitor_type.name}
-                            </Badge>
-                          )}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
-                          <span>In: {formatDateTime(signIn.sign_in_time)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</span>
+                          <span>In: {formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</span>
                         </div>
                         <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
-                          {formatDuration(signIn)}
+                          {getDuration(signIn)}
                         </Badge>
                       </div>
                     ))}
@@ -267,8 +270,18 @@ export function HistoryContent() {
                       <TableBody>
                         {filteredSignIns.map((signIn) => (
                           <TableRow key={signIn.id}>
-                            <TableCell className="font-medium">
-                              {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9">
+                                  <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
+                                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                    {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <p className="font-medium">
+                                  {signIn.visitor?.first_name} {signIn.visitor?.last_name}
+                                </p>
+                              </div>
                             </TableCell>
                             <TableCell>{signIn.visitor?.company || "-"}</TableCell>
                             <TableCell>
@@ -286,10 +299,10 @@ export function HistoryContent() {
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
                             <TableCell>
-                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
+                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -332,23 +345,33 @@ export function HistoryContent() {
                   <div className="space-y-3 md:hidden">
                     {filteredEmployeeSignIns.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-sm">{signIn.profile?.full_name || "Unknown"}</p>
-                            <p className="text-xs text-muted-foreground">{signIn.profile?.email || "-"}</p>
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
+                            <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                              {signIn.profile?.full_name?.split(" ").map(n => n[0]).join("").slice(0, 2) || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">{signIn.profile?.full_name || "Unknown"}</p>
+                                <p className="text-xs text-muted-foreground truncate">{signIn.profile?.email || "-"}</p>
+                              </div>
+                              <Badge variant="outline" className="capitalize text-xs shrink-0">
+                                {signIn.profile?.role || "-"}
+                              </Badge>
+                            </div>
                           </div>
-                          <Badge variant="outline" className="capitalize text-xs">
-                            {signIn.profile?.role || "-"}
-                          </Badge>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
-                          <span>In: {formatDateTime(signIn.sign_in_time)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</span>
+                          <span>In: {formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
-                            {formatDuration(signIn)}
+                            {getDuration(signIn)}
                           </Badge>
                           {signIn.auto_signed_in && (
                             <Badge variant="secondary" className="text-xs">Auto</Badge>
@@ -375,8 +398,16 @@ export function HistoryContent() {
                       <TableBody>
                         {filteredEmployeeSignIns.map((signIn) => (
                           <TableRow key={signIn.id}>
-                            <TableCell className="font-medium">
-                              {signIn.profile?.full_name || "Unknown"}
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9">
+                                  <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
+                                  <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                                    {signIn.profile?.full_name?.split(" ").map(n => n[0]).join("").slice(0, 2) || "?"}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <p className="font-medium">{signIn.profile?.full_name || "Unknown"}</p>
+                              </div>
                             </TableCell>
                             <TableCell>{signIn.profile?.email || "-"}</TableCell>
                             <TableCell>
@@ -385,10 +416,10 @@ export function HistoryContent() {
                               </Badge>
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTime(signIn.sign_in_time)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTime(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
                             <TableCell>
-                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{formatDuration(signIn)}</Badge>
+                              <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>
                             <TableCell>
                               {signIn.auto_signed_in ? (

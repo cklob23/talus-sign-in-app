@@ -16,6 +16,8 @@ export interface Profile {
   full_name: string | null
   role: "admin" | "staff" | "viewer" | "employee"
   location_id: string | null
+  phone: string | null
+  department: string | null
   avatar_url: string | null
   created_at: string
   updated_at: string
@@ -69,6 +71,9 @@ export interface Host {
   avatar_url: string | null
   created_at: string
   updated_at: string
+  // Joined fields
+  profile?: Profile
+  location?: Location
 }
 
 export interface Visitor {
