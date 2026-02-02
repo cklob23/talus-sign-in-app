@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import Image from "next/image"
@@ -36,6 +36,13 @@ interface BrandingSettings {
   company_name: string
   company_logo: string
   company_logo_small: string
+}
+
+interface ColorSettings {
+  primary_color_light: string
+  primary_color_dark: string
+  accent_color_light: string
+  accent_color_dark: string
 }
 
 interface SmtpSettings {
@@ -87,6 +94,13 @@ export default function SettingsPage() {
   const [smallLogoPreview, setSmallLogoPreview] = useState<string | null>(null)
   const [savingBranding, setSavingBranding] = useState(false)
   const [savingSmtp, setSavingSmtp] = useState(false)
+  const [colorSettings, setColorSettings] = useState<ColorSettings>({
+    primary_color_light: "#10B981",
+    primary_color_dark: "#10B981",
+    accent_color_light: "#059669",
+    accent_color_dark: "#34D399",
+  })
+  const [savingColors, setSavingColors] = useState(false)
   const [form, setForm] = useState({
     name: "",
     badgeColor: "#10B981",
@@ -124,7 +138,7 @@ export default function SettingsPage() {
       .from("settings")
       .select("key, value")
       .eq("location_id", locationId)
-    
+
     // Reset to defaults first
     const loadedSettings: SystemSettings = {
       auto_sign_out: true,
@@ -132,7 +146,7 @@ export default function SettingsPage() {
       badge_printing: false,
       use_miles: false,
     }
-    
+
     if (data && data.length > 0) {
       for (const setting of data) {
         if (setting.key === "auto_sign_out") loadedSettings.auto_sign_out = setting.value === true || setting.value === "true"
@@ -141,7 +155,7 @@ export default function SettingsPage() {
         if (setting.key === "distance_unit_miles") loadedSettings.use_miles = setting.value === true || setting.value === "true"
       }
     }
-    
+
     setSettings(loadedSettings)
     setSettingsLoading(false)
   }
@@ -153,7 +167,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["company_name", "company_logo", "company_logo_small"])
-    
+
     if (data && data.length > 0) {
       const loadedBranding: BrandingSettings = {
         company_name: "",
@@ -176,7 +190,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"])
-    
+
     if (data && data.length > 0) {
       const loadedSmtp: SmtpSettings = {
         smtp_host: "",
@@ -196,12 +210,181 @@ export default function SettingsPage() {
     }
   }
 
+  async function loadColorSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["primary_color_light", "primary_color_dark", "accent_color_light", "accent_color_dark"])
+
+    if (data && data.length > 0) {
+      const loadedColors: ColorSettings = {
+        primary_color_light: "#10B981",
+        primary_color_dark: "#10B981",
+        accent_color_light: "#059669",
+        accent_color_dark: "#34D399",
+      }
+      for (const setting of data) {
+        if (setting.key === "primary_color_light") loadedColors.primary_color_light = String(setting.value || "#10B981")
+        if (setting.key === "primary_color_dark") loadedColors.primary_color_dark = String(setting.value || "#10B981")
+        if (setting.key === "accent_color_light") loadedColors.accent_color_light = String(setting.value || "#059669")
+        if (setting.key === "accent_color_dark") loadedColors.accent_color_dark = String(setting.value || "#34D399")
+      }
+      setColorSettings(loadedColors)
+      // Apply color settings to CSS
+      applyColorSettings(loadedColors)
+    }
+  }
+
+  function hexToOklch(hex: string): string {
+    // Ensure hex is properly formatted
+    if (!hex || !hex.startsWith("#")) return "oklch(0.65 0.2 160)"
+
+    // Convert hex to RGB
+    const r = parseInt(hex.slice(1, 3), 16) / 255
+    const g = parseInt(hex.slice(3, 5), 16) / 255
+    const b = parseInt(hex.slice(5, 7), 16) / 255
+
+    // Convert RGB to linear RGB
+    const toLinear = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+    const lr = toLinear(r)
+    const lg = toLinear(g)
+    const lb = toLinear(b)
+
+    // Convert to XYZ
+    const x = 0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb
+    const y = 0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb
+    const z = 0.0193339 * lr + 0.1191920 * lg + 0.9503041 * lb
+
+    // Convert XYZ to Lab
+    const xn = 0.95047, yn = 1.0, zn = 1.08883
+    const f = (t: number) => t > 0.008856 ? Math.pow(t, 1 / 3) : (903.3 * t + 16) / 116
+    const fx = f(x / xn)
+    const fy = f(y / yn)
+    const fz = f(z / zn)
+
+    const L = 116 * fy - 16
+    const a = 500 * (fx - fy)
+    const bVal = 200 * (fy - fz)
+
+    // Convert Lab to LCH
+    const C = Math.sqrt(a * a + bVal * bVal)
+    let H = Math.atan2(bVal, a) * 180 / Math.PI
+    if (H < 0) H += 360
+
+    // Approximate OKLCH values
+    const oklchL = Math.max(0, Math.min(1, L / 100))
+    const oklchC = Math.max(0, Math.min(0.4, C / 150))
+
+    return `oklch(${oklchL.toFixed(3)} ${oklchC.toFixed(3)} ${H.toFixed(1)})`
+  }
+
+  function applyColorSettings(colors: ColorSettings) {
+    // Remove existing theme colors style if present
+    const existing = document.getElementById("theme-colors")
+    if (existing) existing.remove()
+
+    const primaryLightOklch = hexToOklch(colors.primary_color_light)
+    const primaryDarkOklch = hexToOklch(colors.primary_color_dark)
+    const accentLightOklch = hexToOklch(colors.accent_color_light)
+    const accentDarkOklch = hexToOklch(colors.accent_color_dark)
+
+    // Create CSS that overrides the theme colors at all levels
+    // We need to override both the base CSS variables AND the Tailwind theme variables
+    const style = document.createElement("style")
+    style.id = "theme-colors"
+    style.textContent = `
+      :root {
+        --primary: ${primaryLightOklch} !important;
+        --ring: ${primaryLightOklch} !important;
+        --sidebar-primary: ${primaryLightOklch} !important;
+        --sidebar-ring: ${primaryLightOklch} !important;
+        --chart-1: ${primaryLightOklch} !important;
+        --accent: ${accentLightOklch} !important;
+        --sidebar-accent: ${accentLightOklch} !important;
+        --color-primary: ${primaryLightOklch} !important;
+        --color-ring: ${primaryLightOklch} !important;
+        --color-sidebar-primary: ${primaryLightOklch} !important;
+        --color-sidebar-ring: ${primaryLightOklch} !important;
+        --color-chart-1: ${primaryLightOklch} !important;
+        --color-accent: ${accentLightOklch} !important;
+        --color-sidebar-accent: ${accentLightOklch} !important;
+      }
+      
+      .dark, :root.dark, html.dark {
+        --primary: ${primaryDarkOklch} !important;
+        --ring: ${primaryDarkOklch} !important;
+        --sidebar-primary: ${primaryDarkOklch} !important;
+        --sidebar-ring: ${primaryDarkOklch} !important;
+        --chart-1: ${primaryDarkOklch} !important;
+        --accent: ${accentDarkOklch} !important;
+        --sidebar-accent: ${accentDarkOklch} !important;
+        --color-primary: ${primaryDarkOklch} !important;
+        --color-ring: ${primaryDarkOklch} !important;
+        --color-sidebar-primary: ${primaryDarkOklch} !important;
+        --color-sidebar-ring: ${primaryDarkOklch} !important;
+        --color-chart-1: ${primaryDarkOklch} !important;
+        --color-accent: ${accentDarkOklch} !important;
+        --color-sidebar-accent: ${accentDarkOklch} !important;
+      }
+      
+      /* Also apply directly to elements using bg-primary */
+      .bg-primary {
+        background-color: ${primaryLightOklch} !important;
+      }
+      .dark .bg-primary {
+        background-color: ${primaryDarkOklch} !important;
+      }
+    `
+
+    document.head.appendChild(style)
+  }
+
+  async function saveColorSettings() {
+    setSavingColors(true)
+    const supabase = createClient()
+
+    const colorKeys = ["primary_color_light", "primary_color_dark", "accent_color_light", "accent_color_dark"] as const
+    for (const key of colorKeys) {
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await supabase
+          .from("settings")
+          .update({ value: colorSettings[key] })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        await supabase
+          .from("settings")
+          .insert({
+            key,
+            value: colorSettings[key],
+            location_id: null,
+          })
+      }
+    }
+
+    // Apply the colors
+    applyColorSettings(colorSettings)
+    setSavingColors(false)
+  }
+
   async function saveBrandingSettings() {
     setSavingBranding(true)
     const supabase = createClient()
-    
+
     const brandingKeys = ["company_name", "company_logo", "company_logo_small"] as const
     for (const key of brandingKeys) {
+      // Convert empty strings to null
+      const value = branding[key].trim() === "" ? null : branding[key]
+
       // First try to update existing record
       const { data: existing } = await supabase
         .from("settings")
@@ -209,33 +392,33 @@ export default function SettingsPage() {
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
-        // Update existing record
+        // Update existing record - set to null if empty
         await supabase
           .from("settings")
-          .update({ value: branding[key] })
+          .update({ value })
           .eq("key", key)
           .is("location_id", null)
-      } else {
-        // Insert new record
+      } else if (value !== null) {
+        // Only insert new record if value is not null
         await supabase
           .from("settings")
           .insert({
             key,
-            value: branding[key],
+            value,
             location_id: null,
           })
       }
     }
-    
+
     setSavingBranding(false)
   }
 
   async function saveSmtpSettings() {
     setSavingSmtp(true)
     const supabase = createClient()
-    
+
     const smtpKeys = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"] as const
     for (const key of smtpKeys) {
       // First try to update existing record
@@ -245,7 +428,7 @@ export default function SettingsPage() {
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
         // Update existing record
         await supabase
@@ -264,7 +447,7 @@ export default function SettingsPage() {
           })
       }
     }
-    
+
     setSavingSmtp(false)
   }
 
@@ -302,7 +485,7 @@ export default function SettingsPage() {
       const { url } = await response.json()
       // Add cache buster to force refresh
       const urlWithCacheBuster = `${url}?t=${Date.now()}`
-      
+
       if (type === "full") {
         setBranding(prev => ({ ...prev, company_logo: urlWithCacheBuster }))
         setLogoPreview(null)
@@ -345,14 +528,14 @@ export default function SettingsPage() {
 
   async function updateSetting(key: keyof SystemSettings, value: boolean) {
     if (!selectedLocationId) return
-    
+
     const supabase = createClient()
     const newSettings = { ...settings, [key]: value }
     setSettings(newSettings)
-    
+
     // Map the state key to the database key
     const dbKey = key === "use_miles" ? "distance_unit_miles" : key
-    
+
     // Try to update first
     const { data: existingData } = await supabase
       .from("settings")
@@ -360,7 +543,7 @@ export default function SettingsPage() {
       .eq("key", dbKey)
       .eq("location_id", selectedLocationId)
       .single()
-    
+
     if (existingData) {
       // Update existing setting
       await supabase
@@ -370,10 +553,10 @@ export default function SettingsPage() {
         .eq("location_id", selectedLocationId)
     } else {
       // Insert new setting for this location
-      await supabase.from("settings").insert({ 
-        key: dbKey, 
+      await supabase.from("settings").insert({
+        key: dbKey,
         value: value,
-        location_id: selectedLocationId 
+        location_id: selectedLocationId
       })
     }
   }
@@ -389,6 +572,7 @@ export default function SettingsPage() {
     loadData()
     loadBrandingSettings()
     loadSmtpSettings()
+    loadColorSettings()
   }, [])
 
   // Load settings when location changes
@@ -684,8 +868,8 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Select 
-                value={selectedLocationId || ""} 
+              <Select
+                value={selectedLocationId || ""}
                 onValueChange={(value) => setSelectedLocationId(value)}
               >
                 <SelectTrigger className="w-full sm:w-[200px]">
@@ -712,7 +896,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Auto Sign-Out</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out visitors at end of day</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.auto_sign_out}
                   onCheckedChange={(checked: boolean) => updateSetting("auto_sign_out", checked)}
                 />
@@ -722,7 +906,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Host Notifications</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Email hosts when their visitors arrive</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.host_notifications}
                   onCheckedChange={(checked: boolean) => updateSetting("host_notifications", checked)}
                 />
@@ -732,7 +916,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Badge Printing</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.badge_printing}
                   onCheckedChange={(checked: boolean) => updateSetting("badge_printing", checked)}
                 />
@@ -742,7 +926,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Distance Unit</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Display distances in miles instead of kilometers on kiosk</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.use_miles}
                   onCheckedChange={(checked: boolean) => updateSetting("use_miles", checked)}
                 />
@@ -760,7 +944,7 @@ export default function SettingsPage() {
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">Customize the look and feel of the admin dashboard</CardDescription>
         </CardHeader>
-<CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           <div className="space-y-3">
             <Label className="text-sm">Theme</Label>
             {!mounted ? (
@@ -807,7 +991,7 @@ export default function SettingsPage() {
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              {!mounted 
+              {!mounted
                 ? "Loading theme preference..."
                 : theme === "system"
                   ? "Theme will automatically match your system preferences"

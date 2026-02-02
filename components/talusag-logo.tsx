@@ -8,9 +8,10 @@ interface TalusAgLogoProps {
   className?: string
   width?: number
   height?: number
+  borderRadius?: string
 }
 
-export function TalusAgLogo({ variant = "dark", className = "", height = 40 }: TalusAgLogoProps) {
+export function TalusAgLogo({ variant = "dark", className = "", height = 40, borderRadius = "sm" }: TalusAgLogoProps) {
   const { branding, isLoading } = useBranding()
 
   // If custom logo is set, use it
@@ -22,7 +23,7 @@ export function TalusAgLogo({ variant = "dark", className = "", height = 40 }: T
           alt={branding.companyName}
           width={150}
           height={height}
-          className="h-10 w-auto object-contain"
+          className={`h-10 w-auto object-contain rounded-${borderRadius}`}
           priority
         />
       </div>
@@ -37,7 +38,7 @@ export function TalusAgLogo({ variant = "dark", className = "", height = 40 }: T
         alt={branding.companyName}
         width={150}
         height={height}
-        className="h-10 w-auto object-contain"
+        className={`h-10 w-auto object-contain rounded-${borderRadius}`}
         priority
       />
     </div>
@@ -45,7 +46,7 @@ export function TalusAgLogo({ variant = "dark", className = "", height = 40 }: T
 }
 
 // Icon-only version for collapsed sidebar
-export function TalusAgLogoIcon({ className = "" }: { className?: string }) {
+export function TalusAgLogoIcon({ className = "", borderRadius = "sm" }: { className?: string, borderRadius?: string }) {
   const { branding } = useBranding()
 
   // If custom small logo is set, use it
@@ -56,7 +57,7 @@ export function TalusAgLogoIcon({ className = "" }: { className?: string }) {
         alt={branding.companyName}
         width={40}
         height={40}
-        className={`object-contain ${className}`}
+        className={`object-contain ${className} rounded-${borderRadius}`}
         priority
       />
     )
@@ -70,7 +71,7 @@ export function TalusAgLogoIcon({ className = "" }: { className?: string }) {
         alt={branding.companyName}
         width={40}
         height={40}
-        className={`object-contain ${className}`}
+        className={`object-contain ${className} rounded-${borderRadius}`}
         priority
       />
     )
@@ -80,10 +81,10 @@ export function TalusAgLogoIcon({ className = "" }: { className?: string }) {
   return (
     <Image
       src="/talusAg_Logo.png"
-      alt={branding.companyName}
+      alt={"Talus Logo"}
       width={40}
       height={40}
-      className={`object-contain ${className}`}
+      className={`object-contain ${className} rounded-${borderRadius}`}
       priority
     />
   )

@@ -29,7 +29,7 @@ export default function HomePage() {
       <main className="container mx-auto px-4 py-16">
         <div className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4 text-balance">
-            {isLoading ? "Welcome to Talus" : `Welcome to ${branding.companyName}`}
+            {isLoading ? "Welcome to Talus" : `Welcome to ${branding.companyName || "Talus"}`}
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto text-pretty">
             Secure visitor management for our green ammonia facilities. Sign in quickly and safely.
@@ -96,7 +96,7 @@ export default function HomePage() {
 
       <footer className="border-t py-8 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} {branding.companyName} Visitor Management. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} {branding.companyName || "Talus"} Visitor Management. All rights reserved.</p>
         </div>
       </footer>
     </div>
