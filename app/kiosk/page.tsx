@@ -1060,7 +1060,7 @@ export default function KioskPage() {
                   }
                 </div>
                 <div class="info-section">
-                  <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
+                  <img src="${window.location.origin}/${branding.companyLogo || "talusAg_Logo.png"}" alt="Logo" class="logo" />
                   <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
                   <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
                   <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
@@ -1487,7 +1487,7 @@ export default function KioskPage() {
             }
                 </div>
                 <div class="info-section">
-                  <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
+                  <img src="${window.location.origin}/${branding.companyLogo || "talusAg_Logo.png"}" alt="Logo" class="logo" />
                   <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                   <div class="visitor-type">${form.company || selectedType?.name || "Visitor"}</div>
                   <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
