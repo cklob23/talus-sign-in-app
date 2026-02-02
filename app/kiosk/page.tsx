@@ -1197,7 +1197,7 @@ export default function KioskPage() {
     setVideoStarted(true)
 
     // Simulate 7.33 minutes of required watching time
-    const totalDuration = 60 * 7.33
+    const totalDuration = 60 * 3.46
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
