@@ -19,7 +19,7 @@ export function TalusAgLogo({ variant = "dark", className = "", height = 40, bor
     return (
       <div className={`flex items-center ${className}`}>
         <Image
-          src={branding.companyLogo || "/placeholder.svg"}
+          src={branding.companyLogo || "/talusAg_Logo.png"}
           alt={branding.companyName}
           width={150}
           height={height}
@@ -53,7 +53,7 @@ export function TalusAgLogoIcon({ className = "", borderRadius = "sm" }: { class
   if (branding.companyLogoSmall) {
     return (
       <Image
-        src={branding.companyLogoSmall || "/placeholder.svg"}
+        src={branding.companyLogoSmall || "/icon.svg"}
         alt={branding.companyName}
         width={40}
         height={40}
@@ -67,7 +67,7 @@ export function TalusAgLogoIcon({ className = "", borderRadius = "sm" }: { class
   if (branding.companyLogo) {
     return (
       <Image
-        src={branding.companyLogo || "/placeholder.svg"}
+        src={branding.companyLogo || "/talusAg_Logo.png"}
         alt={branding.companyName}
         width={40}
         height={40}
@@ -80,7 +80,7 @@ export function TalusAgLogoIcon({ className = "", borderRadius = "sm" }: { class
   // Default logo image
   return (
     <Image
-      src="/talusAg_Logo.png"
+      src="/icon.svg"
       alt={"Talus Logo"}
       width={40}
       height={40}
