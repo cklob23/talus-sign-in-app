@@ -13,24 +13,14 @@ interface TalusAgLogoProps {
 // Default SVG logo component (used when no custom logo is set)
 function DefaultLogoIcon({ size = 40 }: { size?: number }) {
   return (
-    <svg
-      width={size}
+    <Image
+      src={"/talusAg_Logo.png"}
+      alt={"Talus Ag Logo"}
+      width={150}
       height={size}
-      viewBox="0 0 40 40"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="flex-shrink-0"
-    >
-      <rect width="40" height="40" rx="8" fill="#10B981" />
-      <path
-        d="M12 14H28M20 14V28M16 18L20 14L24 18"
-        stroke="white"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="20" cy="26" r="2" fill="white" />
-    </svg>
+      className="h-10 w-auto object-contain"
+      priority
+    />
   )
 }
 
@@ -39,14 +29,14 @@ export function TalusAgLogo({ variant = "dark", className = "", height = 40 }: T
   // If custom logo is set, use it
   if (branding.companyLogo) {
     return (
-        <Image
-          src={branding.companyLogo || "/placeholder.svg"}
-          alt={branding.companyName}
-          width={150}
-          height={height}
-          className="h-10 w-auto object-contain"
-          priority
-        />
+      <Image
+        src={branding.companyLogo || "/placeholder.svg"}
+        alt={branding.companyName}
+        width={150}
+        height={height}
+        className="h-10 w-auto object-contain"
+        priority
+      />
     )
   }
 
