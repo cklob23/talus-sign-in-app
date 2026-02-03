@@ -56,6 +56,7 @@ export default function UsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
+  const [lastSignInLocations, setLastSignInLocations] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -90,14 +91,27 @@ export default function UsersPage() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: profilesData }, { data: locationsData }, { data: hostsData }] = await Promise.all([
+    const [{ data: profilesData }, { data: locationsData }, { data: hostsData }, { data: signInsData }] = await Promise.all([
       supabase.from("profiles").select("*").order("full_name"),
       supabase.from("locations").select("*").order("name"),
       supabase.from("hosts").select("*"),
+      // Get the most recent sign-in for each user to determine their last location
+      supabase.from("employee_sign_ins").select("profile_id, location_id, sign_in_time").order("sign_in_time", { ascending: false }),
     ])
 
     if (profilesData) setProfiles(profilesData)
     if (hostsData) setHosts(hostsData)
+    
+    // Build a map of profile_id -> last location_id (first occurrence is most recent due to ordering)
+    if (signInsData) {
+      const locationMap: Record<string, string> = {}
+      for (const signIn of signInsData) {
+        if (!locationMap[signIn.profile_id]) {
+          locationMap[signIn.profile_id] = signIn.location_id
+        }
+      }
+      setLastSignInLocations(locationMap)
+    }
     if (locationsData) {
       setLocations(locationsData)
       if (locationsData.length > 0 && !form.locationId) {
@@ -915,9 +929,10 @@ export default function UsersPage() {
                           {profile.department && (
                             <span>Dept: {profile.department}</span>
                           )}
-                          {profile.location_id && (
+                          {(lastSignInLocations[profile.id] || profile.location_id) && (
                             <span>
-                              Location: {locations.find((l) => l.id === profile.location_id)?.name || "-"}
+                              Last Location: {locations.find((l) => l.id === lastSignInLocations[profile.id])?.name || 
+                                             locations.find((l) => l.id === profile.location_id)?.name || "-"}
                             </span>
                           )}
                         </div>
@@ -967,7 +982,7 @@ export default function UsersPage() {
                       <TableHead>Email</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead>Location</TableHead>
+                      <TableHead>Last Location</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1006,7 +1021,9 @@ export default function UsersPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {locations.find((l) => l.id === profile.location_id)?.name || "-"}
+                          {locations.find((l) => l.id === lastSignInLocations[profile.id])?.name || 
+                           locations.find((l) => l.id === profile.location_id)?.name || 
+                           "-"}
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
