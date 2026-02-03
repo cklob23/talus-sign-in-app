@@ -14,6 +14,7 @@ import { Download, Search, Users, Briefcase, User } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
+import { useTimezone } from "@/contexts/timezone-context"
 
 // Use Omit to override the profile and location types from the base EmployeeSignIn
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -31,6 +32,7 @@ export function HistoryContent() {
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("all")
+  const { timezone: userTimezone } = useTimezone()
 
   async function loadHistory() {
     setIsLoading(true)
@@ -92,10 +94,9 @@ export function HistoryContent() {
     )
   })
 
-  // Format datetime using location timezone (defaults to UTC if no location)
-  function formatDateTimeLocal(dateStr: string, location: Location | null | undefined) {
-    const timezone = location?.timezone || "UTC"
-    return formatDateTimeTz(dateStr, timezone)
+  // Format datetime using user's preferred timezone
+  function formatDateTimeLocal(dateStr: string) {
+    return formatDateTimeTz(dateStr, userTimezone)
   }
 
   function getDuration(signIn: SignIn | EmployeeSignInWithJoins) {
@@ -243,8 +244,8 @@ export function HistoryContent() {
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
-                          <span>In: {formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</span>
+                          <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</span>
                         </div>
                         <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
                           {getDuration(signIn)}
@@ -299,8 +300,8 @@ export function HistoryContent() {
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
+                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
                             <TableCell>
                               <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>
@@ -366,8 +367,8 @@ export function HistoryContent() {
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
-                          <span>In: {formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</span>
+                          <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
@@ -416,8 +417,8 @@ export function HistoryContent() {
                               </Badge>
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time, signIn.location)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
+                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
+                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
                             <TableCell>
                               <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>

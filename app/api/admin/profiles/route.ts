@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Get profile data from request
     const body = await request.json()
-    const { email, full_name, role, location_id, avatar_url } = body
+    const { email, full_name, role, location_id, department, avatar_url } = body
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 })
@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
           full_name: full_name || null,
           role: role || "employee",
           location_id: location_id || null,
+          department: department || null,
           avatar_url: avatar_url || null,
           updated_at: new Date().toISOString(),
         })
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
         full_name: full_name || null,
         role: role || "employee",
         location_id: location_id || null,
+        department: department || null,
         avatar_url: avatar_url || null,
       })
       .select()
@@ -153,7 +155,7 @@ export async function PUT(request: NextRequest) {
 
     // Get profile data from request
     const body = await request.json()
-    const { id, email, full_name, role, location_id, avatar_url } = body
+    const { id, email, full_name, role, location_id, department, avatar_url } = body
 
     if (!id) {
       return NextResponse.json({ error: "Profile ID is required" }, { status: 400 })
@@ -178,6 +180,7 @@ export async function PUT(request: NextRequest) {
         full_name: full_name || null,
         role: role || "employee",
         location_id: location_id || null,
+        department: department || null,
         avatar_url: avatar_url || null,
         updated_at: new Date().toISOString(),
       })

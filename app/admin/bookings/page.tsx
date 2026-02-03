@@ -24,6 +24,7 @@ import {
 import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin } from "lucide-react"
 import type { Booking, Host, VisitorType, Location } from "@/types/database"
 import { formatDateTime } from "@/lib/timezone"
+import { useTimezone } from "@/contexts/timezone-context"
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -33,6 +34,7 @@ export default function BookingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const { timezone: userTimezone } = useTimezone()
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -410,7 +412,7 @@ export default function BookingsPage() {
                       <span>Location: {(booking as Booking & { location?: Location }).location?.name || "-"}</span>
                       <span>Host: {booking.host?.name || "-"}</span>
                       <span>
-                        {formatDateTime(booking.expected_arrival, (booking as Booking & { location?: Location }).location?.timezone || "UTC")}
+                        {formatDateTime(booking.expected_arrival, userTimezone)}
                       </span>
                     </div>
                     {booking.visitor_type && (
@@ -493,7 +495,7 @@ export default function BookingsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {formatDateTime(booking.expected_arrival, (booking as Booking & { location?: Location }).location?.timezone || "UTC")}
+                          {formatDateTime(booking.expected_arrival, userTimezone)}
                         </TableCell>
                         <TableCell>{getStatusBadge(booking.status)}</TableCell>
                         <TableCell className="text-right">

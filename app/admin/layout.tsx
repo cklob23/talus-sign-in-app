@@ -3,6 +3,7 @@
 import type React from "react"
 import { AdminSidebar, SidebarProvider, useSidebar } from "@/components/admin/admin-sidebar"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { TimezoneProvider } from "@/contexts/timezone-context"
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const { collapsed, setCollapsed } = useSidebar()
@@ -20,8 +21,10 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <AdminLayoutContent>{children}</AdminLayoutContent>
-    </SidebarProvider>
+    <TimezoneProvider>
+      <SidebarProvider>
+        <AdminLayoutContent>{children}</AdminLayoutContent>
+      </SidebarProvider>
+    </TimezoneProvider>
   )
 }

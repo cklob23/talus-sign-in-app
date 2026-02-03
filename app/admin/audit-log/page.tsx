@@ -13,6 +13,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { addDays, subDays, format, startOfDay, endOfDay } from "date-fns"
 import type { AuditLog, Profile } from "@/types/database"
 import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
+import { useTimezone } from "@/contexts/timezone-context"
 
 const ACTION_LABELS: Record<string, string> = {
   // User actions
@@ -76,6 +77,7 @@ export default function AuditLogPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedUserId, setSelectedUserId] = useState<string>("all")
   const [selectedAction, setSelectedAction] = useState<string>("all")
+  const { timezone: userTimezone } = useTimezone()
   // Default to last 7 days, allow up to 30 days lookback
   const [startDate, setStartDate] = useState<Date>(() => startOfDay(subDays(new Date(), 7)))
   const [endDate, setEndDate] = useState<Date>(() => endOfDay(new Date()))
@@ -177,8 +179,8 @@ export default function AuditLogPage() {
             <div className="p-3 border-b">
               <p className="text-sm font-medium">Select date range (up to 30 days)</p>
               <div className="flex gap-2 mt-2">
-                <Button
-                  variant="outline"
+                <Button 
+                  variant="outline" 
                   size="sm"
                   className="text-xs bg-transparent"
                   onClick={() => {
@@ -189,8 +191,8 @@ export default function AuditLogPage() {
                 >
                   Today
                 </Button>
-                <Button
-                  variant="outline"
+                <Button 
+                  variant="outline" 
                   size="sm"
                   className="text-xs bg-transparent"
                   onClick={() => {
@@ -201,8 +203,8 @@ export default function AuditLogPage() {
                 >
                   Last 7 days
                 </Button>
-                <Button
-                  variant="outline"
+                <Button 
+                  variant="outline" 
                   size="sm"
                   className="text-xs bg-transparent"
                   onClick={() => {
@@ -283,7 +285,7 @@ export default function AuditLogPage() {
                         </Avatar>
                         <div>
                           <p className="font-medium text-sm">{log.user?.full_name || log.user?.email || "System"}</p>
-                          <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, "UTC")}</p>
+                          <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, userTimezone)}</p>
                         </div>
                       </div>
                     </div>
@@ -310,7 +312,7 @@ export default function AuditLogPage() {
                     {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="text-sm">
-                          {formatDateTime(log.created_at, "UTC")}
+                          {formatDateTime(log.created_at, userTimezone)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">

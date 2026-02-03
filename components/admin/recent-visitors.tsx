@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Location } from "@/types/database"
 import { formatTime } from "@/lib/timezone"
+import { useTimezone } from "@/contexts/timezone-context"
 
 interface CombinedSignIn {
   id: string
@@ -23,6 +24,7 @@ interface CombinedSignIn {
 
 export function RecentVisitors() {
   const [signIns, setSignIns] = useState<CombinedSignIn[]>([])
+  const { timezone: userTimezone } = useTimezone()
 
   useEffect(() => {
     async function loadRecentSignIns() {
@@ -142,7 +144,7 @@ export function RecentVisitors() {
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {formatTime(signIn.sign_in_time, signIn.timezone)}
+                    {formatTime(signIn.sign_in_time, userTimezone)}
                   </span>
                 </div>
               </div>

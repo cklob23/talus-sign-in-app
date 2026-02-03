@@ -20,7 +20,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe } from "lucide-react"
+import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
@@ -70,6 +71,7 @@ interface Location {
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
+  const { timezone, setTimezone, isSaving: isSavingTimezone } = useUserTimezone()
   const [mounted, setMounted] = useState(false)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -1125,6 +1127,31 @@ export default function SettingsPage() {
                 : theme === "system"
                   ? "Theme will automatically match your system preferences"
                   : `Using ${theme} mode`}
+            </p>
+          </div>
+
+          {/* Timezone Setting */}
+          <div className="space-y-3 pt-4 border-t">
+            <Label className="text-sm flex items-center gap-2">
+              <Globe className="w-4 h-4" />
+              Display Timezone
+            </Label>
+            <Select value={timezone} onValueChange={setTimezone}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select timezone" />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {isSavingTimezone
+                ? "Saving timezone preference..."
+                : "All dates and times in the admin portal will be displayed in this timezone"}
             </p>
           </div>
         </CardContent>

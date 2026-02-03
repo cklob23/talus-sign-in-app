@@ -41,6 +41,7 @@ interface Profile {
   role: string | null
   avatar_url: string | null
   location_id: string | null
+  department: string | null
   created_at: string
   updated_at: string
 }
@@ -80,6 +81,7 @@ export default function UsersPage() {
     fullName: "",
     role: "employee",
     locationId: "",
+    department: "",
     avatarUrl: "",
     isHost: false,
   })
@@ -116,6 +118,7 @@ export default function UsersPage() {
       fullName: "",
       role: "employee",
       locationId: locations[0]?.id || "",
+      department: "",
       avatarUrl: "",
       isHost: false,
     })
@@ -131,6 +134,7 @@ export default function UsersPage() {
       fullName: profile.full_name || "",
       role: profile.role || "employee",
       locationId: profile.location_id || locations[0]?.id || "",
+      department: profile.department || "",
       avatarUrl: profile.avatar_url || "",
       isHost: isProfileHost,
     })
@@ -147,6 +151,7 @@ export default function UsersPage() {
         full_name: form.fullName || null,
         role: form.role,
         location_id: form.locationId || null,
+        department: form.department || null,
         avatar_url: form.avatarUrl || null,
       }
 
@@ -532,6 +537,15 @@ export default function UsersPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="department">Department</Label>
+                  <Input
+                    id="department"
+                    value={form.department}
+                    onChange={(e) => setForm({ ...form, department: e.target.value })}
+                    placeholder="e.g., Engineering, Sales, HR"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="role">Role *</Label>
                   <Select value={form.role} onValueChange={(value) => setForm({ ...form, role: value })}>
                     <SelectTrigger>
@@ -898,6 +912,9 @@ export default function UsersPage() {
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
+                          {profile.department && (
+                            <span>Dept: {profile.department}</span>
+                          )}
                           {profile.location_id && (
                             <span>
                               Location: {locations.find((l) => l.id === profile.location_id)?.name || "-"}
@@ -948,6 +965,7 @@ export default function UsersPage() {
                       </TableHead>
                       <TableHead>User</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Department</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -976,6 +994,7 @@ export default function UsersPage() {
                           </div>
                         </TableCell>
                         <TableCell>{profile.email || "-"}</TableCell>
+                        <TableCell>{profile.department || "-"}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {getRoleBadge(profile.role)}
