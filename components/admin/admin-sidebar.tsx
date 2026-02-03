@@ -23,6 +23,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeft,
+  ScrollText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -54,6 +55,7 @@ const navItems = [
   { href: "/admin/users", label: "User Management", icon: UsersRound },
   { href: "/admin/locations", label: "Locations", icon: Building2 },
   { href: "/admin/settings", label: "Settings", icon: Settings },
+  { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
 ]
 
 function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {

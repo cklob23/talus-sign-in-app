@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label"
 import { AlertTriangle, CheckCircle, Siren, Download } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Evacuation, SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -29,7 +30,7 @@ interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'loca
   location: Location | null
 }
 
-interface SignInWithLocation extends Omit<SignIn, 'location'> {
+type SignInWithLocation = Omit<SignIn, 'location'> & {
   location?: Location | null
 }
 
@@ -43,21 +44,45 @@ export default function EvacuationsPage() {
   const [reason, setReason] = useState("")
   const [locations, setLocations] = useState<Location[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState<string>("")
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   async function loadData() {
     setIsLoading(true)
     const supabase = createClient()
 
-    const [{ data: evacData }, { data: visitorsData }, { data: employeesData }, { data: locationsData }] = await Promise.all([
+    const [{ data: evacData }, { data: visitorsData }, { data: employeesData }, { data: locationsData }, { data: currentUser }] = await Promise.all([
       supabase.from("evacuations").select("*, location:locations(*)").order("started_at", { ascending: false }),
       supabase.from("sign_ins").select("*, visitor:visitors(*), host:hosts(*), location:locations(*)").is("sign_out_time", null),
       supabase.from("employee_sign_ins").select("*, profile:profiles(*), location:locations(*)").is("sign_out_time", null),
       supabase.from("locations").select("*").order("name"),
+      supabase.auth.getUser(),
     ])
 
     if (evacData) {
-      setEvacuations(evacData as Evacuation[])
-      const active = evacData.find((e) => !e.all_clear)
+      // Fetch profiles for initiated_by and completed_by users
+      const userIds = [...new Set(evacData.flatMap(e => [e.initiated_by, e.completed_by].filter(Boolean)))]
+      let profilesMap: Record<string, Profile> = {}
+      
+      if (userIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", userIds)
+        
+        if (profilesData) {
+          profilesMap = Object.fromEntries(profilesData.map(p => [p.id, p]))
+        }
+      }
+      
+      // Merge profile data into evacuations
+      const evacuationsWithProfiles = evacData.map(evac => ({
+        ...evac,
+        initiated_by_profile: evac.initiated_by ? profilesMap[evac.initiated_by] || null : null,
+        completed_by_profile: evac.completed_by ? profilesMap[evac.completed_by] || null : null,
+      }))
+      
+      setEvacuations(evacuationsWithProfiles as Evacuation[])
+      const active = evacuationsWithProfiles.find((e) => !e.all_clear)
       setActiveEvacuation(active || null)
     }
     if (visitorsData) setCurrentVisitors(visitorsData as SignInWithLocation[])
@@ -67,6 +92,9 @@ export default function EvacuationsPage() {
       if (locationsData.length > 0 && !selectedLocationId) {
         setSelectedLocationId(locationsData[0].id)
       }
+    }
+    if (currentUser?.user?.id) {
+      setCurrentUserId(currentUser.user.id)
     }
     setIsLoading(false)
   }
@@ -138,6 +166,7 @@ export default function EvacuationsPage() {
     await supabase.from("evacuations").insert({
       location_id: selectedLocationId,
       reason: reason || null,
+      initiated_by: currentUserId,
     })
 
     // Export CSV automatically when evacuation starts
@@ -156,6 +185,7 @@ export default function EvacuationsPage() {
       .update({
         all_clear: true,
         ended_at: new Date().toISOString(),
+        completed_by: currentUserId,
       })
       .eq("id", activeEvacuation.id)
     loadData()
@@ -357,30 +387,67 @@ export default function EvacuationsPage() {
             <>
               {/* Mobile card view */}
               <div className="space-y-3 md:hidden">
-                {evacuations.map((evac) => (
-                  <div key={evac.id} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-start justify-between">
-                      <p className="font-medium text-sm">
-                        {formatDateTime(evac.started_at, (evac as Evacuation & { location?: Location }).location?.timezone || "UTC")}
-                      </p>
-                      {evac.all_clear ? (
-                        <Badge variant="secondary" className="text-xs">All Clear</Badge>
-                      ) : (
-                        <Badge variant="destructive" className="bg-destructive text-destructive-foreground text-xs">
-                          Active
-                        </Badge>
-                      )}
+                {evacuations.map((evac) => {
+                  const evacWithProfiles = evac as Evacuation & { 
+                    location?: Location
+                    initiated_by_profile?: Profile | null
+                    completed_by_profile?: Profile | null 
+                  }
+                  return (
+                    <div key={evac.id} className="border rounded-lg p-3 space-y-2">
+                      <div className="flex items-start justify-between">
+                        <p className="font-medium text-sm">
+                          {formatDateTime(evac.started_at, evacWithProfiles.location?.timezone || "UTC")}
+                        </p>
+                        {evac.all_clear ? (
+                          <Badge variant="secondary" className="text-xs">All Clear</Badge>
+                        ) : (
+                          <Badge variant="destructive" className="bg-destructive text-destructive-foreground text-xs">
+                            Active
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        <span>
+                          Duration: {evac.ended_at
+                            ? (() => {
+                                const ms = new Date(evac.ended_at).getTime() - new Date(evac.started_at).getTime()
+                                const seconds = Math.floor(ms / 1000)
+                                if (seconds < 60) return "a few seconds"
+                                return `${Math.floor(seconds / 60)} min`
+                              })()
+                            : "Ongoing"}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
+                        {evacWithProfiles.initiated_by_profile && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-muted-foreground">Started by:</span>
+                            <Avatar className="h-4 w-4">
+                              <AvatarImage src={evacWithProfiles.initiated_by_profile.avatar_url || undefined} />
+                              <AvatarFallback className="text-[8px]">
+                                {evacWithProfiles.initiated_by_profile.full_name?.[0] || "?"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span>{evacWithProfiles.initiated_by_profile.full_name || evacWithProfiles.initiated_by_profile.email}</span>
+                          </div>
+                        )}
+                        {evacWithProfiles.completed_by_profile && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-muted-foreground">Completed by:</span>
+                            <Avatar className="h-4 w-4">
+                              <AvatarImage src={evacWithProfiles.completed_by_profile.avatar_url || undefined} />
+                              <AvatarFallback className="text-[8px]">
+                                {evacWithProfiles.completed_by_profile.full_name?.[0] || "?"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span>{evacWithProfiles.completed_by_profile.full_name || evacWithProfiles.completed_by_profile.email}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Reason: {evac.reason || "-"}</span>
-                      <span>
-                        Duration: {evac.ended_at
-                          ? `${Math.round((new Date(evac.ended_at).getTime() - new Date(evac.started_at).getTime()) / (1000 * 60))} min`
-                          : "Ongoing"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               {/* Desktop table view */}
               <div className="hidden md:block overflow-x-auto">
@@ -388,32 +455,83 @@ export default function EvacuationsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
-                      <TableHead>Reason</TableHead>
                       <TableHead>Duration</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Result</TableHead>
+                      <TableHead>Started by</TableHead>
+                      <TableHead>Completed by</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {evacuations.map((evac) => (
-                      <TableRow key={evac.id}>
-                        <TableCell>{formatDateTime(evac.started_at, (evac as Evacuation & { location?: Location }).location?.timezone || "UTC")}</TableCell>
-                        <TableCell>{evac.reason || "-"}</TableCell>
-                        <TableCell>
-                          {evac.ended_at
-                            ? `${Math.round((new Date(evac.ended_at).getTime() - new Date(evac.started_at).getTime()) / (1000 * 60))} min`
-                            : "Ongoing"}
-                        </TableCell>
-                        <TableCell>
-                          {evac.all_clear ? (
-                            <Badge variant="secondary">All Clear</Badge>
-                          ) : (
-                            <Badge variant="destructive" className="bg-destructive text-destructive-foreground">
-                              Active
-                            </Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {evacuations.map((evac) => {
+                      const evacWithProfiles = evac as Evacuation & { 
+                        location?: Location
+                        initiated_by_profile?: Profile | null
+                        completed_by_profile?: Profile | null 
+                      }
+                      const visitorCount = currentVisitors.filter(v => v.location_id === evac.location_id).length
+                      const employeeCount = currentEmployees.filter(e => e.location_id === evac.location_id).length
+                      const totalPresent = visitorCount + employeeCount
+                      
+                      return (
+                        <TableRow key={evac.id}>
+                          <TableCell>{formatDateTime(evac.started_at, evacWithProfiles.location?.timezone || "UTC")}</TableCell>
+                          <TableCell>
+                            {evac.ended_at
+                              ? (() => {
+                                  const ms = new Date(evac.ended_at).getTime() - new Date(evac.started_at).getTime()
+                                  const seconds = Math.floor(ms / 1000)
+                                  if (seconds < 60) return "a few seconds"
+                                  const minutes = Math.floor(seconds / 60)
+                                  if (minutes < 60) return `${minutes} min`
+                                  const hours = Math.floor(minutes / 60)
+                                  return `${hours}h ${minutes % 60}m`
+                                })()
+                              : "Ongoing"}
+                          </TableCell>
+                          <TableCell>
+                            {evac.all_clear ? (
+                              <span className="text-muted-foreground">{totalPresent} of {totalPresent} present</span>
+                            ) : (
+                              <Badge variant="destructive" className="bg-destructive text-destructive-foreground">
+                                Active
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {evacWithProfiles.initiated_by_profile ? (
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-6 w-6">
+                                  <AvatarImage src={evacWithProfiles.initiated_by_profile.avatar_url || undefined} />
+                                  <AvatarFallback className="text-xs">
+                                    {evacWithProfiles.initiated_by_profile.full_name?.[0] || evacWithProfiles.initiated_by_profile.email?.[0]?.toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm">{evacWithProfiles.initiated_by_profile.full_name || evacWithProfiles.initiated_by_profile.email}</span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {evacWithProfiles.completed_by_profile ? (
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-6 w-6">
+                                  <AvatarImage src={evacWithProfiles.completed_by_profile.avatar_url || undefined} />
+                                  <AvatarFallback className="text-xs">
+                                    {evacWithProfiles.completed_by_profile.full_name?.[0] || evacWithProfiles.completed_by_profile.email?.[0]?.toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm">{evacWithProfiles.completed_by_profile.full_name || evacWithProfiles.completed_by_profile.email}</span>
+                              </div>
+                            ) : evac.all_clear ? (
+                              <span className="text-muted-foreground">-</span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>

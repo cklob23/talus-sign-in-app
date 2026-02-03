@@ -136,9 +136,27 @@ export interface Evacuation {
   started_at: string
   ended_at: string | null
   initiated_by: string | null
+  completed_by: string | null
   reason: string | null
   all_clear: boolean
   created_at: string
   // Joined fields
   location?: Location
+  initiated_by_profile?: Profile
+  completed_by_profile?: Profile
+}
+
+export interface AuditLog {
+  id: string
+  user_id: string | null
+  action: string
+  entity_type: string
+  entity_id: string | null
+  description: string | null
+  metadata: Record<string, unknown>
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+  // Joined fields
+  user?: Profile
 }

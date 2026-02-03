@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Pie, PieChart, Cell, Legend } from "recharts"
-import { Download, Users, Briefcase, MapPin, Calendar, Clock, Building2, TrendingUp, LogOut } from "lucide-react"
+import { Download, Users, Briefcase, MapPin, Calendar, Clock, Building2, TrendingUp, LogOut, ClipboardList, ChevronRight } from "lucide-react"
+import Link from "next/link"
 import { formatFullDateTime } from "@/lib/timezone"
 
 interface ReportData {
@@ -512,6 +513,26 @@ export default function ReportsPage() {
             <span className="hidden sm:inline">Export Report</span>
           </Button>
         </div>
+      </div>
+
+      {/* Quick Links to Specialized Reports */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <Link href="/admin/reports/timesheets" className="group">
+          <Card className="hover:border-primary/50 transition-colors">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <ClipboardList className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">Timesheets</p>
+                  <p className="text-xs text-muted-foreground">Employee attendance by day</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {isLoading ? (

@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import Image from "next/image"
@@ -51,6 +51,14 @@ interface SmtpSettings {
   smtp_user: string
   smtp_pass: string
   smtp_from_email: string
+}
+
+interface PasswordPolicySettings {
+  password_expiration: string // "never", "30", "60", "90", "180", "365"
+  force_reauth: string // "never", "1", "7", "14", "30"
+  force_2fa: boolean
+  prevent_reuse: boolean
+  password_reuse_count: number
 }
 
 interface Location {
@@ -101,6 +109,14 @@ export default function SettingsPage() {
     accent_color_dark: "#34D399",
   })
   const [savingColors, setSavingColors] = useState(false)
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicySettings>({
+    password_expiration: "never",
+    force_reauth: "never",
+    force_2fa: false,
+    prevent_reuse: false,
+    password_reuse_count: 5,
+  })
+  const [savingPasswordPolicy, setSavingPasswordPolicy] = useState(false)
   const [form, setForm] = useState({
     name: "",
     badgeColor: "#10B981",
@@ -451,6 +467,68 @@ export default function SettingsPage() {
     setSavingSmtp(false)
   }
 
+  async function loadPasswordPolicySettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["password_expiration", "force_reauth", "force_2fa", "prevent_reuse", "password_reuse_count"])
+
+    if (data && data.length > 0) {
+      const loadedPolicy: PasswordPolicySettings = {
+        password_expiration: "never",
+        force_reauth: "never",
+        force_2fa: false,
+        prevent_reuse: false,
+        password_reuse_count: 5,
+      }
+      for (const setting of data) {
+        if (setting.key === "password_expiration") loadedPolicy.password_expiration = String(setting.value || "never")
+        if (setting.key === "force_reauth") loadedPolicy.force_reauth = String(setting.value || "never")
+        if (setting.key === "force_2fa") loadedPolicy.force_2fa = setting.value === true || setting.value === "true"
+        if (setting.key === "prevent_reuse") loadedPolicy.prevent_reuse = setting.value === true || setting.value === "true"
+        if (setting.key === "password_reuse_count") loadedPolicy.password_reuse_count = Number(setting.value) || 5
+      }
+      setPasswordPolicy(loadedPolicy)
+    }
+  }
+
+  async function savePasswordPolicySettings() {
+    setSavingPasswordPolicy(true)
+    const supabase = createClient()
+
+    const policyKeys = ["password_expiration", "force_reauth", "force_2fa", "prevent_reuse", "password_reuse_count"] as const
+    for (const key of policyKeys) {
+      const value = passwordPolicy[key]
+
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await supabase
+          .from("settings")
+          .update({ value })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        await supabase
+          .from("settings")
+          .insert({
+            key,
+            value,
+            location_id: null,
+          })
+      }
+    }
+
+    setSavingPasswordPolicy(false)
+  }
+
   async function handleLogoUpload(file: File, type: "full" | "small") {
     if (type === "full") setUploadingLogo(true)
     else setUploadingSmallLogo(true)
@@ -573,6 +651,7 @@ export default function SettingsPage() {
     loadBrandingSettings()
     loadSmtpSettings()
     loadColorSettings()
+    loadPasswordPolicySettings()
   }, [])
 
   // Load settings when location changes
@@ -1276,6 +1355,89 @@ export default function SettingsPage() {
           <div className="pt-2">
             <Button onClick={saveSmtpSettings} disabled={savingSmtp}>
               {savingSmtp ? "Saving..." : "Save SMTP Settings"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Password Policy Card */}
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <ShieldCheck className="w-5 h-5" />
+            Password Policy
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            This is where you can change the password policy for users logging in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="password_expiration">Passwords expire</Label>
+            <Select
+              value={passwordPolicy.password_expiration}
+              onValueChange={(value) => setPasswordPolicy(prev => ({ ...prev, password_expiration: value }))}
+            >
+              <SelectTrigger id="password_expiration" className="w-full">
+                <SelectValue placeholder="Select expiration period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="never">Never</SelectItem>
+                <SelectItem value="30">30 days</SelectItem>
+                <SelectItem value="60">60 days</SelectItem>
+                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="180">180 days</SelectItem>
+                <SelectItem value="365">1 year</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="force_reauth">Force re-authentication</Label>
+            <Select
+              value={passwordPolicy.force_reauth}
+              onValueChange={(value) => setPasswordPolicy(prev => ({ ...prev, force_reauth: value }))}
+            >
+              <SelectTrigger id="force_reauth" className="w-full">
+                <SelectValue placeholder="Select re-authentication period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="never">Never</SelectItem>
+                <SelectItem value="1">Every day</SelectItem>
+                <SelectItem value="7">Every week</SelectItem>
+                <SelectItem value="14">Every 2 weeks</SelectItem>
+                <SelectItem value="30">Every month</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div className="space-y-0.5">
+              <Label htmlFor="force_2fa">Force two factor authentication</Label>
+              <p className="text-xs text-muted-foreground">Require all users to set up 2FA</p>
+            </div>
+            <Switch
+              id="force_2fa"
+              checked={passwordPolicy.force_2fa}
+              onCheckedChange={(checked) => setPasswordPolicy(prev => ({ ...prev, force_2fa: checked }))}
+            />
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div className="space-y-0.5">
+              <Label htmlFor="prevent_reuse">Prevent recently used passwords</Label>
+              <p className="text-xs text-muted-foreground">Users cannot reuse their last {passwordPolicy.password_reuse_count} passwords</p>
+            </div>
+            <Switch
+              id="prevent_reuse"
+              checked={passwordPolicy.prevent_reuse}
+              onCheckedChange={(checked) => setPasswordPolicy(prev => ({ ...prev, prevent_reuse: checked }))}
+            />
+          </div>
+
+          <div className="pt-2 flex justify-end">
+            <Button onClick={savePasswordPolicySettings} disabled={savingPasswordPolicy}>
+              {savingPasswordPolicy ? "Saving..." : "Save"}
             </Button>
           </div>
         </CardContent>
