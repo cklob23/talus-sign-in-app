@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck } from "lucide-react"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
+import { logAudit } from "@/lib/audit-log"
 import Image from "next/image"
 
 interface SystemSettings {
@@ -389,6 +390,13 @@ export default function SettingsPage() {
 
     // Apply the colors
     applyColorSettings(colorSettings)
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "Color settings updated",
+      metadata: { colorSettings }
+    })
+
     setSavingColors(false)
   }
 
@@ -428,6 +436,13 @@ export default function SettingsPage() {
       }
     }
 
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "Branding settings updated",
+      metadata: { company_name: branding.company_name }
+    })
+
     setSavingBranding(false)
   }
 
@@ -463,6 +478,13 @@ export default function SettingsPage() {
           })
       }
     }
+
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "SMTP settings updated",
+      metadata: { smtp_host: smtp.smtp_host, smtp_from_email: smtp.smtp_from_email }
+    })
 
     setSavingSmtp(false)
   }
@@ -525,6 +547,13 @@ export default function SettingsPage() {
           })
       }
     }
+
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "Password policy updated",
+      metadata: { passwordPolicy }
+    })
 
     setSavingPasswordPolicy(false)
   }
@@ -710,8 +739,22 @@ export default function SettingsPage() {
 
     if (editingType) {
       await supabase.from("visitor_types").update(data).eq("id", editingType.id)
+      await logAudit({
+        action: "visitor_type.updated",
+        entityType: "visitor_type",
+        entityId: editingType.id,
+        description: `Visitor type updated: ${data.name}`,
+        metadata: { name: data.name }
+      })
     } else {
-      await supabase.from("visitor_types").insert(data)
+      const { data: newType } = await supabase.from("visitor_types").insert(data).select().single()
+      await logAudit({
+        action: "visitor_type.created",
+        entityType: "visitor_type",
+        entityId: newType?.id,
+        description: `Visitor type created: ${data.name}`,
+        metadata: { name: data.name }
+      })
     }
 
     setIsDialogOpen(false)
@@ -721,7 +764,14 @@ export default function SettingsPage() {
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this visitor type?")) return
     const supabase = createClient()
+    const typeToDelete = visitorTypes.find(t => t.id === id)
     await supabase.from("visitor_types").delete().eq("id", id)
+    await logAudit({
+      action: "visitor_type.deleted",
+      entityType: "visitor_type",
+      entityId: id,
+      description: `Visitor type deleted: ${typeToDelete?.name || id}`,
+    })
     loadData()
   }
 

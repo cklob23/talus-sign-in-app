@@ -38,6 +38,7 @@ import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
 import { useBranding } from "@/hooks/use-branding"
+import { logAudit } from "@/lib/audit-log"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -853,20 +854,33 @@ export default function KioskPage() {
     // Generate badge number
     const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
 
-    // Create sign-in record - use visitor_type_id directly from booking
-    const { error: signInError } = await supabase
-      .from("sign_ins")
-      .insert({
-        visitor_id: visitorId,
-        location_id: selectedLocation,
-        visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
-        host_id: selectedBooking.host_id,
-        purpose: selectedBooking.purpose,
-        badge_number: badgeNumber,
-        sign_in_time: new Date().toISOString(),
-      })
+    // Create sign-in record
+    const { data: signInRecord, error: signInError } = await supabase.from("sign_ins").insert({
+      visitor_id: visitorId,
+      location_id: selectedLocation,
+      visitor_type_id: form.visitorTypeId || null,
+      host_id: form.hostId || null,
+      purpose: form.purpose || null,
+      badge_number: badgeNumber,
+    }).select().single()
 
     if (signInError) throw signInError
+
+    // Log visitor sign-in
+    await logAudit({
+      action: "visitor.sign_in",
+      entityType: "visitor",
+      entityId: visitorId!,
+      description: `Visitor signed in: ${form.firstName} ${form.lastName} (${form.email || "no email"})`,
+      metadata: {
+        visitor_id: visitorId,
+        sign_in_id: signInRecord?.id,
+        location_id: selectedLocation,
+        badge_number: badgeNumber,
+        company: form.company,
+        host_id: form.hostId
+      }
+    })
 
     // Update booking status to checked_in
     await supabase
@@ -1055,9 +1069,9 @@ export default function KioskPage() {
                 <div class="lanyard-slot"></div>
                 <div class="photo-section">
                   ${photoUrl || capturedPhoto
-                    ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
-                    : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
-                  }
+            ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
+            : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
+          }
                 </div>
                 <div class="info-section">
                   <img src="${window.location.origin}/${branding.companyLogo || "talusAg_Logo.png"}" alt="Logo" class="logo" />
@@ -1697,6 +1711,19 @@ export default function KioskPage() {
 
       if (updateError) throw updateError
 
+      // Log visitor sign-out
+      await logAudit({
+        action: "visitor.sign_out",
+        entityType: "visitor",
+        entityId: signIn.visitor_id,
+        description: `Visitor signed out: ${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
+        metadata: {
+          sign_in_id: signIn.id,
+          visitor_id: signIn.visitor_id,
+          badge_number: signIn.badge_number
+        }
+      })
+
       // Update any checked_in bookings for this visitor to completed
       await supabase
         .from("bookings")
@@ -1788,17 +1815,31 @@ export default function KioskPage() {
       const locationName = selectedLoc?.name
       const locationTimezone = selectedLoc?.timezone
 
-      const { error: signInError } = await supabase.from("employee_sign_ins").insert({
+      const { data: empSignInRecord, error: signInError } = await supabase.from("employee_sign_ins").insert({
         profile_id: profile.id,
         location_id: selectedLocation,
         auto_signed_in: false,
         device_id: navigator.userAgent,
-      })
+      }).select().single()
 
       if (signInError) {
         console.log("[v0] Employee sign-in insert error:", signInError)
         throw signInError
       }
+
+      // Log employee sign-in
+      await logAudit({
+        action: "employee.sign_in",
+        entityType: "employee",
+        entityId: profile.id,
+        description: `Employee signed in: ${profile.full_name || profile.email}`,
+        metadata: {
+          profile_id: profile.id,
+          sign_in_id: empSignInRecord?.id,
+          location_id: selectedLocation,
+          method: "password"
+        }
+      })
 
       setEmployeeSignInRecord({ sign_in_time: signInTime, location_name: locationName, timezone: locationTimezone })
 
@@ -1879,6 +1920,19 @@ export default function KioskPage() {
           .from("employee_sign_ins")
           .update({ sign_out_time: new Date().toISOString() })
           .eq("id", signIn.id)
+
+        // Log employee sign-out
+        await logAudit({
+          action: "employee.sign_out",
+          entityType: "employee",
+          entityId: currentEmployee.id,
+          description: `Employee signed out: ${currentEmployee.full_name || currentEmployee.email}`,
+          metadata: {
+            profile_id: currentEmployee.id,
+            sign_in_id: signIn.id,
+            location_id: signIn.location_id
+          }
+        })
       }
 
       // Sign out of Supabase Auth with global scope to clear all sessions
@@ -2120,7 +2174,7 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">{branding.companyName || "Talus"} employees sign in here</p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -2536,7 +2590,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your {branding.companyName || "Talus"} credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -2836,7 +2890,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on Talus premises. I understand that failure
+                        all safety guidelines and procedures while on {branding.companyName || "Talus"} premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -3016,7 +3070,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting Talus."}
+                    : `Thank you for visiting ${branding.companyName || "Talus"}.`}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

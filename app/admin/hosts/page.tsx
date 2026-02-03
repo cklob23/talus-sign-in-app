@@ -23,11 +23,14 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, UserCog } from "lucide-react"
 import type { Host, Location, Profile } from "@/types/database"
+import { logAudit } from "@/lib/audit-log"
+
+type ProfileBasic = Pick<Profile, "id" | "full_name" | "email" | "phone" | "department" | "avatar_url">
 
 export default function HostsPage() {
   const [hosts, setHosts] = useState<Host[]>([])
   const [locations, setLocations] = useState<Location[]>([])
-  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [profiles, setProfiles] = useState<ProfileBasic[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingHost, setEditingHost] = useState<Host | null>(null)
@@ -46,9 +49,9 @@ export default function HostsPage() {
     const supabase = createClient()
 
     const [{ data: hostsData }, { data: locationsData }, { data: profilesData }] = await Promise.all([
-      supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department, avatar_url, role, location_id, created_at, updated_at)").order("name"),
+      supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department, avatar_url)").order("name"),
       supabase.from("locations").select("*").order("name"),
-      supabase.from("profiles").select("id, full_name, email, phone, department, avatar_url, role, location_id, created_at, updated_at").order("full_name"),
+      supabase.from("profiles").select("id, full_name, email, phone, department, avatar_url").order("full_name"),
     ])
 
     if (hostsData) setHosts(hostsData)
@@ -58,7 +61,7 @@ export default function HostsPage() {
         setForm((f) => ({ ...f, locationId: locationsData[0].id }))
       }
     }
-    if (profilesData) setProfiles(profilesData)
+    if (profilesData) setProfiles(profilesData as ProfileBasic[])
     setIsLoading(false)
   }
 
@@ -116,8 +119,22 @@ export default function HostsPage() {
 
     if (editingHost) {
       await supabase.from("hosts").update(data).eq("id", editingHost.id)
+      await logAudit({
+        action: "host.updated",
+        entityType: "host",
+        entityId: editingHost.id,
+        description: `Host updated: ${data.name}`,
+        metadata: { host_name: data.name, email: data.email }
+      })
     } else {
-      await supabase.from("hosts").insert(data)
+      const { data: newHost } = await supabase.from("hosts").insert(data).select().single()
+      await logAudit({
+        action: "host.created",
+        entityType: "host",
+        entityId: newHost?.id,
+        description: `Host created: ${data.name}`,
+        metadata: { host_name: data.name, email: data.email }
+      })
     }
 
     setIsDialogOpen(false)
@@ -127,7 +144,14 @@ export default function HostsPage() {
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this host?")) return
     const supabase = createClient()
+    const hostToDelete = hosts.find(h => h.id === id)
     await supabase.from("hosts").delete().eq("id", id)
+    await logAudit({
+      action: "host.deleted",
+      entityType: "host",
+      entityId: id,
+      description: `Host deleted: ${hostToDelete?.name || id}`,
+    })
     loadData()
   }
 

@@ -12,6 +12,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { useBranding } from "@/hooks/use-branding"
+import { logAudit } from "@/lib/audit-log"
+import { loadPasswordPolicy, isPasswordExpired, needsReauthentication } from "@/lib/password-policy"
 
 export default function LoginPage() {
   const { branding } = useBranding()
@@ -28,11 +30,46 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
       if (error) throw error
+      
+      // Get user profile to check password policy
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("last_password_change, last_auth_time")
+        .eq("id", data.user.id)
+        .single()
+      
+      // Load and enforce password policy
+      const policy = await loadPasswordPolicy()
+      
+      // Check password expiration
+      if (profile && isPasswordExpired(profile.last_password_change, policy)) {
+        // Sign out the user since their password is expired
+        await supabase.auth.signOut()
+        throw new Error("Your password has expired. Please contact an administrator to reset it.")
+      }
+      
+      // Update last auth time if re-authentication is enabled
+      if (profile && needsReauthentication(profile.last_auth_time, policy)) {
+        await supabase
+          .from("profiles")
+          .update({ last_auth_time: new Date().toISOString() })
+          .eq("id", data.user.id)
+      }
+      
+      // Log successful login
+      await logAudit({
+        action: "user.login",
+        entityType: "user",
+        entityId: data.user?.id,
+        description: `User logged in: ${email}`,
+        metadata: { method: "password" }
+      })
+      
       router.push("/admin")
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
@@ -141,12 +178,12 @@ export default function LoginPage() {
                     Sign in with Microsoft
                   </Button>
                 </div>
-                {/* <div className="mt-4 text-center text-xs sm:text-sm">
+                <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
                   <Link href="/auth/sign-up" className="underline underline-offset-4 text-primary">
                     Sign up
                   </Link>
-                </div> */}
+                </div>
               </form>
             </CardContent>
           </Card>

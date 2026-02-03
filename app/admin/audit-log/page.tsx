@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronLeft, ChevronRight, ClipboardList } from "lucide-react"
+import { ChevronLeft, ChevronRight, ClipboardList, Calendar } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { addDays, subDays, format, startOfDay, endOfDay } from "date-fns"
 import type { AuditLog, Profile } from "@/types/database"
 import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
 
@@ -73,16 +76,11 @@ export default function AuditLogPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedUserId, setSelectedUserId] = useState<string>("all")
   const [selectedAction, setSelectedAction] = useState<string>("all")
-  const [startDate, setStartDate] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-  const [endDate, setEndDate] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(23, 59, 59, 999)
-    return d
-  })
+  // Default to last 7 days, allow up to 30 days lookback
+  const [startDate, setStartDate] = useState<Date>(() => startOfDay(subDays(new Date(), 7)))
+  const [endDate, setEndDate] = useState<Date>(() => endOfDay(new Date()))
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+  const minDate = subDays(new Date(), 30) // 30 days lookback limit
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const pageSize = 50
@@ -168,21 +166,71 @@ export default function AuditLogPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button 
-          variant="default" 
-          className="bg-primary text-primary-foreground"
-          onClick={() => {
-            // For now just show current day, could add date picker later
-            const today = new Date()
-            today.setHours(0, 0, 0, 0)
-            const endOfDay = new Date()
-            endOfDay.setHours(23, 59, 59, 999)
-            setStartDate(today)
-            setEndDate(endOfDay)
-          }}
-        >
-          {dateRangeString}
-        </Button>
+        <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="default" className="bg-primary text-primary-foreground gap-2">
+              <Calendar className="h-4 w-4" />
+              {dateRangeString}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <div className="p-3 border-b">
+              <p className="text-sm font-medium">Select date range (up to 30 days)</p>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-transparent"
+                  onClick={() => {
+                    setStartDate(startOfDay(new Date()))
+                    setEndDate(endOfDay(new Date()))
+                    setPage(1)
+                  }}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-transparent"
+                  onClick={() => {
+                    setStartDate(startOfDay(subDays(new Date(), 7)))
+                    setEndDate(endOfDay(new Date()))
+                    setPage(1)
+                  }}
+                >
+                  Last 7 days
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-transparent"
+                  onClick={() => {
+                    setStartDate(startOfDay(subDays(new Date(), 30)))
+                    setEndDate(endOfDay(new Date()))
+                    setPage(1)
+                  }}
+                >
+                  Last 30 days
+                </Button>
+              </div>
+            </div>
+            <CalendarComponent
+              mode="range"
+              selected={{ from: startDate, to: endDate }}
+              onSelect={(range) => {
+                if (range?.from) {
+                  setStartDate(startOfDay(range.from))
+                  setEndDate(range.to ? endOfDay(range.to) : endOfDay(range.from))
+                  setPage(1)
+                }
+              }}
+              disabled={(date) => date > new Date() || date < minDate}
+              numberOfMonths={2}
+              defaultMonth={subDays(new Date(), 30)}
+            />
+          </PopoverContent>
+        </Popover>
 
         <Select value={selectedUserId} onValueChange={(v) => { setSelectedUserId(v); setPage(1) }}>
           <SelectTrigger className="w-auto min-w-28">

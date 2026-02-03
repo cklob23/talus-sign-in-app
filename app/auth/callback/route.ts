@@ -1,16 +1,16 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { logAuditServer } from "@/lib/audit-log"
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
+  const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
   const errorParam = searchParams.get("error")
   const errorDescription = searchParams.get("error_description")
   const next = searchParams.get("next") ?? "/admin"
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
-  const origin = process.env.NEXT_PUBLIC_SITE_URL
 
   // Handle x-forwarded-host for deployments behind load balancers
   const forwardedHost = request.headers.get("x-forwarded-host")
@@ -19,8 +19,8 @@ export async function GET(request: Request) {
   function getRedirectUrl(path: string) {
     if (isLocalEnv) {
       return `${origin}${path}`
-    } else if (origin) {
-      return `${origin}${path}`
+    } else if (forwardedHost) {
+      return `https://${forwardedHost}${path}`
     }
     return `${origin}${path}`
   }
@@ -94,6 +94,17 @@ export async function GET(request: Request) {
             auto_signed_in: false,
             device_id: "Microsoft OAuth",
           })
+          
+          // Log employee sign-in
+          await logAuditServer({
+            supabase,
+            userId: profile.id,
+            action: "employee.sign_in",
+            entityType: "employee",
+            entityId: profile.id,
+            description: `Employee signed in via Microsoft: ${profile.full_name || profile.email}`,
+            metadata: { method: "microsoft_oauth", location_id: locationId }
+          })
 
           return createRedirectWithCookies(
             getRedirectUrl(`/kiosk?employee_signed_in=true&profile_id=${profile.id}`)
@@ -135,6 +146,17 @@ export async function GET(request: Request) {
         }
       }
 
+      // Log admin OAuth login
+      await logAuditServer({
+        supabase,
+        userId: data.user.id,
+        action: "user.login",
+        entityType: "user",
+        entityId: data.user.id,
+        description: `User logged in via Microsoft: ${data.user.email}`,
+        metadata: { method: "microsoft_oauth" }
+      })
+      
       // For admin login, redirect to admin dashboard
       return createRedirectWithCookies(getRedirectUrl(next))
     }
