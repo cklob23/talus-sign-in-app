@@ -56,7 +56,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const ENTITY_TYPES = [
   { value: "all", label: "All types" },
-  { value: "user", label: "Users" },
+  { value: "user", label: "Admins" },
   { value: "visitor", label: "Visitors" },
   { value: "employee", label: "Employees" },
   { value: "booking", label: "Bookings" },

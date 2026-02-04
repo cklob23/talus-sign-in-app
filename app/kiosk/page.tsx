@@ -37,8 +37,9 @@ import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
+import { logAudit, logAuditViaApi } from "@/lib/audit-log"
+import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
-import { logAudit } from "@/lib/audit-log"
 
 type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -146,6 +147,7 @@ export default function KioskPage() {
     purpose: string | null
     status: string
     host_id: string | null
+    location_id: string
     visitor_type_id: string | null
     visitor_type: { id: string; name: string; badge_color: string; requires_training: boolean } | null
   }>>([])
@@ -200,6 +202,11 @@ export default function KioskPage() {
             location_id: profile.location_id,
             role: profile.role,
             avatar_url: profile.avatar_url,
+            last_auth_time: profile.last_auth_time,
+            last_password_change: profile.last_password_change,
+            account_locked_until: profile.account_locked_until,
+            timezone: profile.timezone,
+            failed_login_attempts: profile.failed_login_attempts,
             created_at: profile.created_at,
             updated_at: profile.updated_at,
           })
@@ -494,6 +501,11 @@ export default function KioskPage() {
         role: employee.role,
         location_id: employee.locationId,
         avatar_url: employee.avatar_url,
+        last_password_change: null,
+        last_auth_time: null,
+        account_locked_until: null,
+        timezone: null,
+        failed_login_attempts: 0,
         created_at: "",
         updated_at: "",
       })
@@ -597,6 +609,7 @@ export default function KioskPage() {
           purpose,
           status,
           host_id,
+          location_id,
           visitor_type_id,
           visitor_type:visitor_types(id, name, badge_color, requires_training)
         `)
@@ -887,7 +900,21 @@ export default function KioskPage() {
       .from("bookings")
       .update({ status: "checked_in" })
       .eq("id", selectedBooking.id)
-    console.log(hostNotificationsEnabled, selectedBooking.host_id)
+
+    // Log booking check-in via API
+    await logAuditViaApi({
+      action: "booking.checked_in",
+      entityType: "booking",
+      entityId: selectedBooking.id,
+      description: `Booking checked in: ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+      metadata: {
+        booking_id: selectedBooking.id,
+        visitor_email: selectedBooking.visitor_email,
+        host_id: selectedBooking.host_id,
+        location_id: selectedBooking.location_id
+      }
+    })
+
     // Send host notification if enabled and booking has a host
     if (hostNotificationsEnabled && selectedBooking.host_id) {
       let hostEmail: string | null = null
@@ -918,7 +945,7 @@ export default function KioskPage() {
           }
         }
       }
-      console.log(hostName, hostEmail)
+
       if (hostEmail) {
         try {
           await fetch("/api/notify-host", {
@@ -1074,7 +1101,7 @@ export default function KioskPage() {
           }
                 </div>
                 <div class="info-section">
-                  <img src="${window.location.origin}/${branding.companyLogo || "talusAg_Logo.png"}" alt="Logo" class="logo" />
+                  <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
                   <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
                   <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
                   <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
@@ -1315,6 +1342,23 @@ export default function KioskPage() {
 
       if (signInError) throw signInError
 
+      // Log visitor sign-in via API to bypass RLS
+      await logAuditViaApi({
+        action: "visitor.sign_in",
+        entityType: "visitor",
+        entityId: visitor.id,
+        description: `Visitor signed in: ${form.firstName} ${form.lastName} (${form.email || "no email"})`,
+        metadata: {
+          visitor_id: visitor.id,
+          sign_in_id: signInRecord?.id,
+          location_id: selectedLocation,
+          badge_number: badgeNumber,
+          company: form.company,
+          host_id: form.hostId,
+          visitor_type_id: form.visitorTypeId
+        }
+      })
+
       // Send host notification email if enabled and host is selected
       if (hostNotificationsEnabled && form.hostId) {
         // Fetch host with profile data
@@ -1501,7 +1545,7 @@ export default function KioskPage() {
             }
                 </div>
                 <div class="info-section">
-                  <img src="${window.location.origin}/${branding.companyLogo || "talusAg_Logo.png"}" alt="Logo" class="logo" />
+                  <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
                   <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                   <div class="visitor-type">${form.company || selectedType?.name || "Visitor"}</div>
                   <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
@@ -1530,6 +1574,20 @@ export default function KioskPage() {
           .from("bookings")
           .update({ status: "checked_in" })
           .eq("id", selectedBooking.id)
+
+        // Log booking check-in via API
+        await logAuditViaApi({
+          action: "booking.checked_in",
+          entityType: "booking",
+          entityId: selectedBooking.id,
+          description: `Booking checked in: ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+          metadata: {
+            booking_id: selectedBooking.id,
+            visitor_email: selectedBooking.visitor_email,
+            host_id: selectedBooking.host_id,
+            location_id: selectedBooking.location_id
+          }
+        })
 
         // Clear booking state
         setBookingEmail("")
@@ -1711,8 +1769,8 @@ export default function KioskPage() {
 
       if (updateError) throw updateError
 
-      // Log visitor sign-out
-      await logAudit({
+      // Log visitor sign-out via API to bypass RLS
+      await logAuditViaApi({
         action: "visitor.sign_out",
         entityType: "visitor",
         entityId: signIn.visitor_id,
@@ -1804,6 +1862,30 @@ export default function KioskPage() {
       // Check if they have employee or admin/staff role
       if (!["employee", "admin", "staff"].includes(profile.role)) {
         throw new Error("You do not have permission to sign in as an employee")
+      }
+
+      // Load and enforce password policy
+      const policy = await loadPasswordPolicy()
+
+      // Check password expiration
+      if (isPasswordExpired(profile.last_password_change, policy)) {
+        throw new Error("Your password has expired. Please contact an administrator to reset it.")
+      }
+
+      // Check if re-authentication is required
+      if (needsReauthentication(profile.last_auth_time, policy)) {
+        // Update last auth time since they just authenticated
+        await supabase
+          .from("profiles")
+          .update({ last_auth_time: new Date().toISOString() })
+          .eq("id", profile.id)
+      }
+
+      // Warn if password is expiring soon (within 7 days)
+      const daysUntilExpiration = getDaysUntilExpiration(profile.last_password_change, policy)
+      if (daysUntilExpiration !== null && daysUntilExpiration <= 7 && daysUntilExpiration > 0) {
+        // We could show a warning here, but for now just log it
+        console.log(`[v0] Password expires in ${daysUntilExpiration} days for user ${profile.email}`)
       }
 
       setCurrentEmployee(profile)

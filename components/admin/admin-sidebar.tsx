@@ -37,7 +37,7 @@ const SidebarContext = createContext<{
   setCollapsed: (collapsed: boolean) => void
 }>({
   collapsed: false,
-  setCollapsed: () => {},
+  setCollapsed: () => { },
 })
 
 export function useSidebar() {
@@ -54,8 +54,8 @@ const navItems = [
   { href: "/admin/hosts", label: "Hosts", icon: UserCog },
   { href: "/admin/users", label: "User Management", icon: UsersRound },
   { href: "/admin/locations", label: "Locations", icon: Building2 },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
   { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ]
 
 function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
@@ -68,7 +68,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
         <TooltipProvider delayDuration={0}>
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
-            
+
             const linkContent = (
               <Link
                 key={item.href}
@@ -116,7 +116,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
 // Desktop sidebar
 export function AdminSidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
-    <aside 
+    <aside
       className={cn(
         "hidden lg:flex border-r bg-sidebar flex-col transition-all duration-300",
         collapsed ? "w-16" : "w-64"

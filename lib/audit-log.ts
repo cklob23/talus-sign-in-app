@@ -40,6 +40,7 @@ export type AuditAction =
 
 export type EntityType = 
   | "user"
+  | "admin"
   | "visitor"
   | "employee"
   | "booking"
@@ -72,10 +73,17 @@ export async function logAudit({
     const supabase = createClient()
     
     // Get the current user (if authenticated)
-    const { data: { user } } = await supabase.auth.getUser()
+    let userId: string | null = null
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      userId = user?.id || null
+    } catch {
+      // User might not be authenticated (e.g., kiosk visitor sign-in)
+      userId = null
+    }
     
-    await supabase.from("audit_logs").insert({
-      user_id: user?.id || null,
+    const { error } = await supabase.from("audit_logs").insert({
+      user_id: userId,
       action,
       entity_type: entityType,
       entity_id: entityId || null,
@@ -83,9 +91,49 @@ export async function logAudit({
       metadata,
       // Note: ip_address and user_agent should be set server-side if needed
     })
+    
+    if (error) {
+      console.error("[v0] Audit log insert error:", error)
+    }
   } catch (error) {
     // Don't throw - audit logging should never break the app
-    console.error("Failed to log audit entry:", error)
+    console.error("[v0] Failed to log audit entry:", error)
+  }
+}
+
+/**
+ * Log audit entry via API route (bypasses RLS)
+ * Use this for kiosk actions where the user may not be authenticated
+ */
+export async function logAuditViaApi({
+  action,
+  entityType,
+  entityId,
+  description,
+  metadata = {},
+  userId,
+}: LogAuditParams & { userId?: string | null }): Promise<void> {
+  try {
+    const response = await fetch("/api/audit-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        entityType,
+        entityId,
+        description,
+        metadata,
+        userId,
+      }),
+    })
+    
+    if (!response.ok) {
+      const result = await response.json()
+      console.error("[v0] Audit log API error:", result.error)
+    }
+  } catch (error) {
+    // Don't throw - audit logging should never break the app
+    console.error("[v0] Failed to log audit entry via API:", error)
   }
 }
 

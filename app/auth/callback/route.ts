@@ -153,8 +153,8 @@ export async function GET(request: Request) {
         action: "user.login",
         entityType: "user",
         entityId: data.user.id,
-        description: `User logged in via Microsoft: ${data.user.email}`,
-        metadata: { method: "microsoft_oauth" }
+        description: `Admin logged in via Microsoft: ${data.user.email}`,
+        metadata: { method: "microsoft_oauth", portal: "admin" }
       })
       
       // For admin login, redirect to admin dashboard

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { Location, Host } from "@/types/database"
 import { AvatarUpload } from "@/components/admin/avatar-upload"
+import { logAudit } from "@/lib/audit-log"
 
 interface Profile {
   id: string
@@ -208,6 +209,14 @@ export default function UsersPage() {
           // Remove host entry
           await supabase.from("hosts").delete().eq("id", existingHost.id)
         }
+        
+        await logAudit({
+          action: "user.updated",
+          entityType: "user",
+          entityId: editingProfile.id,
+          description: `Admin updated user: ${form.fullName || form.email}`,
+          metadata: { email: form.email, role: form.role, department: form.department }
+        })
       } else {
         // Create new profile via API
         const response = await fetch("/api/admin/profiles", {
@@ -220,6 +229,15 @@ export default function UsersPage() {
           const result = await response.json()
           throw new Error(result.error || "Failed to create profile")
         }
+        
+        const result = await response.json()
+        await logAudit({
+          action: "user.created",
+          entityType: "user",
+          entityId: result.profile?.id,
+          description: `Admin created user: ${form.fullName || form.email}`,
+          metadata: { email: form.email, role: form.role, department: form.department }
+        })
       }
 
       setIsDialogOpen(false)
@@ -237,6 +255,8 @@ export default function UsersPage() {
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this user profile? This action cannot be undone.")) return
     
+    const profileToDelete = profiles.find(p => p.id === id)
+    
     try {
       const response = await fetch(`/api/admin/profiles?id=${id}`, {
         method: "DELETE",
@@ -246,6 +266,13 @@ export default function UsersPage() {
         const result = await response.json()
         throw new Error(result.error || "Failed to delete profile")
       }
+      
+      await logAudit({
+        action: "user.deleted",
+        entityType: "user",
+        entityId: id,
+        description: `Admin deleted user: ${profileToDelete?.full_name || profileToDelete?.email || id}`,
+      })
       
       loadData()
     } catch (error) {

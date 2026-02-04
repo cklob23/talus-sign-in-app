@@ -25,6 +25,7 @@ import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin } from "lucide-rea
 import type { Booking, Host, VisitorType, Location } from "@/types/database"
 import { formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
+import { logAudit } from "@/lib/audit-log"
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -111,7 +112,7 @@ export default function BookingsPage() {
     const localDatetime = form.expectedArrival
     const utcDatetime = convertLocalToUTC(localDatetime, timezone)
 
-    await supabase.from("bookings").insert({
+    const { data: newBooking } = await supabase.from("bookings").insert({
       visitor_first_name: form.firstName,
       visitor_last_name: form.lastName,
       visitor_email: form.email || null,
@@ -121,6 +122,14 @@ export default function BookingsPage() {
       expected_arrival: utcDatetime,
       purpose: form.purpose || null,
       location_id: form.locationId,
+    }).select().single()
+    
+    await logAudit({
+      action: "booking.created",
+      entityType: "booking",
+      entityId: newBooking?.id,
+      description: `Booking created for ${form.firstName} ${form.lastName}`,
+      metadata: { visitor_email: form.email, host_id: form.hostId, location_id: form.locationId }
     })
 
     setForm({
@@ -169,6 +178,16 @@ export default function BookingsPage() {
   async function updateBookingStatus(id: string, status: "completed" | "cancelled") {
     const supabase = createClient()
     await supabase.from("bookings").update({ status }).eq("id", id)
+    
+    const action = status === "completed" ? "booking.checked_in" : "booking.cancelled"
+    await logAudit({
+      action,
+      entityType: "booking",
+      entityId: id,
+      description: `Booking ${status}`,
+      metadata: { status }
+    })
+    
     loadData()
   }
 
@@ -177,7 +196,19 @@ export default function BookingsPage() {
     if (!confirm(`Are you sure you want to delete ${selectedIds.size} booking(s)? This action cannot be undone.`)) return
     
     const supabase = createClient()
-    await supabase.from("bookings").delete().in("id", Array.from(selectedIds))
+    const idsToDelete = Array.from(selectedIds)
+    await supabase.from("bookings").delete().in("id", idsToDelete)
+    
+    // Log each deletion
+    for (const id of idsToDelete) {
+      await logAudit({
+        action: "booking.cancelled",
+        entityType: "booking",
+        entityId: id,
+        description: `Booking deleted`,
+      })
+    }
+    
     setSelectedIds(new Set())
     loadData()
   }

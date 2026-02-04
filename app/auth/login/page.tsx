@@ -61,13 +61,13 @@ export default function LoginPage() {
           .eq("id", data.user.id)
       }
       
-      // Log successful login
+      // Log successful admin login
       await logAudit({
         action: "user.login",
         entityType: "user",
         entityId: data.user?.id,
-        description: `User logged in: ${email}`,
-        metadata: { method: "password" }
+        description: `Admin logged in: ${email}`,
+        metadata: { method: "password", portal: "admin" }
       })
       
       router.push("/admin")
@@ -132,7 +132,7 @@ export default function LoginPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "") || "talusag"}.com`}
+                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
