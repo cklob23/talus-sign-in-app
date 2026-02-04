@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   title: "Talus Visitor Management",
   description: "Secure visitor sign-in and management system for Talus facilities",
   generator: "Developed by Caleb Klobe",
+  verification: {
+    google: "qamAell290fOZH1ZChhZclrDV9VA75x213hk1A6SNpI",
+  },
   icons: {
     icon: [
       {
@@ -36,7 +39,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-   return (
+  return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
         <ThemeProvider

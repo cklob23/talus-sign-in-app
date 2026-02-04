@@ -2450,14 +2450,18 @@ export default function KioskPage() {
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
                   <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                    {isLoading ? "Processing..." : selectedVisitorType?.requires_training ? (
-                      <>
-                        <PlayCircle className="w-4 h-4 mr-2" />
-                        Continue to Training
-                      </>
-                    ) : (
-                      "Complete Sign In"
-                    )}
+                    {isLoading ? <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Continuing to Training...
+                    </>
+                      : selectedVisitorType?.requires_training ? (
+                        <>
+                          <PlayCircle className="w-4 h-4 mr-2" />
+                          Continue to Training
+                        </>
+                      ) : (
+                        "Complete Sign In"
+                      )}
                   </Button>
                 </form>
               </CardContent>
