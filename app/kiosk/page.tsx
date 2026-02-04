@@ -1331,19 +1331,19 @@ export default function KioskPage() {
       const badgeNumber = `V${String(Date.now()).slice(-6)}`
 
       // Create sign-in record
-      const { error: signInError } = await supabase.from("sign_ins").insert({
+      const { data: signInRecord, error: signInError } = await supabase.from("sign_ins").insert({
         visitor_id: visitor.id,
         location_id: selectedLocation,
         visitor_type_id: form.visitorTypeId || null,
         host_id: form.hostId || null,
         purpose: form.purpose || null,
         badge_number: badgeNumber,
-      })
+      }).select().single()
 
       if (signInError) throw signInError
 
-      // Log visitor sign-in via API to bypass RLS
-      await logAuditViaApi({
+      // Log visitor sign-in
+      await logAudit({
         action: "visitor.sign_in",
         entityType: "visitor",
         entityId: visitor.id,
@@ -1354,8 +1354,7 @@ export default function KioskPage() {
           location_id: selectedLocation,
           badge_number: badgeNumber,
           company: form.company,
-          host_id: form.hostId,
-          visitor_type_id: form.visitorTypeId
+          host_id: form.hostId
         }
       })
 
