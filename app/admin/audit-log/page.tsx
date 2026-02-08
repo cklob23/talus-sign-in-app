@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronLeft, ChevronRight, ClipboardList, Calendar } from "lucide-react"
+import { ChevronLeft, ChevronRight, ClipboardList, Calendar, RefreshCw, Download } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { addDays, subDays, format, startOfDay, endOfDay } from "date-fns"
@@ -17,8 +17,8 @@ import { useTimezone } from "@/contexts/timezone-context"
 
 const ACTION_LABELS: Record<string, string> = {
   // User actions
-  "user.login": "Logged in",
-  "user.logout": "Logged out",
+  "user.login": "Admin logged in",
+  "user.logout": "Admin logged out",
   "user.created": "User created",
   "user.updated": "User updated",
   "user.deleted": "User deleted",
@@ -52,11 +52,14 @@ const ACTION_LABELS: Record<string, string> = {
   "visitor_type.created": "Visitor type created",
   "visitor_type.updated": "Visitor type updated",
   "visitor_type.deleted": "Visitor type deleted",
+  // Kiosk actions
+  "kiosk.receptionist_login": "Receptionist logged in",
+  "kiosk.receptionist_logout": "Receptionist logged out",
 }
 
 const ENTITY_TYPES = [
   { value: "all", label: "All types" },
-  { value: "user", label: "Admins" },
+  { value: "user", label: "Users" },
   { value: "visitor", label: "Visitors" },
   { value: "employee", label: "Employees" },
   { value: "booking", label: "Bookings" },
@@ -69,6 +72,51 @@ const ENTITY_TYPES = [
 
 type AuditLogWithUser = Omit<AuditLog, 'user'> & {
   user: Profile | null
+}
+
+function getUserDisplayName(log: AuditLogWithUser): string {
+  // If we have a linked user profile, use that
+  if (log.user?.full_name) return log.user.full_name
+  if (log.user?.email) return log.user.email
+
+  // For kiosk/visitor actions without a linked user, derive from context
+  const action = log.action
+  if (action.startsWith("visitor.") || action.startsWith("booking.checked_in")) {
+    // Extract visitor name from description if available
+    const desc = log.description || ""
+    const match = desc.match(/:\s*(.+?)(?:\s*\(|$)/)
+    if (match) return match[1].trim()
+    return "Visitor"
+  }
+  if (action.startsWith("employee.")) {
+    const desc = log.description || ""
+    const match = desc.match(/:\s*(.+?)(?:\s*\(|$)/)
+    if (match) return match[1].trim()
+    return "Employee"
+  }
+  if (action.startsWith("kiosk.")) {
+    const desc = log.description || ""
+    const match = desc.match(/kiosk:\s*(.+?)$/)
+    if (match) return match[1].trim()
+    return "Receptionist"
+  }
+  return "Unknown"
+}
+
+function getUserInitials(log: AuditLogWithUser): string {
+  if (log.user?.full_name) {
+    const parts = log.user.full_name.split(" ")
+    if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    return log.user.full_name[0].toUpperCase()
+  }
+  if (log.user?.email) return log.user.email[0].toUpperCase()
+  
+  // Derive from action type
+  const action = log.action
+  if (action.startsWith("visitor.") || action.startsWith("booking.checked_in")) return "V"
+  if (action.startsWith("employee.")) return "E"
+  if (action.startsWith("kiosk.")) return "R"
+  return "?"
 }
 
 export default function AuditLogPage() {
@@ -154,6 +202,31 @@ export default function AuditLogPage() {
 
   const dateRangeString = `${startDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} - ${endDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}`
 
+  function exportCsv() {
+    if (logs.length === 0) return
+
+    const headers = ["Date", "User", "Action", "Description"]
+    const rows = logs.map((log) => [
+      formatFullDateTime(log.created_at, userTimezone),
+      getUserDisplayName(log),
+      getActionLabel(log.action),
+      (log.description || "").replace(/"/g, '""'),
+    ])
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `audit-log-${format(startDate, "yyyy-MM-dd")}-to-${format(endDate, "yyyy-MM-dd")}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -161,8 +234,27 @@ export default function AuditLogPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Audit log</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Track all actions performed in the system</p>
         </div>
-        <div className="hidden sm:flex items-center justify-center w-16 h-16 border-2 border-foreground/20 rounded-lg">
-          <ClipboardList className="w-8 h-8 text-foreground/60" />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-transparent"
+            onClick={() => loadLogs()}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-transparent"
+            onClick={exportCsv}
+            disabled={logs.length === 0 || isLoading}
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            Export CSV
+          </Button>
         </div>
       </div>
 
@@ -273,28 +365,32 @@ export default function AuditLogPage() {
             <>
               {/* Mobile view */}
               <div className="md:hidden divide-y">
-                {logs.map((log) => (
-                  <div key={log.id} className="p-4 space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={log.user?.avatar_url || undefined} />
-                          <AvatarFallback className="text-xs">
-                            {log.user?.full_name?.[0] || log.user?.email?.[0]?.toUpperCase() || "?"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium text-sm">{log.user?.full_name || log.user?.email || "System"}</p>
-                          <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, userTimezone)}</p>
+                {logs.map((log) => {
+                  const displayName = getUserDisplayName(log)
+                  const initials = getUserInitials(log)
+                  return (
+                    <div key={log.id} className="p-4 space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={log.user?.avatar_url || undefined} />
+                            <AvatarFallback className="text-xs">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium text-sm">{displayName}</p>
+                            <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, userTimezone)}</p>
+                          </div>
                         </div>
                       </div>
+                      <div className="text-sm">
+                        <span className="font-medium">{getActionLabel(log.action)}</span>
+                        {log.description && <span className="text-muted-foreground"> - {log.description}</span>}
+                      </div>
                     </div>
-                    <div className="text-sm">
-                      <span className="font-medium">{getActionLabel(log.action)}</span>
-                      {log.description && <span className="text-muted-foreground"> - {log.description}</span>}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Desktop view */}
@@ -309,7 +405,10 @@ export default function AuditLogPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {logs.map((log) => (
+                    {logs.map((log) => {
+                      const displayName = getUserDisplayName(log)
+                      const initials = getUserInitials(log)
+                      return (
                       <TableRow key={log.id}>
                         <TableCell className="text-sm">
                           {formatDateTime(log.created_at, userTimezone)}
@@ -319,16 +418,17 @@ export default function AuditLogPage() {
                             <Avatar className="h-6 w-6">
                               <AvatarImage src={log.user?.avatar_url || undefined} />
                               <AvatarFallback className="text-xs">
-                                {log.user?.full_name?.[0] || log.user?.email?.[0]?.toUpperCase() || "?"}
+                                {initials}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="text-sm">{log.user?.full_name || log.user?.email || "System"}</span>
+                            <span className="text-sm">{displayName}</span>
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">{getActionLabel(log.action)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{log.description || "-"}</TableCell>
                       </TableRow>
-                    ))}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>

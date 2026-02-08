@@ -237,13 +237,13 @@ export function AdminHeader() {
   // Generate initials from full name or email
   const initials = profile?.full_name
     ? profile.full_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
-    : user?.email?.slice(0, 2).toUpperCase() || "A"
+    : user?.email?.slice(0, 2).toUpperCase() || "AD"
 
   return (
     <header className="h-14 sm:h-16 border-b bg-background flex items-center justify-between px-3 sm:px-6">
       <div className="flex items-center gap-2">
         <MobileSidebar />
-        <h2 className="text-base sm:text-lg font-semibold">{branding?.companyName || "Talus"} Admin</h2>
+        <h2 className="text-base sm:text-lg font-semibold">{branding.companyName} Admin</h2>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
         <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -389,7 +389,7 @@ export function AdminHeader() {
         {user && (
           <ProfileModal
             open={profileModalOpen}
-            onOpenChange={(open: any) => {
+            onOpenChange={(open) => {
               setProfileModalOpen(open)
               // Refresh profile when modal closes
               if (!open) {

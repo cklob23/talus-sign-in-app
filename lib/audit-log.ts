@@ -37,6 +37,9 @@ export type AuditAction =
   | "visitor_type.created"
   | "visitor_type.updated"
   | "visitor_type.deleted"
+  // Kiosk actions
+  | "kiosk.receptionist_login"
+  | "kiosk.receptionist_logout"
 
 export type EntityType = 
   | "user"

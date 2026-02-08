@@ -32,6 +32,8 @@ import {
   Search,
   Camera,
   RefreshCw,
+  Lock,
+  Shield,
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
@@ -41,7 +43,7 @@ import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
 
-type KioskMode = "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
+type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
 // Storage key for remembered employee
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
@@ -69,10 +71,15 @@ interface SignInForm {
 }
 
 export default function KioskPage() {
-  const { branding } = useBranding()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [mode, setMode] = useState<KioskMode>("home")
+  const { branding } = useBranding()
+  const [mode, setMode] = useState<KioskMode>("receptionist-login")
+  const [receptionistUser, setReceptionistUser] = useState<{ id: string; email: string; name: string } | null>(null)
+  const [receptionistEmail, setReceptionistEmail] = useState("")
+  const [receptionistPassword, setReceptionistPassword] = useState("")
+  const [receptionistLoading, setReceptionistLoading] = useState(true)
+  const [receptionistError, setReceptionistError] = useState<string | null>(null)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -153,6 +160,131 @@ export default function KioskPage() {
   }>>([])
   const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
+  // Check if receptionist is already authenticated on mount
+  useEffect(() => {
+    async function checkReceptionistSession() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        // Verify they have a valid profile (staff, admin, or employee)
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id, email, full_name, role")
+          .eq("id", user.id)
+          .single()
+
+        if (profile) {
+          setReceptionistUser({
+            id: profile.id,
+            email: profile.email || user.email || "",
+            name: profile.full_name || profile.email || "",
+          })
+          setMode("home")
+        }
+      }
+      setReceptionistLoading(false)
+    }
+    checkReceptionistSession()
+  }, [])
+
+  // Receptionist login with email/password
+  async function handleReceptionistLogin(e: React.FormEvent) {
+    e.preventDefault()
+    setReceptionistLoading(true)
+    setReceptionistError(null)
+
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: receptionistEmail,
+        password: receptionistPassword,
+      })
+      if (error) throw error
+
+      // Verify profile exists
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, email, full_name, role")
+        .eq("id", data.user.id)
+        .single()
+
+      if (!profile) {
+        await supabase.auth.signOut()
+        throw new Error("No profile found for this account.")
+      }
+
+      await logAuditViaApi({
+        action: "kiosk.receptionist_login",
+        entityType: "user",
+        entityId: profile.id,
+        description: `Receptionist logged into kiosk: ${profile.full_name || profile.email} (${profile.email})`,
+        metadata: { method: "password", portal: "kiosk", email: profile.email, role: profile.role },
+        userId: profile.id,
+      })
+
+      setReceptionistUser({
+        id: profile.id,
+        email: profile.email || data.user.email || "",
+        name: profile.full_name || profile.email || "",
+      })
+      setReceptionistEmail("")
+      setReceptionistPassword("")
+      setMode("home")
+    } catch (error: unknown) {
+      setReceptionistError(error instanceof Error ? error.message : "Login failed")
+    } finally {
+      setReceptionistLoading(false)
+    }
+  }
+
+  // Receptionist login with Microsoft
+  async function handleReceptionistMicrosoftLogin() {
+    setReceptionistLoading(true)
+    setReceptionistError(null)
+
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+
+      const callbackUrl = `${window.location.origin}/auth/callback?type=kiosk&next=/kiosk`
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "azure",
+        options: {
+          redirectTo: callbackUrl,
+          scopes: "email profile openid User.Read",
+          queryParams: {
+            prompt: "select_account",
+          },
+        },
+      })
+
+      if (error) throw error
+    } catch (error: unknown) {
+      setReceptionistError(error instanceof Error ? error.message : "Microsoft login failed")
+      setReceptionistLoading(false)
+    }
+  }
+
+  // Receptionist logout - locks the kiosk
+  async function handleReceptionistLogout() {
+    const supabase = createClient()
+
+    await logAuditViaApi({
+      action: "kiosk.receptionist_logout",
+      entityType: "user",
+      entityId: receptionistUser?.id,
+      description: `Receptionist logged out of kiosk: ${receptionistUser?.name} (${receptionistUser?.email})`,
+      metadata: { portal: "kiosk", email: receptionistUser?.email },
+      userId: receptionistUser?.id,
+    })
+
+    await supabase.auth.signOut()
+    setReceptionistUser(null)
+    setMode("receptionist-login")
+  }
+
   // Handle OAuth callback from Microsoft login
   useEffect(() => {
     const employeeSignedIn = searchParams.get("employee_signed_in")
@@ -164,6 +296,9 @@ export default function KioskPage() {
         setError("Your account is not registered as an employee. Please contact an administrator.")
       } else if (oauthError === "profile_creation_failed") {
         setError("Failed to create your profile. Please try again or contact support.")
+      } else if (oauthError === "no_profile") {
+        setReceptionistError("No profile found for this account. Please contact an administrator.")
+        setMode("receptionist-login")
       } else {
         setError("Sign in failed. Please try again.")
       }
@@ -202,11 +337,11 @@ export default function KioskPage() {
             location_id: profile.location_id,
             role: profile.role,
             avatar_url: profile.avatar_url,
-            last_auth_time: profile.last_auth_time,
             last_password_change: profile.last_password_change,
+            last_auth_time: profile.last_auth_time,
+            failed_login_attempts: profile.failed_login_attempts,
             account_locked_until: profile.account_locked_until,
             timezone: profile.timezone,
-            failed_login_attempts: profile.failed_login_attempts,
             created_at: profile.created_at,
             updated_at: profile.updated_at,
           })
@@ -503,9 +638,9 @@ export default function KioskPage() {
         avatar_url: employee.avatar_url,
         last_password_change: null,
         last_auth_time: null,
+        failed_login_attempts: 0,
         account_locked_until: null,
         timezone: null,
-        failed_login_attempts: 0,
         created_at: "",
         updated_at: "",
       })
@@ -867,33 +1002,20 @@ export default function KioskPage() {
     // Generate badge number
     const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
 
-    // Create sign-in record
-    const { data: signInRecord, error: signInError } = await supabase.from("sign_ins").insert({
-      visitor_id: visitorId,
-      location_id: selectedLocation,
-      visitor_type_id: form.visitorTypeId || null,
-      host_id: form.hostId || null,
-      purpose: form.purpose || null,
-      badge_number: badgeNumber,
-    }).select().single()
+    // Create sign-in record - use visitor_type_id directly from booking
+    const { error: signInError } = await supabase
+      .from("sign_ins")
+      .insert({
+        visitor_id: visitorId,
+        location_id: selectedLocation,
+        visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
+        host_id: selectedBooking.host_id,
+        purpose: selectedBooking.purpose,
+        badge_number: badgeNumber,
+        sign_in_time: new Date().toISOString(),
+      })
 
     if (signInError) throw signInError
-
-    // Log visitor sign-in
-    await logAudit({
-      action: "visitor.sign_in",
-      entityType: "visitor",
-      entityId: visitorId!,
-      description: `Visitor signed in: ${form.firstName} ${form.lastName} (${form.email || "no email"})`,
-      metadata: {
-        visitor_id: visitorId,
-        sign_in_id: signInRecord?.id,
-        location_id: selectedLocation,
-        badge_number: badgeNumber,
-        company: form.company,
-        host_id: form.hostId
-      }
-    })
 
     // Update booking status to checked_in
     await supabase
@@ -915,6 +1037,7 @@ export default function KioskPage() {
       }
     })
 
+    console.log(hostNotificationsEnabled, selectedBooking.host_id)
     // Send host notification if enabled and booking has a host
     if (hostNotificationsEnabled && selectedBooking.host_id) {
       let hostEmail: string | null = null
@@ -945,7 +1068,7 @@ export default function KioskPage() {
           }
         }
       }
-
+      console.log(hostName, hostEmail)
       if (hostEmail) {
         try {
           await fetch("/api/notify-host", {
@@ -977,147 +1100,147 @@ export default function KioskPage() {
         printWindow.document.write(`
           <!DOCTYPE html>
           <html>
-            <head>
-              <title>Visitor Badge</title>
-              <style>
-                body {
-                  font-family: Arial, sans-serif;
-                  text-align: center;
-                  padding: 20px;
-                }
+          <head>
+          <title>Visitor Badge</title>
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                text-align: center;
+                padding: 20px;
+              }
 
-                .badge {
-                  width: 3.375in;
-                  height: 2.125in;
-                  background: #fff;
-                  border-radius: 8px;
-                  border: 1px dashed #d1d5db;
-                  display: flex;
-                  padding: 12px;
-                  margin: 0 auto;
-                  position: relative;
-                  box-sizing: border-box;
-                }
+              .badge {
+                width: 3.375in;
+                height: 2.125in;
+                background: #fff;
+                border-radius: 8px;
+                border: 1px dashed #d1d5db;
+                display: flex;
+                padding: 12px;
+                margin: 0 auto;
+                position: relative;
+                box-sizing: border-box;
+              }
 
-                .lanyard-slot {
-                  position: absolute;
-                  top: 6px;
-                  left: 50%;
-                  transform: translateX(-50%);
-                  width: 30px;
-                  height: 8px;
-                  background: #e5e7eb;
-                  border-radius: 4px;
-                }
+              .lanyard-slot {
+                position: absolute;
+                top: 6px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 30px;
+                height: 8px;
+                background: #e5e7eb;
+                border-radius: 4px;
+              }
 
-                .photo-section {
-                  width: 40%;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  padding-right: 12px;
-                }
+              .photo-section {
+                width: 40%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding-right: 12px;
+              }
 
-                .visitor-photo {
-                  width: 100%;
-                  aspect-ratio: 1;
-                  object-fit: cover;
-                  border: 4px solid #9ca3af;
-                  background: #e5e7eb;
-                }
+              .visitor-photo {
+                width: 100%;
+                aspect-ratio: 1;
+                object-fit: cover;
+                border: 4px solid #9ca3af;
+                background: #e5e7eb;
+              }
 
-                .photo-placeholder {
-                  width: 100%;
-                  aspect-ratio: 1;
-                  background: #e5e7eb;
-                  border: 4px solid #9ca3af;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  color: #9ca3af;
-                  font-size: 36px;
-                }
+              .photo-placeholder {
+                width: 100%;
+                aspect-ratio: 1;
+                background: #e5e7eb;
+                border: 4px solid #9ca3af;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #9ca3af;
+                font-size: 36px;
+              }
 
-                .info-section {
-                  width: 60%;
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  padding-left: 8px;
-                }
+              .info-section {
+                width: 60%;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding-left: 8px;
+              }
 
-                .logo {
-                  max-width: 100px;
-                  height: auto;
-                  margin-bottom: 8px;
-                  align-self: flex-end;
-                }
+              .logo {
+                max-width: 100px;
+                height: auto;
+                margin-bottom: 8px;
+                align-self: flex-end;
+              }
 
-                .visitor-name {
-                  font-size: 20px;
-                  font-weight: bold;
-                  color: #111;
-                  margin: 4px 0;
-                  line-height: 1.2;
-                }
+              .visitor-name {
+                font-size: 20px;
+                font-weight: bold;
+                color: #111;
+                margin: 4px 0;
+                line-height: 1.2;
+              }
 
-                .visitor-type {
-                  font-size: 12px;
-                  font-weight: 600;
-                  color: #374151;
-                  text-transform: uppercase;
-                  letter-spacing: 0.5px;
-                  margin: 2px 0;
-                }
+              .visitor-type {
+                font-size: 12px;
+                font-weight: 600;
+                color: #374151;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin: 2px 0;
+              }
 
-                .location {
-                  font-size: 11px;
-                  font-weight: 500;
-                  color: #6b7280;
-                  text-transform: uppercase;
-                  letter-spacing: 0.3px;
-                  margin: 2px 0;
-                }
+              .location {
+                font-size: 11px;
+                font-weight: 500;
+                color: #6b7280;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                margin: 2px 0;
+              }
 
-                .badge-number {
-                  font-size: 10px;
-                  color: #9ca3af;
-                  margin-top: 6px;
-                }
+              .badge-number {
+                font-size: 10px;
+                color: #9ca3af;
+                margin-top: 6px;
+              }
 
-                @media print {
-                  body { margin: 0; padding: 0; }
-                  .badge { border: 1px dashed #d1d5db; }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="badge">
-                <div class="lanyard-slot"></div>
-                <div class="photo-section">
-                  ${photoUrl || capturedPhoto
+              @media print {
+                body { margin: 0; padding: 0; }
+                .badge { border: 1px dashed #d1d5db; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="badge">
+              <div class="lanyard-slot"></div>
+              <div class="photo-section">
+                ${photoUrl || capturedPhoto
             ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
             : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
           }
-                </div>
-                <div class="info-section">
-                  <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
-                  <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
-                  <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
-                  <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
-                  <div class="badge-number">${badgeNumber}</div>
-                </div>
               </div>
+              <div class="info-section">
+                <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
+                <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
+                <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
+                <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
+                <div class="badge-number">${badgeNumber}</div>
+              </div>
+            </div>
 
-              <script>
-                window.onload = () => {
-                  setTimeout(() => {
-                    window.print()
-                    window.close()
-                  }, 300)
-                }
-              </script>
-            </body>
+            <script>
+              window.onload = () => {
+                setTimeout(() => {
+                  window.print()
+                  window.close()
+                }, 300)
+              }
+            </script>
+          </body>
           </html>
         `)
         printWindow.document.close()
@@ -1237,7 +1360,7 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Simulate 7.33 minutes of required watching time
+    // Simulate 3.46 minutes of required watching time
     const totalDuration = 60 * 3.46
     let elapsed = 0
 
@@ -1272,20 +1395,25 @@ export default function KioskPage() {
     try {
       const supabase = createClient()
 
-      // Create or find visitor
-      const { data: visitor, error: visitorError } = await supabase
-        .from("visitors")
-        .insert({
+      // Create visitor via API to bypass RLS
+      const visitorResponse = await fetch("/api/kiosk/visitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           first_name: form.firstName,
           last_name: form.lastName,
           email: form.email || null,
           phone: form.phone || null,
           company: form.company || null,
-        })
-        .select()
-        .single()
+        }),
+      })
 
-      if (visitorError) throw visitorError
+      if (!visitorResponse.ok) {
+        const errorData = await visitorResponse.json()
+        throw new Error(errorData.error || "Failed to create visitor")
+      }
+
+      const { visitor } = await visitorResponse.json()
 
       // Upload photo if captured
       let photoUrl: string | null = null
@@ -1317,46 +1445,49 @@ export default function KioskPage() {
       // Store for badge printing
       setVisitorPhotoUrl(photoUrl)
 
-      // If training was required, record the completion
+      // If training was required, record the completion via API
       const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
       if (selectedType?.requires_training) {
-        await supabase.from("training_completions").insert({
-          visitor_id: visitor.id,
-          visitor_type_id: form.visitorTypeId,
-          expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year expiry
+        await fetch("/api/kiosk/training", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            visitor_id: visitor.id,
+            visitor_type_id: form.visitorTypeId,
+            expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          }),
         })
       }
 
       // Generate badge number
       const badgeNumber = `V${String(Date.now()).slice(-6)}`
 
-      // Create sign-in record
-      const { data: signInRecord, error: signInError } = await supabase.from("sign_ins").insert({
-        visitor_id: visitor.id,
-        location_id: selectedLocation,
-        visitor_type_id: form.visitorTypeId || null,
-        host_id: form.hostId || null,
-        purpose: form.purpose || null,
-        badge_number: badgeNumber,
-      }).select().single()
+      // Get location timezone
+      const locationTimezone = currentLocation?.timezone || "UTC"
 
-      if (signInError) throw signInError
-
-      // Log visitor sign-in
-      await logAudit({
-        action: "visitor.sign_in",
-        entityType: "visitor",
-        entityId: visitor.id,
-        description: `Visitor signed in: ${form.firstName} ${form.lastName} (${form.email || "no email"})`,
-        metadata: {
+      // Create sign-in record via API to bypass RLS
+      const signInResponse = await fetch("/api/kiosk/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           visitor_id: visitor.id,
-          sign_in_id: signInRecord?.id,
+          visitor_name: `${form.firstName} ${form.lastName}`,
+          visitor_email: form.email || null,
           location_id: selectedLocation,
+          visitor_type_id: form.visitorTypeId || null,
+          host_id: form.hostId || null,
           badge_number: badgeNumber,
-          company: form.company,
-          host_id: form.hostId
-        }
+          photo_url: photoUrl,
+          timezone: locationTimezone,
+        }),
       })
+
+      if (!signInResponse.ok) {
+        const errorData = await signInResponse.json()
+        throw new Error(errorData.error || "Failed to create sign-in record")
+      }
+
+      const { signIn: signInRecord } = await signInResponse.json()
 
       // Send host notification email if enabled and host is selected
       if (hostNotificationsEnabled && form.hostId) {
@@ -1760,26 +1891,23 @@ export default function KioskPage() {
         throw new Error("No active sign-in found for this email")
       }
 
-      // Update sign-out time
-      const { error: updateError } = await supabase
-        .from("sign_ins")
-        .update({ sign_out_time: new Date().toISOString() })
-        .eq("id", signIn.id)
-
-      if (updateError) throw updateError
-
-      // Log visitor sign-out via API to bypass RLS
-      await logAuditViaApi({
-        action: "visitor.sign_out",
-        entityType: "visitor",
-        entityId: signIn.visitor_id,
-        description: `Visitor signed out: ${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
-        metadata: {
+      // Update sign-out time via API to bypass RLS
+      const signOutResponse = await fetch("/api/kiosk/sign-out", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           sign_in_id: signIn.id,
           visitor_id: signIn.visitor_id,
+          visitor_name: `${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
+          visitor_email: signIn.visitor?.email || null,
           badge_number: signIn.badge_number
-        }
+        }),
       })
+
+      if (!signOutResponse.ok) {
+        const errorData = await signOutResponse.json()
+        throw new Error(errorData.error || "Failed to sign out")
+      }
 
       // Update any checked_in bookings for this visitor to completed
       await supabase
@@ -2065,85 +2193,205 @@ export default function KioskPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30">
-      <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
-        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
-          <div className="shrink-0">
+      {mode === "receptionist-login" ? (
+        <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
+          <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-center">
             <Link href="/">
               <TalusAgLogo />
             </Link>
           </div>
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            {/* Clock display with location timezone */}
-            <div className="hidden md:flex items-center gap-2 text-sm border-r pr-4 mr-2">
-              <Clock className="w-4 h-4 text-muted-foreground" />
-              <span className="font-medium text-foreground">
-                {currentTime.toLocaleTimeString("en-US", {
-                  timeZone: toIANATimezone(currentTimezone),
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-              <span className="font-medium text-xs text-muted-foreground">
-                {getTimezoneAbbreviation(currentTimezone)}
-              </span>
+        </header>
+      ) : (
+        <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
+          <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
+            <div className="shrink-0">
+              <Link href="/">
+                <TalusAgLogo />
+              </Link>
             </div>
-            {/* Location indicator */}
-            <div className="hidden sm:flex items-center gap-2 text-sm">
-              {isDetectingLocation ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                  <span className="text-muted-foreground">Detecting location...</span>
-                </>
-              ) : isSelectedDifferentFromNearest && currentLocation ? (
-                <>
-                  <Building2 className="w-4 h-4 text-amber-500" />
-                  <span className="text-foreground font-medium">{currentLocation.name}</span>
-                  {selectedLocationDistance !== null && (
-                    <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
-                      {formatDistance(selectedLocationDistance)}
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              {/* Clock display with location timezone */}
+              <div className="hidden md:flex items-center gap-2 text-sm border-r pr-4 mr-2">
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                <span className="font-medium text-foreground">
+                  {currentTime.toLocaleTimeString("en-US", {
+                    timeZone: toIANATimezone(currentTimezone),
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <span className="font-medium text-xs text-muted-foreground">
+                  {getTimezoneAbbreviation(currentTimezone)}
+                </span>
+              </div>
+              {/* Location indicator */}
+              <div className="hidden sm:flex items-center gap-2 text-sm">
+                {isDetectingLocation ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-muted-foreground">Detecting location...</span>
+                  </>
+                ) : isSelectedDifferentFromNearest && currentLocation ? (
+                  <>
+                    <Building2 className="w-4 h-4 text-amber-500" />
+                    <span className="text-foreground font-medium">{currentLocation.name}</span>
+                    {selectedLocationDistance !== null && (
+                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
+                        {formatDistance(selectedLocationDistance)}
+                      </Badge>
+                    )}
+                  </>
+                ) : nearestLocation ? (
+                  <>
+                    <MapPin className="w-4 h-4 text-primary" />
+                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {formatDistance(nearestLocation.distance)}
                     </Badge>
-                  )}
-                </>
-              ) : nearestLocation ? (
-                <>
-                  <MapPin className="w-4 h-4 text-primary" />
-                  <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {formatDistance(nearestLocation.distance)}
-                  </Badge>
-                </>
-              ) : currentLocation ? (
-                <>
-                  <Building2 className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">{currentLocation.name}</span>
-                </>
-              ) : (
-                <>
-                  <Building2 className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Select location</span>
-                </>
+                  </>
+                ) : currentLocation ? (
+                  <>
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">{currentLocation.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Select location</span>
+                  </>
+                )}
+              </div>
+
+              {locations.length > 1 && (
+                <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+                  <SelectTrigger className="w-[140px] sm:w-[180px]">
+                    <SelectValue placeholder="Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {/* Receptionist lock/logout button */}
+              {receptionistUser && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground bg-transparent"
+                  onClick={handleReceptionistLogout}
+                  title={`Logged in as ${receptionistUser.name}. Click to lock kiosk.`}
+                >
+                  <Lock className="w-4 h-4" />
+                  <span className="hidden sm:inline ml-1 text-xs">Lock</span>
+                </Button>
               )}
             </div>
-
-            {locations.length > 1 && (
-              <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                <SelectTrigger className="w-[140px] sm:w-[180px]">
-                  <SelectValue placeholder="Location" />
-                </SelectTrigger>
-                <SelectContent>
-                  {locations.map((loc) => (
-                    <SelectItem key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
+        {mode === "receptionist-login" && (
+          <div className="max-w-sm mx-auto mt-8 sm:mt-16">
+            <div className="text-center mb-6 sm:mb-8">
+              <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                <Shield className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">Kiosk Login</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">
+                Employee sign-in required to activate the visitor kiosk
+              </p>
+            </div>
+
+            {receptionistLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Card>
+                <CardHeader className="text-center p-4 sm:p-6 pb-2 sm:pb-2">
+                  <CardTitle className="text-lg sm:text-xl">Employee Login</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">
+                    Sign in to unlock the visitor management kiosk
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6 pt-2 sm:pt-4">
+                  <form onSubmit={handleReceptionistLogin}>
+                    <div className="flex flex-col gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="receptionist-email" className="text-sm">Email</Label>
+                        <Input
+                          id="receptionist-email"
+                          type="email"
+                          placeholder={`employee@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
+                          required
+                          value={receptionistEmail}
+                          onChange={(e) => setReceptionistEmail(e.target.value)}
+                          autoComplete="email"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="receptionist-password" className="text-sm">Password</Label>
+                        <Input
+                          id="receptionist-password"
+                          type="password"
+                          required
+                          value={receptionistPassword}
+                          onChange={(e) => setReceptionistPassword(e.target.value)}
+                          autoComplete="current-password"
+                        />
+                      </div>
+                      {receptionistError && (
+                        <p className="text-sm text-destructive">{receptionistError}</p>
+                      )}
+                      <Button type="submit" className="w-full" disabled={receptionistLoading}>
+                        {receptionistLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Signing in...
+                          </>
+                        ) : (
+                          "Sign In"
+                        )}
+                      </Button>
+
+                      <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                          <span className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                          <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full bg-transparent"
+                        onClick={handleReceptionistMicrosoftLogin}
+                        disabled={receptionistLoading}
+                      >
+                        <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                          <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+                        </svg>
+                        Sign in with Microsoft
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
         {mode === "home" && (
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
@@ -2154,17 +2402,17 @@ export default function KioskPage() {
             {/* Visitor options - always shown */}
             <div className="grid grid-cols-3 gap-3 sm:gap-6">
               <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
                 onClick={() => setMode("sign-in")}
               >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
                   <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
                     <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
                   </div>
                   <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
                 </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
                   <Button className="w-full" size="lg">
                     Sign In
                   </Button>
@@ -2172,17 +2420,17 @@ export default function KioskPage() {
               </Card>
 
               <Card
-                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group"
+                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group flex flex-col h-full"
                 onClick={() => setMode("booking")}
               >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
                   <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
                     <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
                   </div>
                   <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
                 </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
                   <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
                     Check In
                   </Button>
@@ -2190,17 +2438,17 @@ export default function KioskPage() {
               </Card>
 
               <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group"
+                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
                 onClick={() => setMode("sign-out")}
               >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6">
+                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
                   <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
                     <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
                   </div>
                   <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
                 </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
                   <Button variant="secondary" className="w-full" size="lg">
                     Sign Out
                   </Button>
@@ -2450,18 +2698,14 @@ export default function KioskPage() {
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
                   <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                    {isLoading ? <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Continuing to Training...
-                    </>
-                      : selectedVisitorType?.requires_training ? (
-                        <>
-                          <PlayCircle className="w-4 h-4 mr-2" />
-                          Continue to Training
-                        </>
-                      ) : (
-                        "Complete Sign In"
-                      )}
+                    {isLoading ? "Processing..." : selectedVisitorType?.requires_training ? (
+                      <>
+                        <PlayCircle className="w-4 h-4 mr-2" />
+                        Continue to Training
+                      </>
+                    ) : (
+                      "Complete Sign In"
+                    )}
                   </Button>
                 </form>
               </CardContent>

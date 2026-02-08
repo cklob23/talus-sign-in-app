@@ -146,6 +146,35 @@ export async function GET(request: Request) {
         }
       }
 
+      // Handle kiosk receptionist login via Microsoft
+      if (type === "kiosk") {
+        // Verify the user has a profile
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id, email, full_name, role")
+          .eq("id", data.user.id)
+          .single()
+
+        if (profile) {
+          await logAuditServer({
+            supabase,
+            userId: data.user.id,
+            action: "kiosk.receptionist_login",
+            entityType: "user",
+            entityId: data.user.id,
+            description: `Receptionist logged into kiosk: ${profile.full_name || data.user.email} (${profile.email || data.user.email})`,
+            metadata: { method: "microsoft_oauth", portal: "kiosk", email: profile.email, role: profile.role }
+          })
+
+          return createRedirectWithCookies(getRedirectUrl("/kiosk"))
+        }
+
+        // No profile - redirect back with error
+        return createRedirectWithCookies(
+          getRedirectUrl("/kiosk?error=no_profile")
+        )
+      }
+
       // Log admin OAuth login
       await logAuditServer({
         supabase,
