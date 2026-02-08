@@ -216,8 +216,8 @@ export function AdminHeader() {
   async function handleSignOut() {
     const supabase = createClient()
     
-    // Sign out from Supabase (clears session cookies)
-    await supabase.auth.signOut({ scope: "global" })
+    // Sign out from Supabase with local scope only - does NOT affect kiosk receptionist sessions
+    await supabase.auth.signOut({ scope: "local" })
     
     // Clear any cached user state
     setUser(null)

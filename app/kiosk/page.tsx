@@ -160,30 +160,26 @@ export default function KioskPage() {
   }>>([])
   const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
-  // Check if receptionist is already authenticated on mount
+  // Check if receptionist is already authenticated via separate cookie
   useEffect(() => {
     async function checkReceptionistSession() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      try {
+        const response = await fetch("/api/kiosk/receptionist-session")
+        const data = await response.json()
 
-      if (user) {
-        // Verify they have a valid profile (staff, admin, or employee)
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("id, email, full_name, role")
-          .eq("id", user.id)
-          .single()
-
-        if (profile) {
+        if (data.authenticated && data.user) {
           setReceptionistUser({
-            id: profile.id,
-            email: profile.email || user.email || "",
-            name: profile.full_name || profile.email || "",
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name,
           })
           setMode("home")
         }
+      } catch (err) {
+        console.error("Failed to check receptionist session:", err)
+      } finally {
+        setReceptionistLoading(false)
       }
-      setReceptionistLoading(false)
     }
     checkReceptionistSession()
   }, [])
@@ -195,38 +191,36 @@ export default function KioskPage() {
     setReceptionistError(null)
 
     try {
-      const supabase = createClient()
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: receptionistEmail,
-        password: receptionistPassword,
+      // Use the separate receptionist session API (does not create a Supabase session)
+      const response = await fetch("/api/kiosk/receptionist-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: "password",
+          email: receptionistEmail,
+          password: receptionistPassword,
+        }),
       })
-      if (error) throw error
 
-      // Verify profile exists
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role")
-        .eq("id", data.user.id)
-        .single()
+      const data = await response.json()
 
-      if (!profile) {
-        await supabase.auth.signOut()
-        throw new Error("No profile found for this account.")
+      if (!response.ok) {
+        throw new Error(data.error || "Login failed")
       }
 
       await logAuditViaApi({
         action: "kiosk.receptionist_login",
         entityType: "user",
-        entityId: profile.id,
-        description: `Receptionist logged into kiosk: ${profile.full_name || profile.email} (${profile.email})`,
-        metadata: { method: "password", portal: "kiosk", email: profile.email, role: profile.role },
-        userId: profile.id,
+        entityId: data.user.id,
+        description: `Receptionist logged into kiosk: ${data.user.name} (${data.user.email})`,
+        metadata: { method: "password", portal: "kiosk", email: data.user.email, role: data.user.role },
+        userId: data.user.id,
       })
 
       setReceptionistUser({
-        id: profile.id,
-        email: profile.email || data.user.email || "",
-        name: profile.full_name || profile.email || "",
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
       })
       setReceptionistEmail("")
       setReceptionistPassword("")
@@ -245,7 +239,6 @@ export default function KioskPage() {
 
     try {
       const supabase = createClient()
-      await supabase.auth.signOut()
 
       const callbackUrl = `${window.location.origin}/auth/callback?type=kiosk&next=/kiosk`
 
@@ -267,10 +260,8 @@ export default function KioskPage() {
     }
   }
 
-  // Receptionist logout - locks the kiosk
+  // Receptionist logout - locks the kiosk (only clears the receptionist cookie, not Supabase auth)
   async function handleReceptionistLogout() {
-    const supabase = createClient()
-
     await logAuditViaApi({
       action: "kiosk.receptionist_logout",
       entityType: "user",
@@ -280,7 +271,8 @@ export default function KioskPage() {
       userId: receptionistUser?.id,
     })
 
-    await supabase.auth.signOut()
+    // Only clear the receptionist session cookie - does NOT affect admin Supabase sessions
+    await fetch("/api/kiosk/receptionist-session", { method: "DELETE" })
     setReceptionistUser(null)
     setMode("receptionist-login")
   }

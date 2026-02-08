@@ -166,7 +166,29 @@ export async function GET(request: Request) {
             metadata: { method: "microsoft_oauth", portal: "kiosk", email: profile.email, role: profile.role }
           })
 
-          return createRedirectWithCookies(getRedirectUrl("/kiosk"))
+          // Set the separate receptionist session cookie (independent of Supabase auth)
+          const receptionistSession = {
+            id: profile.id,
+            email: profile.email || data.user.email || "",
+            name: profile.full_name || profile.email || "",
+            role: profile.role || "staff",
+            loginAt: new Date().toISOString(),
+          }
+          const encodedSession = Buffer.from(JSON.stringify(receptionistSession)).toString("base64")
+
+          const redirectResponse = createRedirectWithCookies(getRedirectUrl("/kiosk"))
+          redirectResponse.cookies.set("kiosk-receptionist-session", encodedSession, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax" as const,
+            path: "/",
+            maxAge: 60 * 60 * 24, // 24 hours
+          })
+
+          // Sign out of Supabase auth so it doesn't interfere with admin sessions
+          await supabase.auth.signOut()
+
+          return redirectResponse
         }
 
         // No profile - redirect back with error
