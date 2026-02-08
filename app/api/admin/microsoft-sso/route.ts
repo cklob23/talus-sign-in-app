@@ -126,6 +126,23 @@ export async function POST(request: Request) {
       tenant_id,
     } = body
 
+    // Validate: cannot enable without client_id and secret
+    if (enabled) {
+      if (!client_id) {
+        return NextResponse.json(
+          { error: "Application (Client) ID is required to enable Microsoft SSO." },
+          { status: 400 }
+        )
+      }
+      // Check if secret is provided or already exists (masked value means it's already set)
+      if (!secret) {
+        return NextResponse.json(
+          { error: "Client Secret is required to enable Microsoft SSO." },
+          { status: 400 }
+        )
+      }
+    }
+
     // Build the Azure tenant URL
     // Format: https://login.microsoftonline.com/<tenant_id>/v2.0
     const azureUrl = tenant_id
@@ -179,6 +196,34 @@ export async function POST(request: Request) {
         { error: `Failed to update auth config: ${errorText}` },
         { status: response.status }
       )
+    }
+
+    // Also persist the enabled state and client_id to the local settings table
+    // so the public SSO status endpoint can read it without needing the Management API
+    const settingsToSave = [
+      { key: "microsoft_sso_enabled", value: enabled },
+      { key: "azure_client_id", value: client_id || "" },
+    ]
+
+    for (const { key, value } of settingsToSave) {
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await supabase
+          .from("settings")
+          .update({ value })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        await supabase
+          .from("settings")
+          .insert({ key, value, location_id: null })
+      }
     }
 
     // Return the callback URL so the admin can use it in Azure AD

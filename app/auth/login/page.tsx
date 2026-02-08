@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,7 +21,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [microsoftSsoEnabled, setMicrosoftSsoEnabled] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    fetch("/api/auth/microsoft-sso-status")
+      .then((res) => res.json())
+      .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
+      .catch(() => setMicrosoftSsoEnabled(false))
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -153,30 +161,34 @@ export default function LoginPage() {
                     {isLoading ? "Signing in..." : "Sign In"}
                   </Button>
                   
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                    </div>
-                  </div>
+                  {microsoftSsoEnabled && (
+                    <>
+                      <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                          <span className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                          <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                        </div>
+                      </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full bg-transparent"
-                    onClick={handleMicrosoftLogin}
-                    disabled={isLoading}
-                  >
-                    <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                      <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                      <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
-                    </svg>
-                    Sign in with Microsoft
-                  </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full bg-transparent"
+                        onClick={handleMicrosoftLogin}
+                        disabled={isLoading}
+                      >
+                        <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                          <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                        </svg>
+                        Sign in with Microsoft
+                      </Button>
+                    </>
+                  )}
                 </div>
                 <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
