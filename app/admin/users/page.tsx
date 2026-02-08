@@ -62,6 +62,7 @@ export default function UsersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [microsoftSsoConfigured, setMicrosoftSsoConfigured] = useState(false)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [azureUsers, setAzureUsers] = useState<Array<{
     id: string
@@ -124,6 +125,12 @@ export default function UsersPage() {
 
   useEffect(() => {
     loadData()
+
+    // Check if Microsoft SSO is configured
+    fetch("/api/auth/microsoft-sso-status")
+      .then((res) => res.json())
+      .then((data) => setMicrosoftSsoConfigured(data.enabled === true))
+      .catch(() => setMicrosoftSsoConfigured(false))
   }, [])
 
   function openCreateDialog() {
@@ -524,8 +531,9 @@ export default function UsersPage() {
             variant="outline"
             size="sm"
             onClick={handleFetchAzureUsers}
-            disabled={isSyncing}
+            disabled={isSyncing || !microsoftSsoConfigured}
             className="w-fit bg-transparent"
+            title={!microsoftSsoConfigured ? "Configure Microsoft SSO in Settings first" : undefined}
           >
             {isSyncing ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -908,9 +916,15 @@ export default function UsersPage() {
           ) : profiles.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground mb-4">No users found</p>
-              <Button variant="outline" onClick={handleFetchAzureUsers} disabled={isSyncing} className="bg-transparent">
+              <Button
+                variant="outline"
+                onClick={handleFetchAzureUsers}
+                disabled={isSyncing || !microsoftSsoConfigured}
+                className="bg-transparent"
+                title={!microsoftSsoConfigured ? "Configure Microsoft SSO in Settings first" : undefined}
+              >
                 <Cloud className="w-4 h-4 mr-2" />
-                Sync users from Azure AD
+                {microsoftSsoConfigured ? "Sync users from Azure AD" : "Configure Microsoft SSO to sync"}
               </Button>
             </div>
           ) : (

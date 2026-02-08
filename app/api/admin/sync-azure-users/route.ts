@@ -1,26 +1,73 @@
 import { createClient } from "@/lib/supabase/server"
-import { createClient as createAdminClient } from "@supabase/supabase-js"
+import { createAdminClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
 
 // Microsoft Graph API endpoint for users
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 
-// Azure AD App Registration credentials (Client Credentials Flow)
-const AZURE_TENANT_ID = process.env.AZURE_AD_TENANT_ID
-const AZURE_CLIENT_ID = process.env.AZURE_AD_CLIENT_ID
-const AZURE_CLIENT_SECRET = process.env.AZURE_AD_CLIENT_SECRET
+interface AzureCredentials {
+  tenantId: string
+  clientId: string
+  clientSecret: string
+}
 
-// Get access token using Client Credentials Flow
-async function getAzureAccessToken(): Promise<string> {
-  if (!AZURE_TENANT_ID || !AZURE_CLIENT_ID || !AZURE_CLIENT_SECRET) {
-    throw new Error("Azure AD credentials not configured. Please set AZURE_AD_TENANT_ID, AZURE_AD_CLIENT_ID, and AZURE_AD_CLIENT_SECRET environment variables.")
+// Fetch Azure AD credentials from the settings table + Supabase Management API
+async function getAzureCredentials(): Promise<AzureCredentials> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+  const projectRef = supabaseUrl.replace("https://", "").split(".")[0]
+  const accessToken = process.env.SUPABASE_ACCESS_TOKEN
+
+  if (!accessToken) {
+    throw new Error("SUPABASE_ACCESS_TOKEN is not configured. Cannot read Microsoft SSO settings.")
   }
 
-  const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`
-  
+  // Read credentials from Supabase Management API (where the SSO settings are stored)
+  const response = await fetch(
+    `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error("Failed to read auth config from Supabase. Check SUPABASE_ACCESS_TOKEN.")
+  }
+
+  const config = await response.json()
+
+  const clientId = config.EXTERNAL_AZURE_CLIENT_ID || ""
+  const clientSecret = config.EXTERNAL_AZURE_SECRET || ""
+  const azureUrl = config.EXTERNAL_AZURE_URL || ""
+  const enabled = config.EXTERNAL_AZURE_ENABLED === true
+
+  if (!enabled) {
+    throw new Error("Microsoft SSO is not enabled. Configure it in Settings > Microsoft Authentication first.")
+  }
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Microsoft SSO Client ID or Secret is missing. Configure it in Settings > Microsoft Authentication first.")
+  }
+
+  // Extract tenant ID from the Azure URL: https://login.microsoftonline.com/<tenant_id>/v2.0
+  let tenantId = "common" // default to multi-tenant
+  if (azureUrl) {
+    const match = azureUrl.match(/microsoftonline\.com\/([^/]+)/)
+    if (match) tenantId = match[1]
+  }
+
+  return { tenantId, clientId, clientSecret }
+}
+
+// Get access token using Client Credentials Flow
+async function getAzureAccessToken(credentials: AzureCredentials): Promise<string> {
+  const tokenUrl = `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`
+
   const params = new URLSearchParams({
-    client_id: AZURE_CLIENT_ID,
-    client_secret: AZURE_CLIENT_SECRET,
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
     scope: "https://graph.microsoft.com/.default",
     grant_type: "client_credentials",
   })
@@ -67,10 +114,24 @@ export async function GET() {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
+    // Get Azure credentials from the Microsoft SSO settings
+    let credentials: AzureCredentials
+    try {
+      credentials = await getAzureCredentials()
+    } catch (credError) {
+      return NextResponse.json(
+        {
+          error: credError instanceof Error ? credError.message : "Azure AD credentials not configured",
+          configError: true,
+        },
+        { status: 500 }
+      )
+    }
+
     // Get access token using app credentials (Client Credentials Flow)
     let accessToken: string
     try {
-      accessToken = await getAzureAccessToken()
+      accessToken = await getAzureAccessToken(credentials)
     } catch (tokenError) {
       return NextResponse.json(
         {
@@ -164,10 +225,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No users selected" }, { status: 400 })
     }
 
+    // Get Azure credentials from the Microsoft SSO settings
+    let credentials: AzureCredentials
+    try {
+      credentials = await getAzureCredentials()
+    } catch (credError) {
+      return NextResponse.json(
+        {
+          error: credError instanceof Error ? credError.message : "Azure AD credentials not configured",
+        },
+        { status: 500 }
+      )
+    }
+
     // Get access token using app credentials (Client Credentials Flow)
     let accessToken: string
     try {
-      accessToken = await getAzureAccessToken()
+      accessToken = await getAzureAccessToken(credentials)
     } catch (tokenError) {
       return NextResponse.json(
         {
@@ -178,16 +252,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use admin client to create auth users and bypass RLS
-    const adminClient = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
+    const adminClient = createAdminClient()
 
     let syncedCount = 0
     const errors: string[] = []
@@ -254,7 +319,7 @@ export async function POST(request: NextRequest) {
               id: profileId,
               email: email.toLowerCase(),
               full_name: azureUser.displayName || null,
-              role: "employee",
+              role: "staff",
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             }, {
