@@ -73,6 +73,14 @@ export async function GET() {
     // Build the Supabase callback URL for Azure AD
     const supabaseCallbackUrl = `https://${projectRef}.supabase.co/auth/v1/callback`
 
+    // Also read tenant_id from local settings as a fallback
+    const { data: tenantIdSetting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "azure_tenant_id")
+      .is("location_id", null)
+      .single()
+
     return NextResponse.json({
       enabled: authConfig.external_azure_enabled || false,
       client_id: authConfig.external_azure_client_id || "",
@@ -80,6 +88,7 @@ export async function GET() {
       url: authConfig.external_azure_url || "",
       has_secret: !!authConfig.external_azure_secret,
       callback_url: supabaseCallbackUrl,
+      tenant_id: tenantIdSetting?.value || "",
     })
   } catch (error: unknown) {
     return NextResponse.json(
@@ -134,8 +143,9 @@ export async function POST(request: Request) {
           { status: 400 }
         )
       }
-      // Check if secret is provided or already exists (masked value means it's already set)
-      if (!secret) {
+      // Check if secret is provided or already exists
+      // "••••••••" means a secret is already set in Supabase - don't block save
+      if (!secret || (secret !== "••••••••" && secret.trim() === "")) {
         return NextResponse.json(
           { error: "Client Secret is required to enable Microsoft SSO." },
           { status: 400 }
@@ -203,6 +213,7 @@ export async function POST(request: Request) {
     const settingsToSave = [
       { key: "microsoft_sso_enabled", value: enabled },
       { key: "azure_client_id", value: client_id || "" },
+      { key: "azure_tenant_id", value: tenant_id || "" },
     ]
 
     for (const { key, value } of settingsToSave) {

@@ -186,6 +186,15 @@ export default function KioskPage() {
     }
   }, [])
 
+  // Check Microsoft SSO status - always check on mount regardless of auth state
+  // This allows the MS login button to show on the login page itself
+  useEffect(() => {
+    fetch("/api/auth/microsoft-sso-status")
+      .then((res) => res.json())
+      .then((d) => setMicrosoftSsoEnabled(d.enabled === true))
+      .catch(() => setMicrosoftSsoEnabled(false))
+  }, [])
+
   // Check if receptionist is already authenticated via separate cookie
   useEffect(() => {
     async function checkReceptionistSession() {

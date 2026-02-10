@@ -20,11 +20,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock } from "lucide-react"
 import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/lib/tier"
 import Image from "next/image"
 
 interface SystemSettings {
@@ -519,10 +520,10 @@ export default function SettingsPage() {
       }
       const data = await response.json()
 
-      // Extract tenant ID from the azure URL
+      // Extract tenant ID from the azure URL, with fallback to local settings
       // Format: https://login.microsoftonline.com/<tenant_id>/v2.0
-      let tenantId = ""
-      if (data.url) {
+      let tenantId = data.tenant_id || ""
+      if (!tenantId && data.url) {
         const match = data.url.match(/microsoftonline\.com\/([^/]+)/)
         if (match) tenantId = match[1]
       }
@@ -551,11 +552,13 @@ export default function SettingsPage() {
         setSavingMicrosoftSso(false)
         return
       }
-      if (!microsoftSso.azure_client_secret || microsoftSso.azure_client_secret === "") {
+      if (!microsoftSso.azure_client_secret || microsoftSso.azure_client_secret.trim() === "") {
         setMicrosoftSsoError("Client Secret is required to enable Microsoft SSO.")
         setSavingMicrosoftSso(false)
         return
       }
+      // The masked value means a secret already exists -- don't block save
+      // The API route will skip updating the secret if it's the masked placeholder
     }
 
     try {
@@ -888,9 +891,14 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+          {getTierName()} plan
+        </span>
       </div>
 
       <Card>
@@ -1151,16 +1159,29 @@ export default function SettingsPage() {
                   onCheckedChange={(checked: boolean) => updateSetting("host_notifications", checked)}
                 />
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <Label className="text-sm">Badge Printing</Label>
-                  <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
+              {hasFeature("badgePrinting") ? (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <Label className="text-sm">Badge Printing</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
+                  </div>
+                  <Switch 
+                    checked={settings.badge_printing}
+                    onCheckedChange={(checked: boolean) => updateSetting("badge_printing", checked)}
+                  />
                 </div>
-                <Switch 
-                  checked={settings.badge_printing}
-                  onCheckedChange={(checked: boolean) => updateSetting("badge_printing", checked)}
-                />
-              </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4 opacity-50">
+                  <div className="min-w-0 flex-1">
+                    <Label className="text-sm">Badge Printing</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Pro</span>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <Label className="text-sm">Distance Unit</Label>
@@ -1266,7 +1287,9 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Color Theme Settings Card */}
+      {/* Color Theme & Branding Settings Cards */}
+      {hasFeature("customBranding") ? (
+  <>
   <Card>
   <CardHeader className="p-4 sm:p-6">
   <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -1394,9 +1417,8 @@ export default function SettingsPage() {
   </Button>
   </CardContent>
   </Card>
-  
-  {/* Branding Settings Card */}
-  <Card>
+
+      <Card>
   <CardHeader className="p-4 sm:p-6">
   <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
   <Building2 className="w-5 h-5" />
@@ -1582,6 +1604,35 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      </>
+      ) : (
+        <>
+          <Card className="opacity-60">
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Palette className="w-5 h-5" />
+                Color Theme
+                <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                  <Lock className="w-3.5 h-3.5" /> Pro plan
+                </span>
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Upgrade to Pro to customize colors and branding</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card className="opacity-60">
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Building2 className="w-5 h-5" />
+                Company Branding
+                <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                  <Lock className="w-3.5 h-3.5" /> Pro plan
+                </span>
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Upgrade to Pro to customize your company logo and name</CardDescription>
+            </CardHeader>
+          </Card>
+        </>
+      )}
 
       {/* SMTP Settings Card */}
       <Card>
@@ -1676,6 +1727,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* Microsoft SSO Card */}
+      {hasFeature("ssoIntegration") ? (
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -1851,6 +1903,27 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      ) : (
+        <Card className="opacity-60">
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+              </svg>
+              Microsoft Authentication (Azure AD)
+              <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                <Lock className="w-3.5 h-3.5" /> Add-on
+              </span>
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Enable the SSO Integration add-on to connect with Azure AD / Entra ID
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Password Policy Card */}
       <Card>
