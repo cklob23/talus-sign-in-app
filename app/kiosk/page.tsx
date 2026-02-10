@@ -5,6 +5,7 @@ import type React from "react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -76,6 +77,7 @@ export default function KioskPage() {
   const { branding } = useBranding()
   const [mode, setMode] = useState<KioskMode>("receptionist-login")
   const [receptionistUser, setReceptionistUser] = useState<{ id: string; email: string; name: string } | null>(null)
+  const [tenantLoaded, setTenantLoaded] = useState(false)
   const [microsoftSsoEnabled, setMicrosoftSsoEnabled] = useState(false)
   const [receptionistEmail, setReceptionistEmail] = useState("")
   const [receptionistPassword, setReceptionistPassword] = useState("")
@@ -84,6 +86,12 @@ export default function KioskPage() {
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [hasVendors, setHasVendors] = useState(false)
+  const [companySearch, setCompanySearch] = useState("")
+  const [companyResults, setCompanyResults] = useState<{ id: string; name: string }[]>([])
+  const [isSearchingCompany, setIsSearchingCompany] = useState(false)
+  const [showCompanyResults, setShowCompanyResults] = useState(false)
+  const [otherCompanyName, setOtherCompanyName] = useState("")
   const [selectedLocation, setSelectedLocation] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -161,6 +169,23 @@ export default function KioskPage() {
   }>>([])
   const [selectedBooking, setSelectedBooking] = useState<typeof bookingResults[0] | null>(null)
 
+  // Load the tenant plan/addons from the DB so hasFeature() works correctly
+  const loadTenant = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tenant")
+      if (res.ok) {
+        const { tenant } = await res.json()
+        if (tenant) {
+          setCurrentTenant(tenant)
+        }
+      }
+    } catch {
+      // Fallback to default tenant (starter) if fetch fails
+    } finally {
+      setTenantLoaded(true)
+    }
+  }, [])
+
   // Check if receptionist is already authenticated via separate cookie
   useEffect(() => {
     async function checkReceptionistSession() {
@@ -169,12 +194,23 @@ export default function KioskPage() {
         const data = await response.json()
 
         if (data.authenticated && data.user) {
+          // Load tenant from DB before rendering feature-gated UI
+          await loadTenant()
+
           setReceptionistUser({
             id: data.user.id,
             email: data.user.email,
             name: data.user.name,
           })
           setMode("home")
+
+          // Check if Microsoft SSO is enabled (only available with SSO add-on)
+          if (hasFeature("ssoIntegration")) {
+            fetch("/api/auth/microsoft-sso-status")
+              .then((res) => res.json())
+              .then((d) => setMicrosoftSsoEnabled(d.enabled === true))
+              .catch(() => setMicrosoftSsoEnabled(false))
+          }
         }
       } catch (err) {
         console.error("Failed to check receptionist session:", err)
@@ -183,14 +219,7 @@ export default function KioskPage() {
       }
     }
     checkReceptionistSession()
-
-
-    // Check if Microsoft SSO is enabled
-    fetch("/api/auth/microsoft-sso-status")
-      .then((res) => res.json())
-      .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
-      .catch(() => setMicrosoftSsoEnabled(false))
-  }, [])
+  }, [loadTenant])
 
   // Receptionist login with email/password
   async function handleReceptionistLogin(e: React.FormEvent) {
@@ -215,6 +244,9 @@ export default function KioskPage() {
       if (!response.ok) {
         throw new Error(data.error || "Login failed")
       }
+
+      // Load tenant plan from DB before rendering feature-gated UI
+      await loadTenant()
 
       await logAuditViaApi({
         action: "kiosk.receptionist_login",
@@ -345,6 +377,7 @@ export default function KioskPage() {
             created_at: profile.created_at,
             updated_at: profile.updated_at,
           })
+
 
           if (signInRecord) {
             const locations = Array.isArray(signInRecord.location) ? signInRecord.location : [signInRecord.location]
@@ -718,6 +751,17 @@ export default function KioskPage() {
     }
     if (typesData) setVisitorTypes(typesData)
     if (hostsData) setHosts(hostsData)
+
+    // Check if vendors exist (just fetch 1 to see if the table has data)
+    try {
+      const res = await fetch("/api/vendors?active_only=true&limit=1")
+      if (res.ok) {
+        const { vendors } = await res.json()
+        if (vendors && vendors.length > 0) setHasVendors(true)
+      }
+    } catch {
+      // Fallback: no vendor list, will show free text input
+    }
   }
 
   // Lookup bookings by email
@@ -1101,7 +1145,7 @@ export default function KioskPage() {
           <!DOCTYPE html>
           <html>
           <head>
-          <title>Visitor Badge</title>
+<title>Visitor Badge</title>
             <style>
               body {
                 font-family: Arial, sans-serif;
@@ -1109,7 +1153,7 @@ export default function KioskPage() {
                 padding: 20px;
               }
 
-              .badge {
+.badge {
                 width: 3.375in;
                 height: 2.125in;
                 background: #fff;
@@ -1217,14 +1261,14 @@ export default function KioskPage() {
           <body>
             <div class="badge">
               <div class="lanyard-slot"></div>
-              <div class="photo-section">
+<div class="photo-section">
                 ${photoUrl || capturedPhoto
             ? `<img src="${photoUrl || capturedPhoto}" class="visitor-photo" crossorigin="anonymous" />`
             : `<div class="photo-placeholder">${selectedBooking.visitor_first_name?.[0] || ""}${selectedBooking.visitor_last_name?.[0] || ""}</div>`
           }
               </div>
               <div class="info-section">
-                <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
+                <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
                 <div class="visitor-name">${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}</div>
                 <div class="visitor-type">${selectedBooking.visitor_company || "Visitor"}</div>
                 <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
@@ -1360,8 +1404,8 @@ export default function KioskPage() {
     if (videoStarted) return
     setVideoStarted(true)
 
-    // Simulate 3.46 minutes of required watching time
-    const totalDuration = 60 * 3.46
+    // Simulate 47.39 minutes of required watching time
+    const totalDuration = 2843.4
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -1395,6 +1439,9 @@ export default function KioskPage() {
     try {
       const supabase = createClient()
 
+      // Company is now always the direct input value (search or typed)
+      const resolvedCompany = form.company
+
       // Create visitor via API to bypass RLS
       const visitorResponse = await fetch("/api/kiosk/visitor", {
         method: "POST",
@@ -1404,7 +1451,7 @@ export default function KioskPage() {
           last_name: form.lastName,
           email: form.email || null,
           phone: form.phone || null,
-          company: form.company || null,
+          company: resolvedCompany || null,
         }),
       })
 
@@ -1675,7 +1722,7 @@ export default function KioskPage() {
             }
                 </div>
                 <div class="info-section">
-                  <img src="${branding.companyLogo || `${window.location.origin}/talusAg_Logo.png`}" alt="Logo" class="logo" />
+                  <img src="${window.location.origin}/talusAg_Logo.png" alt="Logo" class="logo" />
                   <div class="visitor-name">${form.firstName} ${form.lastName}</div>
                   <div class="visitor-type">${form.company || selectedType?.name || "Visitor"}</div>
                   <div class="location">${locations.find(l => l.id === selectedLocation)?.name || ""}</div>
@@ -1846,6 +1893,11 @@ export default function KioskPage() {
 
   // Go to photo mode after training (or directly if no training needed)
   function proceedToPhoto() {
+    // Skip photo capture if not available in current tier
+    if (!hasFeature("photoCapture")) {
+      completeSignIn()
+      return
+    }
     stopCamera()
     setMode("photo")
     // Start camera after a brief delay to allow mode change
@@ -1900,7 +1952,7 @@ export default function KioskPage() {
           visitor_id: signIn.visitor_id,
           visitor_name: `${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
           visitor_email: signIn.visitor?.email || null,
-          badge_number: signIn.badge_number
+          badge_number: signIn.badge_number,
         }),
       })
 
@@ -1943,6 +1995,10 @@ export default function KioskPage() {
     })
     setCapturedPhoto(null)
     setVisitorPhotoUrl(null)
+    setOtherCompanyName("")
+    setCompanySearch("")
+    setCompanyResults([])
+    setShowCompanyResults(false)
     setCameraError(null)
   }
 
@@ -2400,11 +2456,11 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName || "Talus"}. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
             </div>
 
             {/* Visitor options - always shown */}
-            <div className="grid grid-cols-3 gap-3 sm:gap-6">
+            <div className={`grid gap-3 sm:gap-6 ${hasFeature("visitorPreRegistration") ? "grid-cols-3" : "grid-cols-2"}`}>
               <Card
                 className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
                 onClick={() => setMode("sign-in")}
@@ -2423,23 +2479,25 @@ export default function KioskPage() {
                 </CardContent>
               </Card>
 
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group flex flex-col h-full"
-                onClick={() => setMode("booking")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
-                    <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                  </div>
-                  <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                  <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
-                    Check In
-                  </Button>
-                </CardContent>
-              </Card>
+              {hasFeature("visitorPreRegistration") && (
+                <Card
+                  className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group flex flex-col h-full"
+                  onClick={() => setMode("booking")}
+                >
+                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
+                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
+                      <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                    </div>
+                    <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
+                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
+                      Check In
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
 
               <Card
                 className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
@@ -2507,7 +2565,7 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">{branding.companyName || "Talus"} employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -2660,13 +2718,89 @@ export default function KioskPage() {
                   {selectedVisitorType?.requires_company && (
                     <div className="space-y-2">
                       <Label htmlFor="company">Company *</Label>
-                      <Input
-                        id="company"
-                        required={selectedVisitorType.requires_company}
-                        value={form.company}
-                        onChange={(e) => setForm({ ...form, company: e.target.value })}
-                        placeholder="Company name"
-                      />
+                      {hasVendors ? (
+                        <div className="relative">
+                          <Input
+                            id="company"
+                            required
+                            value={companySearch}
+                            autoComplete="off"
+                            onChange={async (e) => {
+                              const val = e.target.value
+                              setCompanySearch(val)
+                              setForm({ ...form, company: val })
+                              setShowCompanyResults(true)
+
+                              if (val.trim().length < 2) {
+                                setCompanyResults([])
+                                return
+                              }
+
+                              setIsSearchingCompany(true)
+                              try {
+                                const res = await fetch(
+                                  `/api/vendors?active_only=true&q=${encodeURIComponent(val.trim())}&limit=10`
+                                )
+                                if (res.ok) {
+                                  const { vendors } = await res.json()
+                                  setCompanyResults(vendors || [])
+                                }
+                              } catch {
+                                setCompanyResults([])
+                              } finally {
+                                setIsSearchingCompany(false)
+                              }
+                            }}
+                            onFocus={() => {
+                              if (companyResults.length > 0) setShowCompanyResults(true)
+                            }}
+                            onBlur={() => {
+                              // Delay to allow click on results
+                              setTimeout(() => setShowCompanyResults(false), 200)
+                            }}
+                            placeholder="Start typing to search companies..."
+                          />
+                          {showCompanyResults && companySearch.trim().length >= 2 && (
+                            <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                              {isSearchingCompany ? (
+                                <div className="p-3 text-sm text-muted-foreground text-center">
+                                  Searching...
+                                </div>
+                              ) : companyResults.length > 0 ? (
+                                <>
+                                  {companyResults.map((vendor) => (
+                                    <button
+                                      key={vendor.id}
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 cursor-pointer transition-colors"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault()
+                                        setCompanySearch(vendor.name)
+                                        setForm({ ...form, company: vendor.name })
+                                        setShowCompanyResults(false)
+                                      }}
+                                    >
+                                      {vendor.name}
+                                    </button>
+                                  ))}
+                                </>
+                              ) : (
+                                <div className="p-3 text-sm text-muted-foreground text-center">
+                                  {'No matching companies. You can type a custom name.'}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <Input
+                          id="company"
+                          required={selectedVisitorType.requires_company}
+                          value={form.company}
+                          onChange={(e) => setForm({ ...form, company: e.target.value })}
+                          placeholder="Company name"
+                        />
+                      )}
                     </div>
                   )}
 
@@ -2689,7 +2823,9 @@ export default function KioskPage() {
                   )}
 
                   <div className="space-y-2">
-                    <Label htmlFor="purpose">Purpose of Visit</Label>
+                    <Label htmlFor="purpose">
+                      Purpose of Visit
+                    </Label>
                     <Textarea
                       id="purpose"
                       value={form.purpose}
@@ -2923,7 +3059,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your {branding.companyName || "Talus"} credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -3227,7 +3363,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on {branding.companyName || "Talus"} premises. I understand that failure
+                        all safety guidelines and procedures while on Talus premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -3407,7 +3543,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : `Thank you for visiting ${branding.companyName || "Talus"}.`}
+                    : "Thank you for visiting Talus."}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

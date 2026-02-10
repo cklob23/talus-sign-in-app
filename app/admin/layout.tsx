@@ -1,30 +1,25 @@
-"use client"
-
 import type React from "react"
-import { AdminSidebar, SidebarProvider, useSidebar } from "@/components/admin/admin-sidebar"
-import { AdminHeader } from "@/components/admin/admin-header"
-import { TimezoneProvider } from "@/contexts/timezone-context"
+import { createClient } from "@/lib/supabase/server"
+import { getTenant } from "@/lib/tenant"
+import { AdminLayoutClient } from "@/components/admin/admin-layout-client"
+import type { TenantInfo } from "@/lib/tier"
 
-function AdminLayoutContent({ children }: { children: React.ReactNode }) {
-  const { collapsed, setCollapsed } = useSidebar()
+/**
+ * Server component: loads this instance's tenant config from the DB,
+ * then passes it to the client layout wrapper.
+ */
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  let tenant: TenantInfo | null = null
+
+  try {
+    tenant = await getTenant()
+  } catch {
+    // If tenant loading fails, the client layout defaults to Starter with no add-ons
+  }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <AdminSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <AdminHeader />
-        <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto">{children}</main>
-      </div>
-    </div>
-  )
-}
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <TimezoneProvider>
-      <SidebarProvider>
-        <AdminLayoutContent>{children}</AdminLayoutContent>
-      </SidebarProvider>
-    </TimezoneProvider>
+    <AdminLayoutClient tenant={tenant}>
+      {children}
+    </AdminLayoutClient>
   )
 }

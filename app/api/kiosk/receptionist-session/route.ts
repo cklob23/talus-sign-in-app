@@ -86,7 +86,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 401 })
       }
 
-      // Fetch profile
       const adminClient = createAdminClient()
       const { data: profile } = await adminClient
         .from("profiles")

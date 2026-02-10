@@ -151,6 +151,21 @@ export interface Evacuation {
   completed_by_profile?: Profile
 }
 
+export interface Vendor {
+  id: string
+  ramp_vendor_id: string | null
+  name: string
+  name_legal: string | null
+  is_active: boolean
+  country: string | null
+  state: string | null
+  description: string | null
+  category_name: string | null
+  synced_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AuditLog {
   id: string
   user_id: string | null

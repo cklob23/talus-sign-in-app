@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       photo_url, 
       visitor_type_id,
       booking_id,
-      timezone 
+      timezone,
     } = body
 
     if (!visitor_id || !location_id) {

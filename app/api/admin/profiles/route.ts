@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
         email_confirm: true, // Auto-confirm email since admin is creating
         user_metadata: {
           full_name: full_name || null,
+          role: role || "employee",
         },
       })
 

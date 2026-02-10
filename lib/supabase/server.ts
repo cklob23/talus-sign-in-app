@@ -16,6 +16,9 @@ export function createAdminClient() {
   )
 }
 
+// Alias used by API routes
+export const getAdminClient = createAdminClient
+
 export async function createClient() {
   const cookieStore = await cookies()
 
