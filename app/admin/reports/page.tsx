@@ -127,7 +127,7 @@ export default function ReportsPage() {
     if (!data) return
 
     const periodLabel = getPeriodLabel(period)
-    
+
     // Create CSV content with summary and detailed data (all times in UTC)
     const csvContent = [
       // Summary section
@@ -187,7 +187,7 @@ export default function ReportsPage() {
       ["=== DETAILED VISITOR SIGN-INS (Times in UTC) ==="],
       ["Visitor Name", "Email", "Company", "Type", "Host", "Location", "Sign In (UTC)", "Sign Out (UTC)", "Duration (min)"],
       ...data.rawSignIns.map(s => {
-        const duration = s.sign_out_time 
+        const duration = s.sign_out_time
           ? Math.round((new Date(s.sign_out_time).getTime() - new Date(s.sign_in_time).getTime()) / (1000 * 60))
           : ""
         return [
@@ -206,7 +206,7 @@ export default function ReportsPage() {
       ["=== DETAILED EMPLOYEE SIGN-INS (Times in UTC) ==="],
       ["Employee Name", "Email", "Role", "Location", "Auto Sign-In", "Sign In (UTC)", "Sign Out (UTC)", "Duration (min)"],
       ...data.rawEmployeeSignIns.map(s => {
-        const duration = s.sign_out_time 
+        const duration = s.sign_out_time
           ? Math.round((new Date(s.sign_out_time).getTime() - new Date(s.sign_in_time).getTime()) / (1000 * 60))
           : ""
         return [
@@ -232,11 +232,11 @@ export default function ReportsPage() {
         b.status,
       ]),
     ]
-    
-    const csv = csvContent.map(row => 
+
+    const csv = csvContent.map(row =>
       Array.isArray(row) ? row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",") : `"${row}"`
     ).join("\n")
-    
+
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
@@ -285,8 +285,8 @@ export default function ReportsPage() {
       // === VISITOR METRICS ===
       const uniqueVisitorIds = new Set(visitorData.map((s) => s.visitor_id))
       const completedVisitorVisits = visitorData.filter((s) => s.sign_out_time)
-      const visitorSignOutRate = visitorData.length > 0 
-        ? Math.round((completedVisitorVisits.length / visitorData.length) * 100) 
+      const visitorSignOutRate = visitorData.length > 0
+        ? Math.round((completedVisitorVisits.length / visitorData.length) * 100)
         : 0
 
       let avgVisitorDuration = 0
@@ -336,8 +336,8 @@ export default function ReportsPage() {
       // === EMPLOYEE METRICS ===
       const uniqueEmployeeIds = new Set(employeeData.map((s) => s.profile_id))
       const completedEmployeeVisits = employeeData.filter((s) => s.sign_out_time)
-      const employeeSignOutRate = employeeData.length > 0 
-        ? Math.round((completedEmployeeVisits.length / employeeData.length) * 100) 
+      const employeeSignOutRate = employeeData.length > 0
+        ? Math.round((completedEmployeeVisits.length / employeeData.length) * 100)
         : 0
 
       let avgEmployeeDuration = 0
@@ -380,17 +380,17 @@ export default function ReportsPage() {
       const checkedInBookings = bookingsData.filter(b => b.status === "checked_in" || b.status === "completed").length
       const pendingBookings = bookingsData.filter(b => b.status === "pending").length
       const cancelledBookings = bookingsData.filter(b => b.status === "cancelled").length
-      const noShowBookings = bookingsData.filter(b => 
+      const noShowBookings = bookingsData.filter(b =>
         b.status === "pending" && new Date(b.expected_arrival) < now
       ).length
-      const bookingCheckInRate = bookingsData.length > 0 
-        ? Math.round((checkedInBookings / bookingsData.length) * 100) 
+      const bookingCheckInRate = bookingsData.length > 0
+        ? Math.round((checkedInBookings / bookingsData.length) * 100)
         : 0
 
       // === PEAK HOURS ===
       const hourMap = new Map<number, number>()
       for (let i = 0; i < 24; i++) hourMap.set(i, 0)
-      
+
       visitorData.forEach(s => {
         const hour = new Date(s.sign_in_time).getHours()
         hourMap.set(hour, (hourMap.get(hour) || 0) + 1)
@@ -414,7 +414,7 @@ export default function ReportsPage() {
       const dayCount = period === "1" ? 1 : Number.parseInt(period)
       const visitorDayMap = new Map<string, number>()
       const employeeDayMap = new Map<string, number>()
-      
+
       for (let i = dayCount - 1; i >= 0; i--) {
         const date = new Date()
         date.setDate(date.getDate() - i)
@@ -692,13 +692,13 @@ export default function ReportsPage() {
                     {data.byType.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
                         <PieChart>
-<Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(entry) => entry.name}>
-  {data.byType.map((entry, index) => (
-  <Cell key={`cell-${index}`} fill={entry.color} />
-  ))}
-  </Pie>
-  <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
-  </PieChart>
+                          <Pie data={data.byType} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(entry) => entry.name}>
+                            {data.byType.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+                        </PieChart>
                       </ResponsiveContainer>
                     ) : (
                       <p className="text-center py-8 text-muted-foreground text-sm">No data</p>
@@ -795,15 +795,15 @@ export default function ReportsPage() {
                     <div className="flex items-center gap-4">
                       <ResponsiveContainer width="50%" height={180}>
                         <PieChart>
-                          <Pie 
+                          <Pie
                             data={[
                               { name: "Auto", count: data.autoSignInCount },
                               { name: "Manual", count: data.manualSignInCount },
-                            ]} 
-                            dataKey="count" 
-                            nameKey="name" 
-                            cx="50%" 
-                            cy="50%" 
+                            ]}
+                            dataKey="count"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
                             innerRadius={40}
                             outerRadius={70}
                           >
@@ -928,29 +928,29 @@ export default function ReportsPage() {
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   {data.totalBookings > 0 ? (
                     <div className="flex items-center gap-4">
-<ResponsiveContainer width="50%" height={180}>
-  <PieChart>
-  <Pie
-  data={[
-  { name: "Checked In", count: data.checkedInBookings },
-  { name: "Pending", count: data.pendingBookings - data.noShowBookings },
-  { name: "No-Show", count: data.noShowBookings },
-  { name: "Cancelled", count: data.cancelledBookings },
-  ].filter(d => d.count > 0)}
-  dataKey="count"
-  nameKey="name"
-  cx="50%"
-  cy="50%"
-  innerRadius={40}
-  outerRadius={70}
-  >
-  <Cell fill={colors.success} />
-  <Cell fill={colors.warning} />
-  <Cell fill={colors.danger} />
-<Cell fill={colors.muted} />
-  </Pie>
-  <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
-  </PieChart>
+                      <ResponsiveContainer width="50%" height={180}>
+                        <PieChart>
+                          <Pie
+                            data={[
+                              { name: "Checked In", count: data.checkedInBookings },
+                              { name: "Pending", count: data.pendingBookings - data.noShowBookings },
+                              { name: "No-Show", count: data.noShowBookings },
+                              { name: "Cancelled", count: data.cancelledBookings },
+                            ].filter(d => d.count > 0)}
+                            dataKey="count"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={70}
+                          >
+                            <Cell fill={colors.success} />
+                            <Cell fill={colors.warning} />
+                            <Cell fill={colors.danger} />
+                            <Cell fill={colors.muted} />
+                          </Pie>
+                          <Tooltip contentStyle={{ backgroundColor: colors.tooltip.bg, borderColor: colors.tooltip.border, borderRadius: "8px" }} />
+                        </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">
@@ -987,9 +987,9 @@ export default function ReportsPage() {
                     <div className="text-4xl font-bold">{data.bookingCheckInRate}%</div>
                     <div className="flex-1">
                       <div className="h-4 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-green-500 transition-all" 
-                          style={{ width: `${data.bookingCheckInRate}%` }} 
+                        <div
+                          className="h-full bg-green-500 transition-all"
+                          style={{ width: `${data.bookingCheckInRate}%` }}
                         />
                       </div>
                     </div>
