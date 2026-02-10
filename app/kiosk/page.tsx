@@ -2092,8 +2092,8 @@ export default function KioskPage() {
         throw signInError
       }
 
-      // Log employee sign-in
-      await logAudit({
+      // Log employee sign-in via API to bypass RLS
+      await logAuditViaApi({
         action: "employee.sign_in",
         entityType: "employee",
         entityId: profile.id,
@@ -2186,8 +2186,8 @@ export default function KioskPage() {
           .update({ sign_out_time: new Date().toISOString() })
           .eq("id", signIn.id)
 
-        // Log employee sign-out
-        await logAudit({
+        // Log employee sign-out via API to bypass RLS
+        await logAuditViaApi({
           action: "employee.sign_out",
           entityType: "employee",
           entityId: currentEmployee.id,
