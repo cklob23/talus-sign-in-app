@@ -1920,36 +1920,20 @@ export default function KioskPage() {
     setError(null)
 
     try {
-      const supabase = createClient()
+      // Look up active sign-in via API (bypasses RLS)
+      const findRes = await fetch("/api/kiosk/find-sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: signOutEmail }),
+      })
 
-      // First, find visitor(s) with this email
-      const { data: visitors, error: visitorError } = await supabase
-        .from("visitors")
-        .select("id, first_name, last_name")
-        .eq("email", signOutEmail.toLowerCase().trim())
+      const findData = await findRes.json()
 
-      if (visitorError) throw visitorError
-
-      if (!visitors || visitors.length === 0) {
-        throw new Error("No active sign-in found for this email")
+      if (!findRes.ok || !findData.sign_in) {
+        throw new Error(findData.error || "No active sign-in found for this email")
       }
 
-      // Get all visitor IDs
-      const visitorIds = visitors.map((v) => v.id)
-
-      // Find active sign-in for any of these visitors
-      const { data: signIn, error: findError } = await supabase
-        .from("sign_ins")
-        .select("*, visitor:visitors(*)")
-        .in("visitor_id", visitorIds)
-        .is("sign_out_time", null)
-        .order("sign_in_time", { ascending: false })
-        .limit(1)
-        .single()
-
-      if (findError || !signIn) {
-        throw new Error("No active sign-in found for this email")
-      }
+      const signIn = findData.sign_in
 
       // Update sign-out time via API to bypass RLS
       const signOutResponse = await fetch("/api/kiosk/sign-out", {
@@ -1958,8 +1942,8 @@ export default function KioskPage() {
         body: JSON.stringify({
           sign_in_id: signIn.id,
           visitor_id: signIn.visitor_id,
-          visitor_name: `${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
-          visitor_email: signIn.visitor?.email || null,
+          visitor_name: signIn.visitor_name,
+          visitor_email: signIn.visitor_email,
           badge_number: signIn.badge_number,
         }),
       })
@@ -1969,15 +1953,15 @@ export default function KioskPage() {
         throw new Error(errorData.error || "Failed to sign out")
       }
 
-      // Update any checked_in bookings for this visitor to completed
-      await supabase
-        .from("bookings")
-        .update({ status: "completed" })
-        .eq("visitor_email", signOutEmail.toLowerCase().trim())
-        .eq("status", "checked_in")
+      // Update any checked_in bookings for this visitor to completed via API
+      await fetch("/api/kiosk/complete-bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitor_email: signOutEmail.toLowerCase().trim() }),
+      })
 
       setSuccessData({
-        name: `${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`,
+        name: signIn.visitor_name || "",
         badge: signIn.badge_number || "",
         type: "out",
       })
