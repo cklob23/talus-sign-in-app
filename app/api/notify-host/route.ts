@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
 import nodemailer from "nodemailer"
-import { createClient } from "@/lib/supabase/server"
+import { getAdminClient } from "@/lib/supabase/server"
 
 // Get SMTP settings from database or environment variables
+// Uses admin client to bypass RLS since this is called from the kiosk
+// where the visitor may not have an authenticated session
 async function getSmtpSettings() {
-  const supabase = await createClient()
+  const supabase = getAdminClient()
   const { data } = await supabase
     .from("settings")
     .select("key, value")

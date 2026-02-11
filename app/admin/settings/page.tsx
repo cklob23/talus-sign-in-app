@@ -176,7 +176,7 @@ export default function SettingsPage() {
       .from("settings")
       .select("key, value")
       .eq("location_id", locationId)
-    
+
     // Reset to defaults first
     const loadedSettings: SystemSettings = {
       auto_sign_out: true,
@@ -184,7 +184,7 @@ export default function SettingsPage() {
       badge_printing: false,
       use_miles: false,
     }
-    
+
     if (data && data.length > 0) {
       for (const setting of data) {
         if (setting.key === "auto_sign_out") loadedSettings.auto_sign_out = setting.value === true || setting.value === "true"
@@ -193,7 +193,7 @@ export default function SettingsPage() {
         if (setting.key === "distance_unit_miles") loadedSettings.use_miles = setting.value === true || setting.value === "true"
       }
     }
-    
+
     setSettings(loadedSettings)
     setSettingsLoading(false)
   }
@@ -205,7 +205,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["company_name", "company_logo", "company_logo_small"])
-    
+
     if (data && data.length > 0) {
       const loadedBranding: BrandingSettings = {
         company_name: "",
@@ -228,7 +228,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"])
-    
+
     if (data && data.length > 0) {
       const loadedSmtp: SmtpSettings = {
         smtp_host: "",
@@ -255,7 +255,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["primary_color_light", "primary_color_dark", "accent_color_light", "accent_color_dark"])
-    
+
     if (data && data.length > 0) {
       const loadedColors: ColorSettings = {
         primary_color_light: "#10B981",
@@ -278,43 +278,43 @@ export default function SettingsPage() {
   function hexToOklch(hex: string): string {
     // Ensure hex is properly formatted
     if (!hex || !hex.startsWith("#")) return "oklch(0.65 0.2 160)"
-    
+
     // Convert hex to RGB
     const r = parseInt(hex.slice(1, 3), 16) / 255
     const g = parseInt(hex.slice(3, 5), 16) / 255
     const b = parseInt(hex.slice(5, 7), 16) / 255
-    
+
     // Convert RGB to linear RGB
     const toLinear = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
     const lr = toLinear(r)
     const lg = toLinear(g)
     const lb = toLinear(b)
-    
+
     // Convert to XYZ
     const x = 0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb
     const y = 0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb
     const z = 0.0193339 * lr + 0.1191920 * lg + 0.9503041 * lb
-    
+
     // Convert XYZ to Lab
     const xn = 0.95047, yn = 1.0, zn = 1.08883
-    const f = (t: number) => t > 0.008856 ? Math.pow(t, 1/3) : (903.3 * t + 16) / 116
+    const f = (t: number) => t > 0.008856 ? Math.pow(t, 1 / 3) : (903.3 * t + 16) / 116
     const fx = f(x / xn)
     const fy = f(y / yn)
     const fz = f(z / zn)
-    
+
     const L = 116 * fy - 16
     const a = 500 * (fx - fy)
     const bVal = 200 * (fy - fz)
-    
+
     // Convert Lab to LCH
     const C = Math.sqrt(a * a + bVal * bVal)
     let H = Math.atan2(bVal, a) * 180 / Math.PI
     if (H < 0) H += 360
-    
+
     // Approximate OKLCH values
     const oklchL = Math.max(0, Math.min(1, L / 100))
     const oklchC = Math.max(0, Math.min(0.4, C / 150))
-    
+
     return `oklch(${oklchL.toFixed(3)} ${oklchC.toFixed(3)} ${H.toFixed(1)})`
   }
 
@@ -322,12 +322,12 @@ export default function SettingsPage() {
     // Remove existing theme colors style if present
     const existing = document.getElementById("theme-colors")
     if (existing) existing.remove()
-    
+
     const primaryLightOklch = hexToOklch(colors.primary_color_light)
     const primaryDarkOklch = hexToOklch(colors.primary_color_dark)
     const accentLightOklch = hexToOklch(colors.accent_color_light)
     const accentDarkOklch = hexToOklch(colors.accent_color_dark)
-    
+
     // Create CSS that overrides the theme colors at all levels
     // We need to override both the base CSS variables AND the Tailwind theme variables
     const style = document.createElement("style")
@@ -375,14 +375,14 @@ export default function SettingsPage() {
         background-color: ${primaryDarkOklch} !important;
       }
     `
-    
+
     document.head.appendChild(style)
   }
 
   async function saveColorSettings() {
     setSavingColors(true)
     const supabase = createClient()
-    
+
     const colorKeys = ["primary_color_light", "primary_color_dark", "accent_color_light", "accent_color_dark"] as const
     for (const key of colorKeys) {
       const { data: existing } = await supabase
@@ -391,7 +391,7 @@ export default function SettingsPage() {
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
         await supabase
           .from("settings")
@@ -408,7 +408,7 @@ export default function SettingsPage() {
           })
       }
     }
-    
+
     // Apply the colors
     applyColorSettings(colorSettings)
     await logAudit({
@@ -417,19 +417,19 @@ export default function SettingsPage() {
       description: "Color settings updated",
       metadata: { colorSettings }
     })
-    
+
     setSavingColors(false)
   }
 
   async function saveBrandingSettings() {
     setSavingBranding(true)
     const supabase = createClient()
-    
+
     const brandingKeys = ["company_name", "company_logo", "company_logo_small"] as const
     for (const key of brandingKeys) {
       // Convert empty strings to null
       const value = branding[key].trim() === "" ? null : branding[key]
-      
+
       // First try to update existing record
       const { data: existing } = await supabase
         .from("settings")
@@ -437,7 +437,7 @@ export default function SettingsPage() {
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
         // Update existing record - set to null if empty
         await supabase
@@ -456,21 +456,21 @@ export default function SettingsPage() {
           })
       }
     }
-    
+
     await logAudit({
       action: "settings.updated",
       entityType: "settings",
       description: "Branding settings updated",
       metadata: { company_name: branding.company_name }
     })
-    
+
     setSavingBranding(false)
   }
 
   async function saveSmtpSettings() {
     setSavingSmtp(true)
     const supabase = createClient()
-    
+
     const smtpKeys = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email"] as const
     for (const key of smtpKeys) {
       // First try to update existing record
@@ -480,7 +480,7 @@ export default function SettingsPage() {
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
         // Update existing record
         await supabase
@@ -499,14 +499,14 @@ export default function SettingsPage() {
           })
       }
     }
-    
+
     await logAudit({
       action: "settings.updated",
       entityType: "settings",
       description: "SMTP settings updated",
       metadata: { smtp_host: smtp.smtp_host, smtp_from_email: smtp.smtp_from_email }
     })
-    
+
     setSavingSmtp(false)
   }
 
@@ -609,7 +609,7 @@ export default function SettingsPage() {
       .select("key, value")
       .is("location_id", null)
       .in("key", ["password_expiration", "force_reauth", "force_2fa", "prevent_reuse", "password_reuse_count"])
-    
+
     if (data && data.length > 0) {
       const loadedPolicy: PasswordPolicySettings = {
         password_expiration: "never",
@@ -632,18 +632,18 @@ export default function SettingsPage() {
   async function savePasswordPolicySettings() {
     setSavingPasswordPolicy(true)
     const supabase = createClient()
-    
+
     const policyKeys = ["password_expiration", "force_reauth", "force_2fa", "prevent_reuse", "password_reuse_count"] as const
     for (const key of policyKeys) {
       const value = passwordPolicy[key]
-      
+
       const { data: existing } = await supabase
         .from("settings")
         .select("id")
         .eq("key", key)
         .is("location_id", null)
         .single()
-      
+
       if (existing) {
         await supabase
           .from("settings")
@@ -660,14 +660,14 @@ export default function SettingsPage() {
           })
       }
     }
-    
+
     await logAudit({
       action: "settings.updated",
       entityType: "settings",
       description: "Password policy updated",
       metadata: { passwordPolicy }
     })
-    
+
     setSavingPasswordPolicy(false)
   }
 
@@ -705,7 +705,7 @@ export default function SettingsPage() {
       const { url } = await response.json()
       // Add cache buster to force refresh
       const urlWithCacheBuster = `${url}?t=${Date.now()}`
-      
+
       if (type === "full") {
         setBranding(prev => ({ ...prev, company_logo: urlWithCacheBuster }))
         setLogoPreview(null)
@@ -748,14 +748,14 @@ export default function SettingsPage() {
 
   async function updateSetting(key: keyof SystemSettings, value: boolean) {
     if (!selectedLocationId) return
-    
+
     const supabase = createClient()
     const newSettings = { ...settings, [key]: value }
     setSettings(newSettings)
-    
+
     // Map the state key to the database key
     const dbKey = key === "use_miles" ? "distance_unit_miles" : key
-    
+
     // Try to update first
     const { data: existingData } = await supabase
       .from("settings")
@@ -763,7 +763,7 @@ export default function SettingsPage() {
       .eq("key", dbKey)
       .eq("location_id", selectedLocationId)
       .single()
-    
+
     if (existingData) {
       // Update existing setting
       await supabase
@@ -773,10 +773,10 @@ export default function SettingsPage() {
         .eq("location_id", selectedLocationId)
     } else {
       // Insert new setting for this location
-      await supabase.from("settings").insert({ 
-        key: dbKey, 
+      await supabase.from("settings").insert({
+        key: dbKey,
         value: value,
-        location_id: selectedLocationId 
+        location_id: selectedLocationId
       })
     }
   }
@@ -896,9 +896,9 @@ export default function SettingsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+        {/* <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
           {getTierName()} plan
-        </span>
+        </span> */}
       </div>
 
       <Card>
@@ -1116,8 +1116,8 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Select 
-                value={selectedLocationId || ""} 
+              <Select
+                value={selectedLocationId || ""}
                 onValueChange={(value) => setSelectedLocationId(value)}
               >
                 <SelectTrigger className="w-full sm:w-[200px]">
@@ -1144,7 +1144,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Auto Sign-Out</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out visitors at end of day</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.auto_sign_out}
                   onCheckedChange={(checked: boolean) => updateSetting("auto_sign_out", checked)}
                 />
@@ -1154,7 +1154,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Host Notifications</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Email hosts when their visitors arrive</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.host_notifications}
                   onCheckedChange={(checked: boolean) => updateSetting("host_notifications", checked)}
                 />
@@ -1165,7 +1165,7 @@ export default function SettingsPage() {
                     <Label className="text-sm">Badge Printing</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
                   </div>
-                  <Switch 
+                  <Switch
                     checked={settings.badge_printing}
                     onCheckedChange={(checked: boolean) => updateSetting("badge_printing", checked)}
                   />
@@ -1187,7 +1187,7 @@ export default function SettingsPage() {
                   <Label className="text-sm">Distance Unit</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Display distances in miles instead of kilometers on kiosk</p>
                 </div>
-                <Switch 
+                <Switch
                   checked={settings.use_miles}
                   onCheckedChange={(checked: boolean) => updateSetting("use_miles", checked)}
                 />
@@ -1205,7 +1205,7 @@ export default function SettingsPage() {
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">Customize the look and feel of the admin dashboard</CardDescription>
         </CardHeader>
-<CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           <div className="space-y-3">
             <Label className="text-sm">Theme</Label>
             {!mounted ? (
@@ -1252,14 +1252,14 @@ export default function SettingsPage() {
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              {!mounted 
+              {!mounted
                 ? "Loading theme preference..."
                 : theme === "system"
                   ? "Theme will automatically match your system preferences"
                   : `Using ${theme} mode`}
             </p>
           </div>
-          
+
           {/* Timezone Setting */}
           <div className="space-y-3 pt-4 border-t">
             <Label className="text-sm flex items-center gap-2">
@@ -1279,8 +1279,8 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {isSavingTimezone 
-                ? "Saving timezone preference..." 
+              {isSavingTimezone
+                ? "Saving timezone preference..."
                 : "All dates and times in the admin portal will be displayed in this timezone"}
             </p>
           </div>
@@ -1289,322 +1289,322 @@ export default function SettingsPage() {
 
       {/* Color Theme & Branding Settings Cards */}
       {hasFeature("customBranding") ? (
-  <>
-  <Card>
-  <CardHeader className="p-4 sm:p-6">
-  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-  <Palette className="w-5 h-5" />
-  Color Theme
-  </CardTitle>
-  <CardDescription className="text-xs sm:text-sm">
-  Customize the primary and accent colors for light and dark themes
-  </CardDescription>
-  </CardHeader>
-  <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
-  {/* Light Theme Colors */}
-  <div className="space-y-4">
-  <h4 className="text-sm font-medium flex items-center gap-2">
-  <Sun className="w-4 h-4" />
-  Light Theme
-  </h4>
-  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div className="space-y-2">
-  <Label htmlFor="primary_light">Primary Color</Label>
-  <div className="flex gap-2">
-  <Input
-  id="primary_light"
-  type="color"
-  value={colorSettings.primary_color_light}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_light: e.target.value }))}
-  className="w-12 h-10 p-1 cursor-pointer"
-  />
-  <Input
-  value={colorSettings.primary_color_light}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_light: e.target.value }))}
-  className="flex-1 font-mono text-sm"
-  placeholder="#10B981"
-  />
-  </div>
-  </div>
-  <div className="space-y-2">
-  <Label htmlFor="accent_light">Accent Color</Label>
-  <div className="flex gap-2">
-  <Input
-  id="accent_light"
-  type="color"
-  value={colorSettings.accent_color_light}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_light: e.target.value }))}
-  className="w-12 h-10 p-1 cursor-pointer"
-  />
-  <Input
-  value={colorSettings.accent_color_light}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_light: e.target.value }))}
-  className="flex-1 font-mono text-sm"
-  placeholder="#059669"
-  />
-  </div>
-  </div>
-  </div>
-  </div>
-  
-  {/* Dark Theme Colors */}
-  <div className="space-y-4">
-  <h4 className="text-sm font-medium flex items-center gap-2">
-  <Moon className="w-4 h-4" />
-  Dark Theme
-  </h4>
-  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div className="space-y-2">
-  <Label htmlFor="primary_dark">Primary Color</Label>
-  <div className="flex gap-2">
-  <Input
-  id="primary_dark"
-  type="color"
-  value={colorSettings.primary_color_dark}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_dark: e.target.value }))}
-  className="w-12 h-10 p-1 cursor-pointer"
-  />
-  <Input
-  value={colorSettings.primary_color_dark}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_dark: e.target.value }))}
-  className="flex-1 font-mono text-sm"
-  placeholder="#10B981"
-  />
-  </div>
-  </div>
-  <div className="space-y-2">
-  <Label htmlFor="accent_dark">Accent Color</Label>
-  <div className="flex gap-2">
-  <Input
-  id="accent_dark"
-  type="color"
-  value={colorSettings.accent_color_dark}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_dark: e.target.value }))}
-  className="w-12 h-10 p-1 cursor-pointer"
-  />
-  <Input
-  value={colorSettings.accent_color_dark}
-  onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_dark: e.target.value }))}
-  className="flex-1 font-mono text-sm"
-  placeholder="#34D399"
-  />
-  </div>
-  </div>
-  </div>
-  </div>
-  
-  {/* Preview */}
-  <div className="space-y-2">
-  <Label>Preview</Label>
-  <div className="flex gap-4">
-  <div 
-  className="w-20 h-10 rounded-md border flex items-center justify-center text-white text-xs font-medium"
-  style={{ backgroundColor: colorSettings.primary_color_light }}
-  >
-  Primary
-  </div>
-  <div 
-  className="w-20 h-10 rounded-md border flex items-center justify-center text-white text-xs font-medium"
-  style={{ backgroundColor: colorSettings.accent_color_light }}
-  >
-  Accent
-  </div>
-  </div>
-  </div>
-  
-  <Button onClick={saveColorSettings} disabled={savingColors}>
-  {savingColors ? "Saving..." : "Save Color Settings"}
-  </Button>
-  </CardContent>
-  </Card>
-
-      <Card>
-  <CardHeader className="p-4 sm:p-6">
-  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-  <Building2 className="w-5 h-5" />
-  Company Branding
-          </CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
-            Customize the company logo and name displayed on the kiosk and admin portal
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
-          {/* Company Name */}
-          <div className="space-y-2">
-            <Label htmlFor="company_name">Company Name</Label>
-            <Input
-              id="company_name"
-              placeholder="Enter your company name"
-              value={branding.company_name}
-              onChange={(e) => setBranding(prev => ({ ...prev, company_name: e.target.value }))}
-            />
-            <p className="text-xs text-muted-foreground">
-              This name will be displayed in the header and emails
-            </p>
-          </div>
-
-          {/* Full Logo */}
-          <div className="space-y-2">
-            <Label>Company Logo (Full)</Label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Main logo for headers and larger displays. Recommended: 200x50px or similar aspect ratio.
-            </p>
-            {(logoPreview || branding.company_logo) ? (
-              <div className="flex items-center gap-4">
-                <div className="relative w-[200px] h-[60px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-2">
-                  <Image
-                    src={logoPreview || branding.company_logo || "/placeholder.svg"}
-                    alt="Company Logo"
-                    fill
-                    className="object-contain"
-                    unoptimized
-                  />
-                  {uploadingLogo && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        <>
+          <Card>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Palette className="w-5 h-5" />
+                Color Theme
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Customize the primary and accent colors for light and dark themes
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+              {/* Light Theme Colors */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Sun className="w-4 h-4" />
+                  Light Theme
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="primary_light">Primary Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="primary_light"
+                        type="color"
+                        value={colorSettings.primary_color_light}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_light: e.target.value }))}
+                        className="w-12 h-10 p-1 cursor-pointer"
+                      />
+                      <Input
+                        value={colorSettings.primary_color_light}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_light: e.target.value }))}
+                        className="flex-1 font-mono text-sm"
+                        placeholder="#10B981"
+                      />
                     </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) handleLogoUpload(file, "full")
-                      }}
-                      disabled={uploadingLogo}
-                    />
-                    <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingLogo}>
-                      <span>
-                        <Upload className="w-4 h-4 mr-1" />
-                        Change
-                      </span>
-                    </Button>
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-transparent"
-                    onClick={() => removeLogo("full")}
-                    disabled={uploadingLogo}
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleLogoUpload(file, "full")
-                    }}
-                    disabled={uploadingLogo}
-                  />
-                  <Button variant="outline" className="bg-transparent" asChild disabled={uploadingLogo}>
-                    <span>
-                      <Upload className="w-4 h-4 mr-2" />
-                      {uploadingLogo ? "Uploading..." : "Upload Logo"}
-                    </span>
-                  </Button>
-                </label>
-              </div>
-            )}
-          </div>
-
-          {/* Small Logo / Icon */}
-          <div className="space-y-2">
-            <Label>Company Logo (Small / Icon)</Label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Square icon for favicons, collapsed sidebar, and small displays. Recommended: 64x64px.
-            </p>
-            {(smallLogoPreview || branding.company_logo_small) ? (
-              <div className="flex items-center gap-4">
-                <div className="relative w-[64px] h-[64px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-1">
-                  <Image
-                    src={smallLogoPreview || branding.company_logo_small || "/placeholder.svg"}
-                    alt="Company Icon"
-                    fill
-                    className="object-contain"
-                    unoptimized
-                  />
-                  {uploadingSmallLogo && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="accent_light">Accent Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="accent_light"
+                        type="color"
+                        value={colorSettings.accent_color_light}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_light: e.target.value }))}
+                        className="w-12 h-10 p-1 cursor-pointer"
+                      />
+                      <Input
+                        value={colorSettings.accent_color_light}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_light: e.target.value }))}
+                        className="flex-1 font-mono text-sm"
+                        placeholder="#059669"
+                      />
                     </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) handleLogoUpload(file, "small")
-                      }}
-                      disabled={uploadingSmallLogo}
-                    />
-                    <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
-                      <span>
-                        <Upload className="w-4 h-4 mr-1" />
-                        Change
-                      </span>
-                    </Button>
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-transparent"
-                    onClick={() => removeLogo("small")}
-                    disabled={uploadingSmallLogo}
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    Remove
-                  </Button>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleLogoUpload(file, "small")
-                    }}
-                    disabled={uploadingSmallLogo}
-                  />
-                  <Button variant="outline" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
-                    <span>
-                      <ImageIcon className="w-4 h-4 mr-2" />
-                      {uploadingSmallLogo ? "Uploading..." : "Upload Icon"}
-                    </span>
-                  </Button>
-                </label>
-              </div>
-            )}
-          </div>
 
-          <div className="pt-2">
-            <Button onClick={saveBrandingSettings} disabled={savingBranding}>
-              {savingBranding ? "Saving..." : "Save Branding Settings"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      </>
+              {/* Dark Theme Colors */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Moon className="w-4 h-4" />
+                  Dark Theme
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="primary_dark">Primary Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="primary_dark"
+                        type="color"
+                        value={colorSettings.primary_color_dark}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_dark: e.target.value }))}
+                        className="w-12 h-10 p-1 cursor-pointer"
+                      />
+                      <Input
+                        value={colorSettings.primary_color_dark}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_dark: e.target.value }))}
+                        className="flex-1 font-mono text-sm"
+                        placeholder="#10B981"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="accent_dark">Accent Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="accent_dark"
+                        type="color"
+                        value={colorSettings.accent_color_dark}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_dark: e.target.value }))}
+                        className="w-12 h-10 p-1 cursor-pointer"
+                      />
+                      <Input
+                        value={colorSettings.accent_color_dark}
+                        onChange={(e) => setColorSettings(prev => ({ ...prev, accent_color_dark: e.target.value }))}
+                        className="flex-1 font-mono text-sm"
+                        placeholder="#34D399"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="space-y-2">
+                <Label>Preview</Label>
+                <div className="flex gap-4">
+                  <div
+                    className="w-20 h-10 rounded-md border flex items-center justify-center text-white text-xs font-medium"
+                    style={{ backgroundColor: colorSettings.primary_color_light }}
+                  >
+                    Primary
+                  </div>
+                  <div
+                    className="w-20 h-10 rounded-md border flex items-center justify-center text-white text-xs font-medium"
+                    style={{ backgroundColor: colorSettings.accent_color_light }}
+                  >
+                    Accent
+                  </div>
+                </div>
+              </div>
+
+              <Button onClick={saveColorSettings} disabled={savingColors}>
+                {savingColors ? "Saving..." : "Save Color Settings"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Building2 className="w-5 h-5" />
+                Company Branding
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Customize the company logo and name displayed on the kiosk and admin portal
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+              {/* Company Name */}
+              <div className="space-y-2">
+                <Label htmlFor="company_name">Company Name</Label>
+                <Input
+                  id="company_name"
+                  placeholder="Enter your company name"
+                  value={branding.company_name}
+                  onChange={(e) => setBranding(prev => ({ ...prev, company_name: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This name will be displayed in the header and emails
+                </p>
+              </div>
+
+              {/* Full Logo */}
+              <div className="space-y-2">
+                <Label>Company Logo (Full)</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Main logo for headers and larger displays. Recommended: 200x50px or similar aspect ratio.
+                </p>
+                {(logoPreview || branding.company_logo) ? (
+                  <div className="flex items-center gap-4">
+                    <div className="relative w-[200px] h-[60px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-2">
+                      <Image
+                        src={logoPreview || branding.company_logo || "/placeholder.svg"}
+                        alt="Company Logo"
+                        fill
+                        className="object-contain"
+                        unoptimized
+                      />
+                      {uploadingLogo && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) handleLogoUpload(file, "full")
+                          }}
+                          disabled={uploadingLogo}
+                        />
+                        <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingLogo}>
+                          <span>
+                            <Upload className="w-4 h-4 mr-1" />
+                            Change
+                          </span>
+                        </Button>
+                      </label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-transparent"
+                        onClick={() => removeLogo("full")}
+                        disabled={uploadingLogo}
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleLogoUpload(file, "full")
+                        }}
+                        disabled={uploadingLogo}
+                      />
+                      <Button variant="outline" className="bg-transparent" asChild disabled={uploadingLogo}>
+                        <span>
+                          <Upload className="w-4 h-4 mr-2" />
+                          {uploadingLogo ? "Uploading..." : "Upload Logo"}
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Small Logo / Icon */}
+              <div className="space-y-2">
+                <Label>Company Logo (Small / Icon)</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Square icon for favicons, collapsed sidebar, and small displays. Recommended: 64x64px.
+                </p>
+                {(smallLogoPreview || branding.company_logo_small) ? (
+                  <div className="flex items-center gap-4">
+                    <div className="relative w-[64px] h-[64px] border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center p-1">
+                      <Image
+                        src={smallLogoPreview || branding.company_logo_small || "/placeholder.svg"}
+                        alt="Company Icon"
+                        fill
+                        className="object-contain"
+                        unoptimized
+                      />
+                      {uploadingSmallLogo && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) handleLogoUpload(file, "small")
+                          }}
+                          disabled={uploadingSmallLogo}
+                        />
+                        <Button variant="outline" size="sm" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
+                          <span>
+                            <Upload className="w-4 h-4 mr-1" />
+                            Change
+                          </span>
+                        </Button>
+                      </label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-transparent"
+                        onClick={() => removeLogo("small")}
+                        disabled={uploadingSmallLogo}
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleLogoUpload(file, "small")
+                        }}
+                        disabled={uploadingSmallLogo}
+                      />
+                      <Button variant="outline" className="bg-transparent" asChild disabled={uploadingSmallLogo}>
+                        <span>
+                          <ImageIcon className="w-4 h-4 mr-2" />
+                          {uploadingSmallLogo ? "Uploading..." : "Upload Icon"}
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2">
+                <Button onClick={saveBrandingSettings} disabled={savingBranding}>
+                  {savingBranding ? "Saving..." : "Save Branding Settings"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
       ) : (
         <>
           <Card className="opacity-60">
@@ -1728,190 +1728,190 @@ export default function SettingsPage() {
 
       {/* Microsoft SSO Card */}
       {hasFeature("ssoIntegration") ? (
-      <Card>
-        <CardHeader className="p-4 sm:p-6">
-          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-            <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-              <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-              <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-              <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
-            </svg>
-            Microsoft Authentication (Azure AD)
-          </CardTitle>
-          <CardDescription className="text-xs sm:text-sm">
-            Enable Sign in with Microsoft for admins and kiosk receptionists using your organization&apos;s Azure AD tenant.
-            Settings are applied directly to Supabase Auth.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
-          {microsoftSsoError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive space-y-1">
-              <p>{microsoftSsoError.includes("https://") ? microsoftSsoError.split("https://")[0] : microsoftSsoError}</p>
-              {microsoftSsoError.includes("supabase.com/dashboard/account/tokens") && (
-                <p>
-                  <a
-                    href="https://supabase.com/dashboard/account/tokens"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-medium inline-flex items-center gap-1"
-                  >
-                    Generate a personal access token here <ExternalLink className="w-3 h-3" />
-                  </a>
-                  {" "}and add it as the <code className="bg-destructive/20 px-1 py-0.5 rounded text-xs font-mono">SUPABASE_ACCESS_TOKEN</code> environment variable.
-                </p>
-              )}
-            </div>
-          )}
-          {microsoftSsoSuccess && (
-            <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
-              {microsoftSsoSuccess}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <Label className="text-sm">Enable Microsoft SSO</Label>
-              <p className="text-xs sm:text-sm text-muted-foreground">Show the &quot;Sign in with Microsoft&quot; button on the login and kiosk pages</p>
-            </div>
-            <Switch
-              checked={microsoftSso.microsoft_sso_enabled}
-              onCheckedChange={(checked) => setMicrosoftSso(prev => ({ ...prev, microsoft_sso_enabled: checked }))}
-            />
-          </div>
-
-          {microsoftSso.microsoft_sso_enabled && (
-            <>
-              <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-                <p className="text-sm font-medium">Setup Instructions</p>
-                <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1.5">
-                  <li>Go to the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" className="underline text-primary inline-flex items-center gap-1">Azure Portal - App Registrations <ExternalLink className="w-3 h-3" /></a></li>
-                  <li>Click &quot;New registration&quot; and give it a name (e.g., Gatekeeper Visitor Management)</li>
-                  <li>Under &quot;Supported account types&quot;, select your desired option (single or multi-tenant)</li>
-                  <li>Set the <strong>Redirect URI</strong> (Web) to the Callback URL shown below</li>
-                  <li>Copy the Application (client) ID and Directory (tenant) ID into the fields below</li>
-                  <li>Under &quot;Certificates & secrets&quot;, create a new client secret and paste the <strong>Value</strong> (not the Secret ID) below</li>
-                  <li>Under &quot;API permissions&quot;, add: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">User.Read</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">email</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">profile</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">openid</code></li>
-                </ol>
+        <Card>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+              </svg>
+              Microsoft Authentication (Azure AD)
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Enable Sign in with Microsoft for admins and kiosk receptionists using your organization&apos;s Azure AD tenant.
+              Settings are applied directly to Supabase Auth.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+            {microsoftSsoError && (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive space-y-1">
+                <p>{microsoftSsoError.includes("https://") ? microsoftSsoError.split("https://")[0] : microsoftSsoError}</p>
+                {microsoftSsoError.includes("supabase.com/dashboard/account/tokens") && (
+                  <p>
+                    <a
+                      href="https://supabase.com/dashboard/account/tokens"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium inline-flex items-center gap-1"
+                    >
+                      Generate a personal access token here <ExternalLink className="w-3 h-3" />
+                    </a>
+                    {" "}and add it as the <code className="bg-destructive/20 px-1 py-0.5 rounded text-xs font-mono">SUPABASE_ACCESS_TOKEN</code> environment variable.
+                  </p>
+                )}
               </div>
+            )}
+            {microsoftSsoSuccess && (
+              <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
+                {microsoftSsoSuccess}
+              </div>
+            )}
 
-              {/* Callback URL - read only */}
-              <div className="space-y-2">
-                <Label>Callback URL (for Azure AD Redirect URI)</Label>
-                <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <Label className="text-sm">Enable Microsoft SSO</Label>
+                <p className="text-xs sm:text-sm text-muted-foreground">Show the &quot;Sign in with Microsoft&quot; button on the login and kiosk pages</p>
+              </div>
+              <Switch
+                checked={microsoftSso.microsoft_sso_enabled}
+                onCheckedChange={(checked) => setMicrosoftSso(prev => ({ ...prev, microsoft_sso_enabled: checked }))}
+              />
+            </div>
+
+            {microsoftSso.microsoft_sso_enabled && (
+              <>
+                <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                  <p className="text-sm font-medium">Setup Instructions</p>
+                  <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1.5">
+                    <li>Go to the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" className="underline text-primary inline-flex items-center gap-1">Azure Portal - App Registrations <ExternalLink className="w-3 h-3" /></a></li>
+                    <li>Click &quot;New registration&quot; and give it a name (e.g., Gatekeeper Visitor Management)</li>
+                    <li>Under &quot;Supported account types&quot;, select your desired option (single or multi-tenant)</li>
+                    <li>Set the <strong>Redirect URI</strong> (Web) to the Callback URL shown below</li>
+                    <li>Copy the Application (client) ID and Directory (tenant) ID into the fields below</li>
+                    <li>Under &quot;Certificates & secrets&quot;, create a new client secret and paste the <strong>Value</strong> (not the Secret ID) below</li>
+                    <li>Under &quot;API permissions&quot;, add: <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">User.Read</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">email</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">profile</code>, <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">openid</code></li>
+                  </ol>
+                </div>
+
+                {/* Callback URL - read only */}
+                <div className="space-y-2">
+                  <Label>Callback URL (for Azure AD Redirect URI)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={supabaseCallbackUrl || "Save settings to generate callback URL"}
+                      className="font-mono text-sm bg-muted/50"
+                    />
+                    {supabaseCallbackUrl && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 bg-transparent"
+                        onClick={() => {
+                          navigator.clipboard.writeText(supabaseCallbackUrl)
+                        }}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Copy this URL and add it as a Redirect URI in your Azure AD App Registration (Platform: Web)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="azure_tenant_id">Directory (Tenant) ID</Label>
                   <Input
-                    readOnly
-                    value={supabaseCallbackUrl || "Save settings to generate callback URL"}
-                    className="font-mono text-sm bg-muted/50"
+                    id="azure_tenant_id"
+                    placeholder="e.g., 12345678-abcd-1234-efgh-123456789abc"
+                    value={microsoftSso.azure_tenant_id}
+                    onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_tenant_id: e.target.value }))}
+                    className="font-mono text-sm"
                   />
-                  {supabaseCallbackUrl && (
+                  <p className="text-xs text-muted-foreground">
+                    Found in Azure AD under &quot;Overview&quot; &rarr; &quot;Directory (tenant) ID&quot;
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="azure_client_id">Application (Client) ID</Label>
+                  <Input
+                    id="azure_client_id"
+                    placeholder="e.g., 87654321-dcba-4321-hgfe-cba987654321"
+                    value={microsoftSso.azure_client_id}
+                    onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_client_id: e.target.value }))}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Found in your App Registration under &quot;Overview&quot; &rarr; &quot;Application (client) ID&quot;
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="azure_client_secret">Client Secret Value</Label>
+                  <div className="relative">
+                    <Input
+                      id="azure_client_secret"
+                      type={showAzureSecret ? "text" : "password"}
+                      placeholder="Enter your client secret value"
+                      value={microsoftSso.azure_client_secret}
+                      onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_client_secret: e.target.value }))}
+                      className="font-mono text-sm pr-10"
+                    />
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="shrink-0 bg-transparent"
-                      onClick={() => {
-                        navigator.clipboard.writeText(supabaseCallbackUrl)
-                      }}
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowAzureSecret(!showAzureSecret)}
                     >
-                      <Copy className="w-4 h-4" />
+                      {showAzureSecret ? (
+                        <EyeOff className="w-4 h-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                      )}
                     </Button>
-                  )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Use the secret <strong>Value</strong>, not the Secret ID. Found under &quot;Certificates & secrets&quot; &rarr; &quot;Client secrets&quot;
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Copy this URL and add it as a Redirect URI in your Azure AD App Registration (Platform: Web)
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="azure_tenant_id">Directory (Tenant) ID</Label>
-                <Input
-                  id="azure_tenant_id"
-                  placeholder="e.g., 12345678-abcd-1234-efgh-123456789abc"
-                  value={microsoftSso.azure_tenant_id}
-                  onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_tenant_id: e.target.value }))}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Found in Azure AD under &quot;Overview&quot; &rarr; &quot;Directory (tenant) ID&quot;
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="azure_client_id">Application (Client) ID</Label>
-                <Input
-                  id="azure_client_id"
-                  placeholder="e.g., 87654321-dcba-4321-hgfe-cba987654321"
-                  value={microsoftSso.azure_client_id}
-                  onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_client_id: e.target.value }))}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Found in your App Registration under &quot;Overview&quot; &rarr; &quot;Application (client) ID&quot;
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="azure_client_secret">Client Secret Value</Label>
-                <div className="relative">
-                  <Input
-                    id="azure_client_secret"
-                    type={showAzureSecret ? "text" : "password"}
-                    placeholder="Enter your client secret value"
-                    value={microsoftSso.azure_client_secret}
-                    onChange={(e) => setMicrosoftSso(prev => ({ ...prev, azure_client_secret: e.target.value }))}
-                    className="font-mono text-sm pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowAzureSecret(!showAzureSecret)}
-                  >
-                    {showAzureSecret ? (
-                      <EyeOff className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Use the secret <strong>Value</strong>, not the Secret ID. Found under &quot;Certificates & secrets&quot; &rarr; &quot;Client secrets&quot;
-                </p>
-              </div>
-            </>
-          )}
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button onClick={saveMicrosoftSsoSettings} disabled={savingMicrosoftSso}>
-              {savingMicrosoftSso ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Configuring Supabase...
-                </>
-              ) : (
-                "Save Microsoft Settings"
-              )}
-            </Button>
-            {microsoftSso.microsoft_sso_enabled && microsoftSso.azure_client_id && microsoftSso.azure_tenant_id && (
-              <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-                <Check className="w-3.5 h-3.5" />
-                Configured
-              </span>
+              </>
             )}
-          </div>
-        </CardContent>
-      </Card>
+
+            <div className="flex items-center gap-3 pt-2">
+              <Button onClick={saveMicrosoftSsoSettings} disabled={savingMicrosoftSso}>
+                {savingMicrosoftSso ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Configuring Supabase...
+                  </>
+                ) : (
+                  "Save Microsoft Settings"
+                )}
+              </Button>
+              {microsoftSso.microsoft_sso_enabled && microsoftSso.azure_client_id && microsoftSso.azure_tenant_id && (
+                <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                  <Check className="w-3.5 h-3.5" />
+                  Configured
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <Card className="opacity-60">
           <CardHeader className="p-4 sm:p-6">
             <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
               <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
               </svg>
               Microsoft Authentication (Azure AD)
               <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
@@ -1939,8 +1939,8 @@ export default function SettingsPage() {
         <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
           <div className="space-y-2">
             <Label htmlFor="password_expiration">Passwords expire</Label>
-            <Select 
-              value={passwordPolicy.password_expiration} 
+            <Select
+              value={passwordPolicy.password_expiration}
               onValueChange={(value) => setPasswordPolicy(prev => ({ ...prev, password_expiration: value }))}
             >
               <SelectTrigger id="password_expiration" className="w-full">
@@ -1959,8 +1959,8 @@ export default function SettingsPage() {
 
           <div className="space-y-2">
             <Label htmlFor="force_reauth">Force re-authentication</Label>
-            <Select 
-              value={passwordPolicy.force_reauth} 
+            <Select
+              value={passwordPolicy.force_reauth}
               onValueChange={(value) => setPasswordPolicy(prev => ({ ...prev, force_reauth: value }))}
             >
               <SelectTrigger id="force_reauth" className="w-full">

@@ -419,34 +419,33 @@ export default function KioskPage() {
     }
   }, [searchParams, router])
 
-  // Load settings from database based on selected location
+  // Load settings via API (bypasses RLS since kiosk has no Supabase auth session)
   useEffect(() => {
     async function loadSettings() {
       if (!selectedLocation) return
 
-      const supabase = createClient()
-      const { data } = await supabase
-        .from("settings")
-        .select("key, value")
-        .eq("location_id", selectedLocation)
+      try {
+        const res = await fetch(`/api/kiosk/settings?location_id=${encodeURIComponent(selectedLocation)}`)
+        if (!res.ok) return
 
-      // Reset to defaults first
-      setUseMiles(false)
-      setHostNotificationsEnabled(true)
-      setBadgePrintingEnabled(false)
+        const { settings: merged } = await res.json()
 
-      if (data && data.length > 0) {
-        for (const setting of data) {
-          if (setting.key === "distance_unit_miles") {
-            setUseMiles(setting.value === true || setting.value === "true")
-          }
-          if (setting.key === "host_notifications") {
-            setHostNotificationsEnabled(setting.value === true || setting.value === "true")
-          }
-          if (setting.key === "badge_printing") {
-            setBadgePrintingEnabled(setting.value === true || setting.value === "true")
-          }
+        // Reset to defaults first
+        setUseMiles(false)
+        setHostNotificationsEnabled(true)
+        setBadgePrintingEnabled(false)
+
+        if (merged.distance_unit_miles !== undefined) {
+          setUseMiles(merged.distance_unit_miles === true || merged.distance_unit_miles === "true")
         }
+        if (merged.host_notifications !== undefined) {
+          setHostNotificationsEnabled(merged.host_notifications === true || merged.host_notifications === "true")
+        }
+        if (merged.badge_printing !== undefined) {
+          setBadgePrintingEnabled(merged.badge_printing === true || merged.badge_printing === "true")
+        }
+      } catch (err) {
+        console.error("Failed to load kiosk settings:", err)
       }
     }
     loadSettings()
