@@ -1786,7 +1786,7 @@ export default function SettingsPage() {
                   <p className="text-sm font-medium">Setup Instructions</p>
                   <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1.5">
                     <li>Go to the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" className="underline text-primary inline-flex items-center gap-1">Azure Portal - App Registrations <ExternalLink className="w-3 h-3" /></a></li>
-                    <li>Click &quot;New registration&quot; and give it a name (e.g., Gatekeeper Visitor Management)</li>
+                    <li>Click &quot;New registration&quot; and give it a name (e.g., Talus Visitor Management)</li>
                     <li>Under &quot;Supported account types&quot;, select your desired option (single or multi-tenant)</li>
                     <li>Set the <strong>Redirect URI</strong> (Web) to the Callback URL shown below</li>
                     <li>Copy the Application (client) ID and Directory (tenant) ID into the fields below</li>
