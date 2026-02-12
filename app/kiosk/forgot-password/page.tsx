@@ -12,8 +12,10 @@ import { ArrowLeft, Mail, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { TalusAgLogo } from "@/components/talusag-logo"
+import { useBranding } from "@/hooks/use-branding"
 
 export default function ForgotPasswordPage() {
+    const { branding } = useBranding()
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [isSuccess, setIsSuccess] = useState(false)
@@ -106,7 +108,7 @@ export default function ForgotPasswordPage() {
                                     <Input
                                         id="email"
                                         type="email"
-                                        placeholder="you@company.com"
+                                        placeholder={`you@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         required

@@ -1,93 +1,10 @@
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { getAzureCredentials, getAzureAccessToken, type AzureCredentials } from "@/lib/sync/azure"
 
 // Microsoft Graph API endpoint for users
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
-
-interface AzureCredentials {
-  tenantId: string
-  clientId: string
-  clientSecret: string
-}
-
-// Fetch Azure AD credentials from the settings table + Supabase Management API
-async function getAzureCredentials(): Promise<AzureCredentials> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
-  const projectRef = supabaseUrl.replace("https://", "").split(".")[0]
-  const accessToken = process.env.SUPABASE_ACCESS_TOKEN
-
-  if (!accessToken) {
-    throw new Error("SUPABASE_ACCESS_TOKEN is not configured. Cannot read Microsoft SSO settings.")
-  }
-
-  // Read credentials from Supabase Management API (where the SSO settings are stored)
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    }
-  )
-
-  if (!response.ok) {
-    throw new Error("Failed to read auth config from Supabase. Check SUPABASE_ACCESS_TOKEN.")
-  }
-
-  const config = await response.json()
-
-  const clientId = config.EXTERNAL_AZURE_CLIENT_ID || ""
-  const clientSecret = config.EXTERNAL_AZURE_SECRET || ""
-  const azureUrl = config.EXTERNAL_AZURE_URL || ""
-  const enabled = config.EXTERNAL_AZURE_ENABLED === true
-
-  if (!enabled) {
-    throw new Error("Microsoft SSO is not enabled. Configure it in Settings > Microsoft Authentication first.")
-  }
-
-  if (!clientId || !clientSecret) {
-    throw new Error("Microsoft SSO Client ID or Secret is missing. Configure it in Settings > Microsoft Authentication first.")
-  }
-
-  // Extract tenant ID from the Azure URL: https://login.microsoftonline.com/<tenant_id>/v2.0
-  let tenantId = "common" // default to multi-tenant
-  if (azureUrl) {
-    const match = azureUrl.match(/microsoftonline\.com\/([^/]+)/)
-    if (match) tenantId = match[1]
-  }
-
-  return { tenantId, clientId, clientSecret }
-}
-
-// Get access token using Client Credentials Flow
-async function getAzureAccessToken(credentials: AzureCredentials): Promise<string> {
-  const tokenUrl = `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`
-
-  const params = new URLSearchParams({
-    client_id: credentials.clientId,
-    client_secret: credentials.clientSecret,
-    scope: "https://graph.microsoft.com/.default",
-    grant_type: "client_credentials",
-  })
-
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: params.toString(),
-  })
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(`Failed to get Azure AD token: ${errorData.error_description || errorData.error || "Unknown error"}`)
-  }
-
-  const data = await response.json()
-  return data.access_token
-}
 
 // GET - Preview Azure AD users before import
 export async function GET() {
@@ -399,6 +316,27 @@ export async function POST(request: NextRequest) {
         syncedCount++
       } catch (userError) {
         errors.push(`Failed to sync ${email}: ${userError instanceof Error ? userError.message : "Unknown error"}`)
+      }
+    }
+
+    // Update last sync timestamp for scheduled sync tracking
+    if (syncedCount > 0) {
+      const { data: existing } = await adminClient
+        .from("settings")
+        .select("id")
+        .eq("key", "last_azure_sync")
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await adminClient
+          .from("settings")
+          .update({ value: new Date().toISOString() })
+          .eq("id", existing.id)
+      } else {
+        await adminClient
+          .from("settings")
+          .insert({ key: "last_azure_sync", value: new Date().toISOString(), location_id: null })
       }
     }
 

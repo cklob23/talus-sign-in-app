@@ -124,7 +124,7 @@ export default function SignUpPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={`john@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
+                      placeholder={`you@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}

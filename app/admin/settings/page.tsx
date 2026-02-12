@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock, RefreshCw, Clock, Users, Store } from "lucide-react"
 import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
@@ -139,6 +139,20 @@ export default function SettingsPage() {
   const [supabaseCallbackUrl, setSupabaseCallbackUrl] = useState("")
   const [microsoftSsoError, setMicrosoftSsoError] = useState<string | null>(null)
   const [microsoftSsoSuccess, setMicrosoftSsoSuccess] = useState<string | null>(null)
+
+  // Scheduled sync state
+  const [syncScheduleAzure, setSyncScheduleAzure] = useState("off")
+  const [syncScheduleRamp, setSyncScheduleRamp] = useState("off")
+  const [syncStartAzure, setSyncStartAzure] = useState("")
+  const [syncStartRamp, setSyncStartRamp] = useState("")
+  const [lastAzureSync, setLastAzureSync] = useState<string | null>(null)
+  const [lastRampSync, setLastRampSync] = useState<string | null>(null)
+  const [savingSyncSchedule, setSavingSyncSchedule] = useState(false)
+  const [syncScheduleSuccess, setSyncScheduleSuccess] = useState<string | null>(null)
+  const [syncScheduleError, setSyncScheduleError] = useState<string | null>(null)
+  const [runningSyncAzure, setRunningSyncAzure] = useState(false)
+  const [runningSyncRamp, setRunningSyncRamp] = useState(false)
+
   const [form, setForm] = useState({
     name: "",
     badgeColor: "#10B981",
@@ -671,6 +685,140 @@ export default function SettingsPage() {
     setSavingPasswordPolicy(false)
   }
 
+  // --- Scheduled Sync functions ---
+  const SYNC_SCHEDULE_OPTIONS = [
+    { value: "off", label: "Off" },
+    { value: "1h", label: "Every hour" },
+    { value: "6h", label: "Every 6 hours" },
+    { value: "12h", label: "Every 12 hours" },
+    { value: "24h", label: "Daily (every 24 hours)" },
+    { value: "168h", label: "Weekly" },
+  ]
+
+  async function loadSyncScheduleSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["sync_schedule_azure", "sync_schedule_ramp", "sync_start_azure", "sync_start_ramp", "last_azure_sync", "last_ramp_sync"])
+
+    if (data) {
+      for (const s of data) {
+        if (s.key === "sync_schedule_azure") setSyncScheduleAzure(typeof s.value === "string" ? s.value : "off")
+        if (s.key === "sync_schedule_ramp") setSyncScheduleRamp(typeof s.value === "string" ? s.value : "off")
+        if (s.key === "sync_start_azure") setSyncStartAzure(typeof s.value === "string" ? s.value : "")
+        if (s.key === "sync_start_ramp") setSyncStartRamp(typeof s.value === "string" ? s.value : "")
+        if (s.key === "last_azure_sync") setLastAzureSync(typeof s.value === "string" ? s.value : null)
+        if (s.key === "last_ramp_sync") setLastRampSync(typeof s.value === "string" ? s.value : null)
+      }
+    }
+  }
+
+  async function saveSyncScheduleSettings() {
+    setSavingSyncSchedule(true)
+    setSyncScheduleSuccess(null)
+    setSyncScheduleError(null)
+
+    try {
+      const supabase = createClient()
+      const settingsToSave = [
+        { key: "sync_schedule_azure", value: syncScheduleAzure },
+        { key: "sync_schedule_ramp", value: syncScheduleRamp },
+        { key: "sync_start_azure", value: syncStartAzure },
+        { key: "sync_start_ramp", value: syncStartRamp },
+      ]
+
+      for (const s of settingsToSave) {
+        const { data: existing } = await supabase
+          .from("settings")
+          .select("id")
+          .eq("key", s.key)
+          .is("location_id", null)
+          .single()
+
+        if (existing) {
+          await supabase.from("settings").update({ value: s.value }).eq("id", existing.id)
+        } else {
+          await supabase.from("settings").insert({ key: s.key, value: s.value, location_id: null })
+        }
+      }
+
+      await logAudit({
+        action: "settings.sync_schedule_updated",
+        entityType: "settings",
+        description: `Sync schedules updated: Azure=${syncScheduleAzure} starting ${syncStartAzure || "immediately"}, Ramp=${syncScheduleRamp} starting ${syncStartRamp || "immediately"}`,
+      })
+
+      setSyncScheduleSuccess("Sync schedules saved successfully.")
+      setTimeout(() => setSyncScheduleSuccess(null), 3000)
+    } catch {
+      setSyncScheduleError("Failed to save sync schedules.")
+    } finally {
+      setSavingSyncSchedule(false)
+    }
+  }
+
+  async function handleManualSync(type: "azure" | "ramp") {
+    if (type === "azure") {
+      setRunningSyncAzure(true)
+    } else {
+      setRunningSyncRamp(true)
+    }
+
+    try {
+      // Fetch preview data from existing sync endpoints
+      const res = await fetch(
+        type === "azure" ? "/api/admin/sync-azure-users" : "/api/admin/vendors/sync",
+        { method: "GET" }
+      )
+      const data = await res.json()
+
+      if (type === "azure") {
+        if (data.users) {
+          // Auto-import all users
+          const importRes = await fetch("/api/admin/sync-azure-users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ users: data.users }),
+          })
+          const importData = await importRes.json()
+          setLastAzureSync(new Date().toISOString())
+          setSyncScheduleSuccess(`Azure AD sync complete: ${importData.synced || 0} users synced.`)
+        } else {
+          setSyncScheduleError(data.error || "Failed to fetch Azure AD users.")
+        }
+      } else {
+        if (data.vendors) {
+          // Auto-import all vendors
+          const CHUNK_SIZE = 200
+          let totalSynced = 0
+          for (let i = 0; i < data.vendors.length; i += CHUNK_SIZE) {
+            const chunk = data.vendors.slice(i, i + CHUNK_SIZE)
+            const importRes = await fetch("/api/admin/vendors/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ vendors: chunk }),
+            })
+            const importData = await importRes.json()
+            totalSynced += importData.synced || 0
+          }
+          setLastRampSync(new Date().toISOString())
+          setSyncScheduleSuccess(`Ramp sync complete: ${totalSynced} vendors synced.`)
+        } else {
+          setSyncScheduleError(data.error || "Failed to fetch Ramp vendors.")
+        }
+      }
+
+      setTimeout(() => setSyncScheduleSuccess(null), 5000)
+    } catch (err) {
+      setSyncScheduleError(err instanceof Error ? err.message : "Sync failed.")
+    } finally {
+      if (type === "azure") setRunningSyncAzure(false)
+      else setRunningSyncRamp(false)
+    }
+  }
+
   async function handleLogoUpload(file: File, type: "full" | "small") {
     if (type === "full") setUploadingLogo(true)
     else setUploadingSmallLogo(true)
@@ -794,6 +942,7 @@ export default function SettingsPage() {
     loadSmtpSettings()
     loadColorSettings()
     loadMicrosoftSsoSettings()
+    loadSyncScheduleSettings()
     loadPasswordPolicySettings()
   }, [])
 
@@ -1786,7 +1935,7 @@ export default function SettingsPage() {
                   <p className="text-sm font-medium">Setup Instructions</p>
                   <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1.5">
                     <li>Go to the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" className="underline text-primary inline-flex items-center gap-1">Azure Portal - App Registrations <ExternalLink className="w-3 h-3" /></a></li>
-                    <li>Click &quot;New registration&quot; and give it a name (e.g., Talus Visitor Management)</li>
+                    <li>Click &quot;New registration&quot; and give it a name (e.g., Gatekeeper Visitor Management)</li>
                     <li>Under &quot;Supported account types&quot;, select your desired option (single or multi-tenant)</li>
                     <li>Set the <strong>Redirect URI</strong> (Web) to the Callback URL shown below</li>
                     <li>Copy the Application (client) ID and Directory (tenant) ID into the fields below</li>
@@ -1924,6 +2073,228 @@ export default function SettingsPage() {
           </CardHeader>
         </Card>
       )}
+
+      {/* Scheduled Syncs Card */}
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <RefreshCw className="w-5 h-5" />
+            Scheduled Syncs
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Automatically sync users from Azure AD and vendors from Ramp on a recurring schedule.
+            The sync runs hourly and checks if enough time has passed based on your configured frequency.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+          {syncScheduleSuccess && (
+            <div className="rounded-lg border border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-700 dark:text-emerald-400">
+              {syncScheduleSuccess}
+            </div>
+          )}
+          {syncScheduleError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {syncScheduleError}
+            </div>
+          )}
+
+          {/* Azure AD Sync */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-950/30">
+                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-medium">Azure AD User Sync</h4>
+                <p className="text-xs text-muted-foreground">
+                  Sync user profiles from Microsoft Azure AD / Entra ID
+                </p>
+              </div>
+            </div>
+
+            {!microsoftSso.microsoft_sso_enabled ? (
+              <p className="text-xs text-muted-foreground italic">
+                Requires Microsoft SSO to be configured and enabled above.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <Label className="text-sm w-28 shrink-0">Frequency</Label>
+                  <Select value={syncScheduleAzure} onValueChange={setSyncScheduleAzure}>
+                    <SelectTrigger className="w-full sm:w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SYNC_SCHEDULE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {syncScheduleAzure !== "off" && (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <Label className="text-sm w-28 shrink-0">Start Date</Label>
+                    <Input
+                      type="datetime-local"
+                      value={syncStartAzure}
+                      onChange={(e) => setSyncStartAzure(e.target.value)}
+                      className="w-full sm:w-56"
+                    />
+                    {syncStartAzure && (
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground underline"
+                        onClick={() => setSyncStartAzure("")}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {syncScheduleAzure !== "off" && syncStartAzure && (
+                  <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
+                    Next sync: {new Date(syncStartAzure) > new Date()
+                      ? new Date(syncStartAzure).toLocaleString()
+                      : "Due on next cron run"}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Last synced:{" "}
+                      {lastAzureSync
+                        ? new Date(lastAzureSync).toLocaleString()
+                        : "Never"}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent"
+                    disabled={runningSyncAzure}
+                    onClick={() => handleManualSync("azure")}
+                  >
+                    {runningSyncAzure ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    Sync Now
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Ramp Vendor Sync */}
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/30">
+                <Store className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-medium">Ramp Vendor Sync</h4>
+                <p className="text-xs text-muted-foreground">
+                  Sync vendor list from Ramp for the kiosk company dropdown
+                </p>
+              </div>
+            </div>
+
+            {!process.env.NEXT_PUBLIC_RAMP_CONFIGURED && (
+              <p className="text-xs text-muted-foreground italic hidden">
+                Requires Ramp API credentials to be configured.
+              </p>
+            )}
+
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <Label className="text-sm w-28 shrink-0">Frequency</Label>
+                <Select value={syncScheduleRamp} onValueChange={setSyncScheduleRamp}>
+                  <SelectTrigger className="w-full sm:w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SYNC_SCHEDULE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {syncScheduleRamp !== "off" && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <Label className="text-sm w-28 shrink-0">Start Date</Label>
+                  <Input
+                    type="datetime-local"
+                    value={syncStartRamp}
+                    onChange={(e) => setSyncStartRamp(e.target.value)}
+                    className="w-full sm:w-56"
+                  />
+                  {syncStartRamp && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                      onClick={() => setSyncStartRamp("")}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {syncScheduleRamp !== "off" && syncStartRamp && (
+                <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
+                  Next sync: {new Date(syncStartRamp) > new Date()
+                    ? new Date(syncStartRamp).toLocaleString()
+                    : "Due on next cron run"}
+                </p>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>
+                    Last synced:{" "}
+                    {lastRampSync
+                      ? new Date(lastRampSync).toLocaleString()
+                      : "Never"}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-transparent"
+                  disabled={runningSyncRamp}
+                  onClick={() => handleManualSync("ramp")}
+                >
+                  {runningSyncRamp ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  Sync Now
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={saveSyncScheduleSettings}
+              disabled={savingSyncSchedule}
+            >
+              {savingSyncSchedule ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Save Sync Schedules
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Password Policy Card */}
       <Card>

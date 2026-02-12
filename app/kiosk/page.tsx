@@ -2448,7 +2448,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to Talus. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName || "Talus"}. Please sign in or sign out below.</p>
             </div>
 
             {/* Visitor options - always shown */}
@@ -2557,7 +2557,7 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">Talus employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">{branding.companyName || "Talus"} employees sign in here</p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -3051,7 +3051,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your Talus credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your {branding.companyName || "Talus"} credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -3065,7 +3065,7 @@ export default function KioskPage() {
                       required
                       value={employeeEmail}
                       onChange={(e) => setEmployeeEmail(e.target.value)}
-                      placeholder="you@talusag.com"
+                      placeholder={`you@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
                     />
                   </div>
 
@@ -3355,7 +3355,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on Talus premises. I understand that failure
+                        all safety guidelines and procedures while on {branding.companyName || "Talus"} premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -3535,7 +3535,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : "Thank you for visiting Talus."}
+                    : `Thank you for visiting ${branding.companyName || "Talus"}.`}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">

@@ -33,6 +33,7 @@ export type AuditAction =
   | "evacuation.ended"
   // Settings actions
   | "settings.updated"
+  | "settings.sync_schedule_updated"
   // Visitor type actions
   | "visitor_type.created"
   | "visitor_type.updated"
@@ -41,7 +42,7 @@ export type AuditAction =
   | "kiosk.receptionist_login"
   | "kiosk.receptionist_logout"
 
-export type EntityType = 
+export type EntityType =
   | "user"
   | "admin"
   | "visitor"
@@ -74,7 +75,7 @@ export async function logAudit({
 }: LogAuditParams): Promise<void> {
   try {
     const supabase = createClient()
-    
+
     // Get the current user (if authenticated)
     let userId: string | null = null
     try {
@@ -84,7 +85,7 @@ export async function logAudit({
       // User might not be authenticated (e.g., kiosk visitor sign-in)
       userId = null
     }
-    
+
     const { error } = await supabase.from("audit_logs").insert({
       user_id: userId,
       action,
@@ -94,7 +95,7 @@ export async function logAudit({
       metadata,
       // Note: ip_address and user_agent should be set server-side if needed
     })
-    
+
     if (error) {
       console.error("[v0] Audit log insert error:", error)
     }
@@ -129,7 +130,7 @@ export async function logAuditViaApi({
         userId,
       }),
     })
-    
+
     if (!response.ok) {
       const result = await response.json()
       console.error("[v0] Audit log API error:", result.error)

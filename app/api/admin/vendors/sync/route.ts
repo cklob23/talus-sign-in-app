@@ -276,6 +276,27 @@ export async function POST(request: Request) {
       )
     }
 
+    // Update last sync timestamp for scheduled sync tracking
+    if (upserted > 0) {
+      const { data: existing } = await adminClient
+        .from("settings")
+        .select("id")
+        .eq("key", "last_ramp_sync")
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await adminClient
+          .from("settings")
+          .update({ value: new Date().toISOString() })
+          .eq("id", existing.id)
+      } else {
+        await adminClient
+          .from("settings")
+          .insert({ key: "last_ramp_sync", value: new Date().toISOString(), location_id: null })
+      }
+    }
+
     return NextResponse.json({
       success: true,
       synced: upserted,
