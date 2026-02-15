@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   const kioskSettingKeys = [
     "badge_printing",
     "host_notifications",
+    "sms_notifications",
     "distance_unit_miles",
   ]
 

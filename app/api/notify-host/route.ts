@@ -2,27 +2,31 @@ import { NextResponse } from "next/server"
 import nodemailer from "nodemailer"
 import { getAdminClient } from "@/lib/supabase/server"
 
-// Get SMTP settings from database or environment variables
+// Get SMTP + Twilio settings from database or environment variables
 // Uses admin client to bypass RLS since this is called from the kiosk
 // where the visitor may not have an authenticated session
-async function getSmtpSettings() {
+async function getNotificationSettings() {
   const supabase = getAdminClient()
   const { data } = await supabase
     .from("settings")
     .select("key, value")
     .is("location_id", null)
-    .in("key", ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email", "company_name", "company_logo"])
+    .in("key", [
+      "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from_email",
+      "twilio_account_sid", "twilio_auth_token", "twilio_from_number",
+      "company_name", "company_logo",
+    ])
 
   const settings: Record<string, string> = {}
-  
+
   if (data && data.length > 0) {
     for (const setting of data) {
       settings[setting.key] = String(setting.value || "")
     }
   }
 
-  // Fall back to environment variables if DB settings not found
   return {
+    // SMTP
     host: settings.smtp_host || process.env.SMTP_HOST || "",
     port: Number.parseInt(settings.smtp_port || process.env.SMTP_PORT || "587", 10),
     user: settings.smtp_user || process.env.SMTP_USER || "",
@@ -30,7 +34,94 @@ async function getSmtpSettings() {
     fromEmail: settings.smtp_from_email || process.env.SMTP_FROM_EMAIL || settings.smtp_user || process.env.SMTP_USER || "",
     companyName: settings.company_name || "TalusAg",
     companyLogo: settings.company_logo || "",
+    // Twilio
+    twilioSid: settings.twilio_account_sid || "",
+    twilioToken: settings.twilio_auth_token || "",
+    twilioFrom: settings.twilio_from_number || "",
   }
+}
+
+// Check if the tenant's SMS add-on is enabled (plan-level gate)
+async function isSmsAddonEnabled(): Promise<boolean> {
+  const supabase = getAdminClient()
+
+  // Find the active tenant -- if multi-tenant, derive from the location's tenant_id.
+  // For now, we look for any active tenant with the sms add-on.
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("plan, addons")
+    .eq("status", "active")
+    .limit(1)
+    .single()
+
+  if (!tenant) return false
+
+  // Enterprise plan gets all add-ons; otherwise check addons.sms
+  if (tenant.plan === "enterprise") return true
+  const addons = tenant.addons as Record<string, boolean> | null
+  return addons?.sms === true
+}
+
+// Check if SMS notifications are enabled for a specific location
+// AND the tenant has the SMS add-on active
+async function isSmsEnabledForLocation(locationId: string | null): Promise<boolean> {
+  if (!locationId) return false
+
+  // First, verify the tenant's SMS add-on is enabled
+  const addonEnabled = await isSmsAddonEnabled()
+  if (!addonEnabled) return false
+
+  const supabase = getAdminClient()
+
+  // Check location-specific first, then fall back to global
+  const { data: locationSetting } = await supabase
+    .from("settings")
+    .select("value")
+    .eq("key", "sms_notifications")
+    .eq("location_id", locationId)
+    .single()
+
+  if (locationSetting) {
+    return locationSetting.value === true || locationSetting.value === "true"
+  }
+
+  // Fall back to global
+  const { data: globalSetting } = await supabase
+    .from("settings")
+    .select("value")
+    .eq("key", "sms_notifications")
+    .is("location_id", null)
+    .single()
+
+  return globalSetting?.value === true || globalSetting?.value === "true"
+}
+
+// Send SMS via Twilio REST API (no SDK needed)
+async function sendTwilioSms(sid: string, token: string, from: string, to: string, body: string) {
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64")
+
+  const params = new URLSearchParams({
+    To: to,
+    From: from,
+    Body: body,
+  })
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.message || `Twilio API error: ${response.status}`)
+  }
+
+  return response.json()
 }
 
 // Create reusable transporter
@@ -53,14 +144,16 @@ function createTransporter(host: string, port: number, user: string, pass: strin
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { 
-      hostEmail, 
-      hostName, 
-      visitorName, 
-      visitorCompany, 
-      purpose, 
-      badgeNumber, 
+    const {
+      hostEmail,
+      hostName,
+      hostPhone,
+      visitorName,
+      visitorCompany,
+      purpose,
+      badgeNumber,
       locationName,
+      locationId,
       notificationType = "arrived", // "arrived" | "completing_training"
       visitorTypeName,
       visitorPhotoUrl,
@@ -70,26 +163,51 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    const smtpSettings = await getSmtpSettings()
-    const transporter = createTransporter(smtpSettings.host, smtpSettings.port, smtpSettings.user, smtpSettings.pass)
+    const notifSettings = await getNotificationSettings()
+    const transporter = createTransporter(notifSettings.host, notifSettings.port, notifSettings.user, notifSettings.pass)
 
-    if (!transporter || !smtpSettings.fromEmail) {
+    const results: { email?: string; sms?: string } = {}
+
+    // --- SMS notification ---
+    const smsEnabled = await isSmsEnabledForLocation(locationId || null)
+    if (smsEnabled && hostPhone && notifSettings.twilioSid && notifSettings.twilioToken && notifSettings.twilioFrom) {
+      try {
+        const isTraining = notificationType === "completing_training"
+        const smsBody = isTraining
+          ? `${notifSettings.companyName} Visitor Alert: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} is checking in and completing training. They'll be ready shortly.`
+          : `${notifSettings.companyName} Visitor Alert: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} has arrived${locationName ? ` at ${locationName}` : ""}.${badgeNumber ? ` Badge #${badgeNumber}.` : ""} Please proceed to reception.`
+
+        await sendTwilioSms(notifSettings.twilioSid, notifSettings.twilioToken, notifSettings.twilioFrom, hostPhone, smsBody)
+        results.sms = "sent"
+        console.log(`[Notify Host] SMS sent to ${hostPhone} for visitor ${visitorName}`)
+      } catch (smsErr) {
+        console.error("[Notify Host] SMS error:", smsErr)
+        results.sms = "failed"
+      }
+    } else if (smsEnabled && hostPhone) {
+      console.log("[Notify Host] SMS enabled but Twilio not configured")
+      results.sms = "twilio_not_configured"
+    }
+
+    // --- Email notification ---
+    if (!transporter || !notifSettings.fromEmail) {
       console.log("[Notify Host] SMTP not configured, logging notification instead:")
       console.log(`  To: ${hostEmail}`)
       console.log(`  Visitor: ${visitorName} from ${visitorCompany || "N/A"}`)
       console.log(`  Type: ${notificationType}`)
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: "SMTP not configured - notification logged only",
+        ...results,
       })
     }
 
-    const { companyName, companyLogo, fromEmail } = smtpSettings
+    const { companyName, companyLogo, fromEmail } = notifSettings
 
     // Determine email content based on notification type
     const isTraining = notificationType === "completing_training"
     const emailTitle = isTraining ? "Visitor Checking In - Training Required" : "Visitor Arrival"
-    const emailSubject = isTraining 
+    const emailSubject = isTraining
       ? `Visitor Checking In: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} - Completing Training`
       : `Visitor Arrival: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""}`
     const mainMessage = isTraining
@@ -198,10 +316,12 @@ export async function POST(request: Request) {
     })
 
     console.log(`[Notify Host] Email sent to ${hostEmail} for visitor ${visitorName}`)
+    results.email = "sent"
 
-    return NextResponse.json({ 
-      success: true, 
-      message: "Host notification email sent",
+    return NextResponse.json({
+      success: true,
+      message: "Host notification sent",
+      ...results,
     })
   } catch (error) {
     console.error("[Notify Host] Error sending email:", error)

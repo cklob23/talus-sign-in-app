@@ -900,28 +900,30 @@ export default function KioskPage() {
         if (hostNotificationsEnabled && selectedBooking.host_id) {
           const { data: hostData } = await supabase
             .from("hosts")
-            .select("id, name, email, profile_id")
+            .select("id, name, email, phone, profile_id")
             .eq("id", selectedBooking.host_id)
             .single()
 
           if (hostData) {
             let hostEmail = hostData.email
             let hostName = hostData.name
+            let hostPhone = hostData.phone
 
             if (hostData.profile_id) {
               const { data: profileData } = await supabase
                 .from("profiles")
-                .select("full_name, email")
+                .select("full_name, email, phone")
                 .eq("id", hostData.profile_id)
                 .single()
 
               if (profileData) {
                 hostName = profileData.full_name || hostName
                 hostEmail = profileData.email || hostEmail
+                hostPhone = profileData.phone || hostPhone
               }
             }
 
-            if (hostEmail) {
+            if (hostEmail || hostPhone) {
               try {
                 await fetch("/api/notify-host", {
                   method: "POST",
@@ -929,10 +931,12 @@ export default function KioskPage() {
                   body: JSON.stringify({
                     hostEmail,
                     hostName,
+                    hostPhone,
                     visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
                     visitorCompany: selectedBooking.visitor_company,
                     purpose: selectedBooking.purpose,
                     locationName: currentLocation?.name,
+                    locationId: currentLocation?.id,
                     notificationType: "completing_training",
                     visitorTypeName: visitorTypeData?.name,
                   }),
@@ -1094,34 +1098,35 @@ export default function KioskPage() {
     if (hostNotificationsEnabled && selectedBooking.host_id) {
       let hostEmail: string | null = null
       let hostName: string | null = null
+      let hostPhone: string | null = null
 
       // Fetch host with profile data
       const { data: hostData } = await supabase
         .from("hosts")
-        .select("id, name, email, profile_id")
+        .select("id, name, email, phone, profile_id")
         .eq("id", selectedBooking.host_id)
         .single()
-      console.log("Host data:", hostData)
       if (hostData) {
         hostName = hostData.name
         hostEmail = hostData.email
+        hostPhone = hostData.phone
 
-        // If host is linked to a profile, fetch profile email
+        // If host is linked to a profile, fetch profile data
         if (hostData.profile_id) {
           const { data: profileData } = await supabase
             .from("profiles")
-            .select("full_name, email")
+            .select("full_name, email, phone")
             .eq("id", hostData.profile_id)
             .single()
 
           if (profileData) {
             hostName = profileData.full_name || hostName
             hostEmail = profileData.email || hostEmail
+            hostPhone = profileData.phone || hostPhone
           }
         }
       }
-      console.log(hostName, hostEmail)
-      if (hostEmail) {
+      if (hostEmail || hostPhone) {
         try {
           await fetch("/api/notify-host", {
             method: "POST",
@@ -1129,11 +1134,13 @@ export default function KioskPage() {
             body: JSON.stringify({
               hostEmail,
               hostName,
+              hostPhone,
               visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
               visitorCompany: selectedBooking.visitor_company,
               purpose: selectedBooking.purpose,
               badgeNumber,
               locationName: currentLocation?.name,
+              locationId: currentLocation?.id,
               visitorPhotoUrl: photoUrl,
             }),
           })
@@ -1356,28 +1363,30 @@ export default function KioskPage() {
         const supabase = createClient()
         const { data: hostData } = await supabase
           .from("hosts")
-          .select("id, name, email, profile_id")
+          .select("id, name, email, phone, profile_id")
           .eq("id", form.hostId)
           .single()
 
         if (hostData) {
           let hostEmail = hostData.email
           let hostName = hostData.name
+          let hostPhone = hostData.phone
 
           if (hostData.profile_id) {
             const { data: profileData } = await supabase
               .from("profiles")
-              .select("full_name, email")
+              .select("full_name, email, phone")
               .eq("id", hostData.profile_id)
               .single()
 
             if (profileData) {
               hostName = profileData.full_name || hostName
               hostEmail = profileData.email || hostEmail
+              hostPhone = profileData.phone || hostPhone
             }
           }
 
-          if (hostEmail) {
+          if (hostEmail || hostPhone) {
             try {
               await fetch("/api/notify-host", {
                 method: "POST",
@@ -1385,10 +1394,12 @@ export default function KioskPage() {
                 body: JSON.stringify({
                   hostEmail,
                   hostName,
+                  hostPhone,
                   visitorName: `${form.firstName} ${form.lastName}`,
                   visitorCompany: form.company,
                   purpose: form.purpose,
                   locationName: currentLocation?.name,
+                  locationId: currentLocation?.id,
                   notificationType: "completing_training",
                   visitorTypeName: selectedType?.name,
                 }),
@@ -1413,7 +1424,7 @@ export default function KioskPage() {
     setVideoStarted(true)
 
     // Simulate 47.39 minutes of required watching time
-    const totalDuration = 60 * 3.46
+    const totalDuration = 2843.4
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -1549,33 +1560,36 @@ export default function KioskPage() {
         // Fetch host with profile data
         const { data: hostData } = await supabase
           .from("hosts")
-          .select("id, name, email, profile_id")
+          .select("id, name, email, phone, profile_id")
           .eq("id", form.hostId)
           .single()
 
         let hostEmail: string | null = null
         let hostName: string | null = null
+        let hostPhone: string | null = null
 
         if (hostData) {
           hostName = hostData.name
           hostEmail = hostData.email
+          hostPhone = hostData.phone
 
-          // If host is linked to a profile, fetch profile email
+          // If host is linked to a profile, fetch profile data
           if (hostData.profile_id) {
             const { data: profileData } = await supabase
               .from("profiles")
-              .select("full_name, email")
+              .select("full_name, email, phone")
               .eq("id", hostData.profile_id)
               .single()
 
             if (profileData) {
               hostName = profileData.full_name || hostName
               hostEmail = profileData.email || hostEmail
+              hostPhone = profileData.phone || hostPhone
             }
           }
         }
 
-        if (hostEmail) {
+        if (hostEmail || hostPhone) {
           try {
             await fetch("/api/notify-host", {
               method: "POST",
@@ -1583,11 +1597,13 @@ export default function KioskPage() {
               body: JSON.stringify({
                 hostEmail,
                 hostName,
+                hostPhone,
                 visitorName: `${form.firstName} ${form.lastName}`,
                 visitorCompany: form.company,
                 purpose: form.purpose,
                 badgeNumber,
                 locationName: currentLocation?.name,
+                locationId: currentLocation?.id,
                 visitorPhotoUrl: photoUrl,
               }),
             })
@@ -1596,7 +1612,6 @@ export default function KioskPage() {
           }
         }
       }
-
 
       // Trigger badge printing if enabled
       if (badgePrintingEnabled) {

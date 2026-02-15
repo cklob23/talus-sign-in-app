@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock, RefreshCw, Clock, Users, Store } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock, RefreshCw, Clock, Users, Store, MessageSquare, Phone } from "lucide-react"
 import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
@@ -31,6 +31,7 @@ import Image from "next/image"
 interface SystemSettings {
   auto_sign_out: boolean
   host_notifications: boolean
+  sms_notifications: boolean
   badge_printing: boolean
   use_miles: boolean
 }
@@ -54,6 +55,12 @@ interface SmtpSettings {
   smtp_user: string
   smtp_pass: string
   smtp_from_email: string
+}
+
+interface SmsSettings {
+  twilio_account_sid: string
+  twilio_auth_token: string
+  twilio_from_number: string
 }
 
 interface MicrosoftSsoSettings {
@@ -90,6 +97,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SystemSettings>({
     auto_sign_out: true,
     host_notifications: true,
+    sms_notifications: false,
     badge_printing: false,
     use_miles: false,
   })
@@ -107,6 +115,14 @@ export default function SettingsPage() {
     smtp_from_email: "",
   })
   const [showSmtpPassword, setShowSmtpPassword] = useState(false)
+  const [sms, setSms] = useState<SmsSettings>({
+    twilio_account_sid: "",
+    twilio_auth_token: "",
+    twilio_from_number: "",
+  })
+  const [showTwilioToken, setShowTwilioToken] = useState(false)
+  const [savingSms, setSavingSms] = useState(false)
+  const [smsTestResult, setSmsTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingSmallLogo, setUploadingSmallLogo] = useState(false)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
@@ -195,6 +211,7 @@ export default function SettingsPage() {
     const loadedSettings: SystemSettings = {
       auto_sign_out: true,
       host_notifications: true,
+      sms_notifications: false,
       badge_printing: false,
       use_miles: false,
     }
@@ -203,6 +220,7 @@ export default function SettingsPage() {
       for (const setting of data) {
         if (setting.key === "auto_sign_out") loadedSettings.auto_sign_out = setting.value === true || setting.value === "true"
         if (setting.key === "host_notifications") loadedSettings.host_notifications = setting.value === true || setting.value === "true"
+        if (setting.key === "sms_notifications") loadedSettings.sms_notifications = setting.value === true || setting.value === "true"
         if (setting.key === "badge_printing") loadedSettings.badge_printing = setting.value === true || setting.value === "true"
         if (setting.key === "distance_unit_miles") loadedSettings.use_miles = setting.value === true || setting.value === "true"
       }
@@ -260,6 +278,72 @@ export default function SettingsPage() {
       }
       setSmtp(loadedSmtp)
     }
+  }
+
+  async function loadSmsSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["twilio_account_sid", "twilio_auth_token", "twilio_from_number"])
+
+    if (data && data.length > 0) {
+      const loadedSms: SmsSettings = {
+        twilio_account_sid: "",
+        twilio_auth_token: "",
+        twilio_from_number: "",
+      }
+      for (const setting of data) {
+        if (setting.key === "twilio_account_sid") loadedSms.twilio_account_sid = String(setting.value || "")
+        if (setting.key === "twilio_auth_token") loadedSms.twilio_auth_token = String(setting.value || "")
+        if (setting.key === "twilio_from_number") loadedSms.twilio_from_number = String(setting.value || "")
+      }
+      setSms(loadedSms)
+    }
+  }
+
+  async function saveSmsSettings() {
+    setSavingSms(true)
+    setSmsTestResult(null)
+    const supabase = createClient()
+
+    const smsKeys = ["twilio_account_sid", "twilio_auth_token", "twilio_from_number"] as const
+    for (const key of smsKeys) {
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await supabase
+          .from("settings")
+          .update({ value: sms[key] })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        await supabase
+          .from("settings")
+          .insert({
+            key,
+            value: sms[key],
+            location_id: null,
+          })
+      }
+    }
+
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "Twilio SMS settings updated",
+      metadata: { twilio_from_number: sms.twilio_from_number }
+    })
+
+    setSmsTestResult({ success: true, message: "SMS settings saved successfully." })
+    setTimeout(() => setSmsTestResult(null), 3000)
+    setSavingSms(false)
   }
 
   async function loadColorSettings() {
@@ -940,6 +1024,7 @@ export default function SettingsPage() {
     loadData()
     loadBrandingSettings()
     loadSmtpSettings()
+    loadSmsSettings()
     loadColorSettings()
     loadMicrosoftSsoSettings()
     loadSyncScheduleSettings()
@@ -1300,7 +1385,7 @@ export default function SettingsPage() {
               </div>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <Label className="text-sm">Host Notifications</Label>
+                  <Label className="text-sm">Host Email Notifications</Label>
                   <p className="text-xs sm:text-sm text-muted-foreground">Email hosts when their visitors arrive</p>
                 </div>
                 <Switch
@@ -1308,6 +1393,29 @@ export default function SettingsPage() {
                   onCheckedChange={(checked: boolean) => updateSetting("host_notifications", checked)}
                 />
               </div>
+              {hasFeature("smsNotifications") ? (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <Label className="text-sm">Host SMS Notifications</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Send SMS to hosts when their visitors arrive (requires Twilio configuration)</p>
+                  </div>
+                  <Switch
+                    checked={settings.sms_notifications}
+                    onCheckedChange={(checked: boolean) => updateSetting("sms_notifications", checked)}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4 opacity-50">
+                  <div className="min-w-0 flex-1">
+                    <Label className="text-sm">Host SMS Notifications</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Send SMS to hosts when their visitors arrive</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Add-on</span>
+                  </div>
+                </div>
+              )}
               {hasFeature("badgePrinting") ? (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -1874,6 +1982,102 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* SMS Notifications (Twilio) Card */}
+      {hasFeature("smsNotifications") ? (
+        <Card>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <MessageSquare className="w-5 h-5" />
+              SMS Notifications (Twilio)
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Configure Twilio credentials for sending SMS notifications to hosts when visitors arrive.
+              Enable SMS per-location in the Location Settings above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-4">
+            {smsTestResult && (
+              <div className={`rounded-lg border p-3 text-sm ${smsTestResult.success ? "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400" : "border-destructive/50 bg-destructive/10 text-destructive"}`}>
+                {smsTestResult.message}
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="twilio_account_sid">Account SID</Label>
+                <Input
+                  id="twilio_account_sid"
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  value={sms.twilio_account_sid}
+                  onChange={(e) => setSms(prev => ({ ...prev, twilio_account_sid: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="twilio_auth_token">Auth Token</Label>
+                <div className="relative">
+                  <Input
+                    id="twilio_auth_token"
+                    type={showTwilioToken ? "text" : "password"}
+                    placeholder="••••••••••••••••••••••••••••••••"
+                    value={sms.twilio_auth_token}
+                    onChange={(e) => setSms(prev => ({ ...prev, twilio_auth_token: e.target.value }))}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                    onClick={() => setShowTwilioToken(!showTwilioToken)}
+                  >
+                    {showTwilioToken ? (
+                      <EyeOff className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="twilio_from_number">From Phone Number</Label>
+              <Input
+                id="twilio_from_number"
+                type="tel"
+                placeholder="+15551234567"
+                value={sms.twilio_from_number}
+                onChange={(e) => setSms(prev => ({ ...prev, twilio_from_number: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your Twilio phone number in E.164 format (e.g. +15551234567). Find this in your{" "}
+                <a href="https://console.twilio.com/us1/develop/phone-numbers/manage/incoming" target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-0.5">
+                  Twilio Console <ExternalLink className="w-3 h-3" />
+                </a>
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <Button onClick={saveSmsSettings} disabled={savingSms}>
+                {savingSms ? "Saving..." : "Save SMS Settings"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="opacity-60">
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <MessageSquare className="w-5 h-5" />
+              SMS Notifications (Twilio)
+              <span className="ml-auto flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                <Lock className="w-3.5 h-3.5" />
+                Add-on
+              </span>
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Enable the SMS add-on to send text message notifications to hosts</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Microsoft SSO Card */}
       {hasFeature("ssoIntegration") ? (

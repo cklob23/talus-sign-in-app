@@ -14,6 +14,7 @@ import { TalusAgLogo } from "@/components/talusag-logo"
 import { useBranding } from "@/hooks/use-branding"
 import { logAudit } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication } from "@/lib/password-policy"
+import { hasFeature } from "@/lib/tier"
 
 export default function LoginPage() {
   const { branding } = useBranding()
@@ -21,14 +22,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
   const [microsoftSsoEnabled, setMicrosoftSsoEnabled] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
-    fetch("/api/auth/microsoft-sso-status")
-      .then((res) => res.json())
-      .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
-      .catch(() => setMicrosoftSsoEnabled(false))
+    if (hasFeature("ssoIntegration")) {
+      fetch("/api/auth/microsoft-sso-status")
+        .then((res) => res.json())
+        .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
+        .catch(() => setMicrosoftSsoEnabled(false))
+    }
   }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -43,24 +47,24 @@ export default function LoginPage() {
         password,
       })
       if (error) throw error
-      
+
       // Get user profile to check password policy
       const { data: profile } = await supabase
         .from("profiles")
         .select("last_password_change, last_auth_time")
         .eq("id", data.user.id)
         .single()
-      
+
       // Load and enforce password policy
       const policy = await loadPasswordPolicy()
-      
+
       // Check password expiration
       if (profile && isPasswordExpired(profile.last_password_change, policy)) {
         // Sign out the user since their password is expired
         await supabase.auth.signOut()
         throw new Error("Your password has expired. Please contact an administrator to reset it.")
       }
-      
+
       // Update last auth time if re-authentication is enabled
       if (profile && needsReauthentication(profile.last_auth_time, policy)) {
         await supabase
@@ -68,7 +72,7 @@ export default function LoginPage() {
           .update({ last_auth_time: new Date().toISOString() })
           .eq("id", data.user.id)
       }
-      
+
       // Log successful admin login
       await logAudit({
         action: "user.login",
@@ -77,10 +81,12 @@ export default function LoginPage() {
         description: `Admin logged in: ${email}`,
         metadata: { method: "password", portal: "admin" }
       })
-      
+
+      setIsRedirecting(true)
       router.push("/admin")
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
+      setIsRedirecting(false)
     } finally {
       setIsLoading(false)
     }
@@ -89,16 +95,17 @@ export default function LoginPage() {
   const handleMicrosoftLogin = async () => {
     const supabase = createClient()
     setIsLoading(true)
+    setIsRedirecting(true)
     setError(null)
 
     try {
       // First, sign out any existing session to ensure clean OAuth flow
       // This prevents stale refresh token issues
       await supabase.auth.signOut()
-      
+
       // Construct redirect URL - must match what's configured in Supabase Auth settings
       const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
-      
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
@@ -109,12 +116,25 @@ export default function LoginPage() {
           },
         },
       })
-      
+
       if (error) throw error
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsLoading(false)
+      setIsRedirecting(false)
     }
+  }
+
+  if (isRedirecting) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col items-center justify-center gap-4">
+        <TalusAgLogo />
+        <div className="flex flex-col items-center gap-3 mt-6">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground animate-pulse">Loading dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -160,7 +180,7 @@ export default function LoginPage() {
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? "Signing in..." : "Sign In"}
                   </Button>
-                  
+
                   {microsoftSsoEnabled && (
                     <>
                       <div className="relative">
@@ -180,10 +200,10 @@ export default function LoginPage() {
                         disabled={isLoading}
                       >
                         <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                          <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                          <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                          <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
                         </svg>
                         Sign in with Microsoft
                       </Button>
