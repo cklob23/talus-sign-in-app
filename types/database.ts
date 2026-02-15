@@ -15,6 +15,7 @@ export interface Profile {
   email: string
   full_name: string | null
   role: "admin" | "staff" | "viewer" | "employee"
+  custom_role_id: string | null
   location_id: string | null
   phone: string | null
   department: string | null
@@ -180,3 +181,6 @@ export interface AuditLog {
   // Joined fields
   user?: Profile
 }
+
+// Re-export Role from permissions lib for convenience
+export type { Role } from "@/lib/permissions"

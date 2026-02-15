@@ -14,6 +14,7 @@ import { addDays, subDays, format, startOfDay, endOfDay } from "date-fns"
 import type { AuditLog, Profile } from "@/types/database"
 import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
+import { TierGate } from "@/components/admin/tier-gate"
 
 const ACTION_LABELS: Record<string, string> = {
   // User actions
@@ -52,6 +53,15 @@ const ACTION_LABELS: Record<string, string> = {
   "visitor_type.created": "Visitor type created",
   "visitor_type.updated": "Visitor type updated",
   "visitor_type.deleted": "Visitor type deleted",
+  // Password actions
+  "password.reset_email_sent": "Password reset email sent",
+  "password.temporary_set": "Temporary password set",
+  // Role actions
+  "role.created": "Role created",
+  "role.updated": "Role updated",
+  "role.deleted": "Role deleted",
+  "role.assigned": "Role assigned",
+  "role.unassigned": "Role unassigned",
   // Kiosk actions
   "kiosk.receptionist_login": "Receptionist logged in",
   "kiosk.receptionist_logout": "Receptionist logged out",
@@ -110,7 +120,7 @@ function getUserInitials(log: AuditLogWithUser): string {
     return log.user.full_name[0].toUpperCase()
   }
   if (log.user?.email) return log.user.email[0].toUpperCase()
-  
+
   // Derive from action type
   const action = log.action
   if (action.startsWith("visitor.") || action.startsWith("booking.checked_in")) return "V"
@@ -228,234 +238,236 @@ export default function AuditLogPage() {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Audit log</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Track all actions performed in the system</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="bg-transparent"
-            onClick={() => loadLogs()}
-            disabled={isLoading}
-          >
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="bg-transparent"
-            onClick={exportCsv}
-            disabled={logs.length === 0 || isLoading}
-          >
-            <Download className="w-4 h-4 mr-1.5" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="default" className="bg-primary text-primary-foreground gap-2">
-              <Calendar className="h-4 w-4" />
-              {dateRangeString}
+    <TierGate feature="advancedAuditLogs" label="Advanced Audit Logs">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold">Audit log</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">Track all actions performed in the system</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-transparent"
+              onClick={() => loadLogs()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <div className="p-3 border-b">
-              <p className="text-sm font-medium">Select date range (up to 30 days)</p>
-              <div className="flex gap-2 mt-2">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="text-xs bg-transparent"
-                  onClick={() => {
-                    setStartDate(startOfDay(new Date()))
-                    setEndDate(endOfDay(new Date()))
-                    setPage(1)
-                  }}
-                >
-                  Today
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="text-xs bg-transparent"
-                  onClick={() => {
-                    setStartDate(startOfDay(subDays(new Date(), 7)))
-                    setEndDate(endOfDay(new Date()))
-                    setPage(1)
-                  }}
-                >
-                  Last 7 days
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="text-xs bg-transparent"
-                  onClick={() => {
-                    setStartDate(startOfDay(subDays(new Date(), 30)))
-                    setEndDate(endOfDay(new Date()))
-                    setPage(1)
-                  }}
-                >
-                  Last 30 days
-                </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-transparent"
+              onClick={exportCsv}
+              disabled={logs.length === 0 || isLoading}
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              Export CSV
+            </Button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="default" className="bg-primary text-primary-foreground gap-2">
+                <Calendar className="h-4 w-4" />
+                {dateRangeString}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <div className="p-3 border-b">
+                <p className="text-sm font-medium">Select date range (up to 30 days)</p>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-transparent"
+                    onClick={() => {
+                      setStartDate(startOfDay(new Date()))
+                      setEndDate(endOfDay(new Date()))
+                      setPage(1)
+                    }}
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-transparent"
+                    onClick={() => {
+                      setStartDate(startOfDay(subDays(new Date(), 7)))
+                      setEndDate(endOfDay(new Date()))
+                      setPage(1)
+                    }}
+                  >
+                    Last 7 days
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-transparent"
+                    onClick={() => {
+                      setStartDate(startOfDay(subDays(new Date(), 30)))
+                      setEndDate(endOfDay(new Date()))
+                      setPage(1)
+                    }}
+                  >
+                    Last 30 days
+                  </Button>
+                </div>
               </div>
-            </div>
-            <CalendarComponent
-              mode="range"
-              selected={{ from: startDate, to: endDate }}
-              onSelect={(range) => {
-                if (range?.from) {
-                  setStartDate(startOfDay(range.from))
-                  setEndDate(range.to ? endOfDay(range.to) : endOfDay(range.from))
-                  setPage(1)
-                }
-              }}
-              disabled={(date) => date > new Date() || date < minDate}
-              numberOfMonths={2}
-              defaultMonth={subDays(new Date(), 30)}
-            />
-          </PopoverContent>
-        </Popover>
+              <CalendarComponent
+                mode="range"
+                selected={{ from: startDate, to: endDate }}
+                onSelect={(range) => {
+                  if (range?.from) {
+                    setStartDate(startOfDay(range.from))
+                    setEndDate(range.to ? endOfDay(range.to) : endOfDay(range.from))
+                    setPage(1)
+                  }
+                }}
+                disabled={(date) => date > new Date() || date < minDate}
+                numberOfMonths={2}
+                defaultMonth={subDays(new Date(), 30)}
+              />
+            </PopoverContent>
+          </Popover>
 
-        <Select value={selectedUserId} onValueChange={(v) => { setSelectedUserId(v); setPage(1) }}>
-          <SelectTrigger className="w-auto min-w-28">
-            <SelectValue placeholder="User" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All users</SelectItem>
-            {users.map((user) => (
-              <SelectItem key={user.id} value={user.id}>
-                {user.full_name || user.email}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <Select value={selectedUserId} onValueChange={(v) => { setSelectedUserId(v); setPage(1) }}>
+            <SelectTrigger className="w-auto min-w-28">
+              <SelectValue placeholder="User" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All users</SelectItem>
+              {users.map((user) => (
+                <SelectItem key={user.id} value={user.id}>
+                  {user.full_name || user.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        <Select value={selectedAction} onValueChange={(v) => { setSelectedAction(v); setPage(1) }}>
-          <SelectTrigger className="w-auto min-w-28">
-            <SelectValue placeholder="Action" />
-          </SelectTrigger>
-          <SelectContent>
-            {ENTITY_TYPES.map((type) => (
-              <SelectItem key={type.value} value={type.value}>
-                {type.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+          <Select value={selectedAction} onValueChange={(v) => { setSelectedAction(v); setPage(1) }}>
+            <SelectTrigger className="w-auto min-w-28">
+              <SelectValue placeholder="Action" />
+            </SelectTrigger>
+            <SelectContent>
+              {ENTITY_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-      {/* Data Table */}
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <p className="text-center py-8 text-muted-foreground">Loading...</p>
-          ) : logs.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">No entries found.</p>
-          ) : (
-            <>
-              {/* Mobile view */}
-              <div className="md:hidden divide-y">
-                {logs.map((log) => {
-                  const displayName = getUserDisplayName(log)
-                  const initials = getUserInitials(log)
-                  return (
-                    <div key={log.id} className="p-4 space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={log.user?.avatar_url || undefined} />
-                            <AvatarFallback className="text-xs">
-                              {initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium text-sm">{displayName}</p>
-                            <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, userTimezone)}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-sm">
-                        <span className="font-medium">{getActionLabel(log.action)}</span>
-                        {log.description && <span className="text-muted-foreground"> - {log.description}</span>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Desktop view */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-40">Date</TableHead>
-                      <TableHead className="w-48">User</TableHead>
-                      <TableHead className="w-40">Action</TableHead>
-                      <TableHead>Description</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map((log) => {
-                      const displayName = getUserDisplayName(log)
-                      const initials = getUserInitials(log)
-                      return (
-                      <TableRow key={log.id}>
-                        <TableCell className="text-sm">
-                          {formatDateTime(log.created_at, userTimezone)}
-                        </TableCell>
-                        <TableCell>
+        {/* Data Table */}
+        <Card>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <p className="text-center py-8 text-muted-foreground">Loading...</p>
+            ) : logs.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">No entries found.</p>
+            ) : (
+              <>
+                {/* Mobile view */}
+                <div className="md:hidden divide-y">
+                  {logs.map((log) => {
+                    const displayName = getUserDisplayName(log)
+                    const initials = getUserInitials(log)
+                    return (
+                      <div key={log.id} className="p-4 space-y-2">
+                        <div className="flex items-start justify-between">
                           <div className="flex items-center gap-2">
-                            <Avatar className="h-6 w-6">
+                            <Avatar className="h-8 w-8">
                               <AvatarImage src={log.user?.avatar_url || undefined} />
                               <AvatarFallback className="text-xs">
                                 {initials}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="text-sm">{displayName}</span>
+                            <div>
+                              <p className="font-medium text-sm">{displayName}</p>
+                              <p className="text-xs text-muted-foreground">{formatDateTime(log.created_at, userTimezone)}</p>
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-sm">{getActionLabel(log.action)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{log.description || "-"}</TableCell>
-                      </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-medium">{getActionLabel(log.action)}</span>
+                          {log.description && <span className="text-muted-foreground"> - {log.description}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
 
-              {/* Pagination */}
-              <div className="flex items-center justify-end gap-2 p-4 border-t">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => navigatePage("prev")}
-                  disabled={page === 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => navigatePage("next")}
-                  disabled={!hasMore}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                {/* Desktop view */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-40">Date</TableHead>
+                        <TableHead className="w-48">User</TableHead>
+                        <TableHead className="w-40">Action</TableHead>
+                        <TableHead>Description</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {logs.map((log) => {
+                        const displayName = getUserDisplayName(log)
+                        const initials = getUserInitials(log)
+                        return (
+                          <TableRow key={log.id}>
+                            <TableCell className="text-sm">
+                              {formatDateTime(log.created_at, userTimezone)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-6 w-6">
+                                  <AvatarImage src={log.user?.avatar_url || undefined} />
+                                  <AvatarFallback className="text-xs">
+                                    {initials}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm">{displayName}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">{getActionLabel(log.action)}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{log.description || "-"}</TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-end gap-2 p-4 border-t">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => navigatePage("prev")}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => navigatePage("next")}
+                    disabled={!hasMore}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </TierGate>
   )
 }

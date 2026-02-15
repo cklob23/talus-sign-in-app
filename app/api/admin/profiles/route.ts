@@ -1,32 +1,55 @@
 import { createClient } from "@/lib/supabase/server"
 import { createClient as createAdminClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import type { PermissionKey } from "@/lib/permissions"
+
+/**
+ * Check if the current user has admin access (built-in admin role
+ * or a custom role with the "users" permission).
+ */
+async function checkAdminAccess(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { authorized: false as const, error: "Unauthorized", status: 401 }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, custom_role_id")
+    .eq("id", user.id)
+    .single()
+
+  if (!profile) return { authorized: false as const, error: "Profile not found", status: 403 }
+
+  // Built-in admin
+  if (profile.role === "admin") return { authorized: true as const, userId: user.id }
+
+  // Check custom role for "users" permission
+  if (profile.custom_role_id) {
+    const { data: role } = await supabase
+      .from("roles")
+      .select("permissions")
+      .eq("id", profile.custom_role_id)
+      .single()
+
+    if (role && (role.permissions as PermissionKey[]).includes("users")) {
+      return { authorized: true as const, userId: user.id }
+    }
+  }
+
+  return { authorized: false as const, error: "Admin access required", status: 403 }
+}
 
 // POST - Create a new profile
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
-
-    // Check if user is authenticated
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Check if user has admin role
-    const { data: currentProfile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    if (!currentProfile || currentProfile.role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    const access = await checkAdminAccess(supabase)
+    if (!access.authorized) {
+      return NextResponse.json({ error: access.error }, { status: access.status })
     }
 
     // Get profile data from request
     const body = await request.json()
-    const { email, full_name, role, location_id, department, avatar_url } = body
+    const { email, full_name, role, custom_role_id, location_id, department, avatar_url } = body
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 })
@@ -58,6 +81,7 @@ export async function POST(request: NextRequest) {
         .update({
           full_name: full_name || null,
           role: role || "employee",
+          custom_role_id: custom_role_id || null,
           location_id: location_id || null,
           department: department || null,
           avatar_url: avatar_url || null,
@@ -111,6 +135,7 @@ export async function POST(request: NextRequest) {
         email,
         full_name: full_name || null,
         role: role || "employee",
+        custom_role_id: custom_role_id || null,
         location_id: location_id || null,
         department: department || null,
         avatar_url: avatar_url || null,
@@ -136,27 +161,14 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient()
-
-    // Check if user is authenticated
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Check if user has admin role
-    const { data: currentProfile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    if (!currentProfile || currentProfile.role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    const access = await checkAdminAccess(supabase)
+    if (!access.authorized) {
+      return NextResponse.json({ error: access.error }, { status: access.status })
     }
 
     // Get profile data from request
     const body = await request.json()
-    const { id, email, full_name, role, location_id, department, avatar_url } = body
+    const { id, email, full_name, role, custom_role_id, location_id, department, avatar_url } = body
 
     if (!id) {
       return NextResponse.json({ error: "Profile ID is required" }, { status: 400 })
@@ -180,6 +192,7 @@ export async function PUT(request: NextRequest) {
         email: email || null,
         full_name: full_name || null,
         role: role || "employee",
+        custom_role_id: custom_role_id || null,
         location_id: location_id || null,
         department: department || null,
         avatar_url: avatar_url || null,
@@ -207,22 +220,9 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = await createClient()
-
-    // Check if user is authenticated
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Check if user has admin role
-    const { data: currentProfile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single()
-
-    if (!currentProfile || currentProfile.role !== "admin") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    const access = await checkAdminAccess(supabase)
+    if (!access.authorized) {
+      return NextResponse.json({ error: access.error }, { status: access.status })
     }
 
     const { searchParams } = new URL(request.url)

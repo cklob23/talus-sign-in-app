@@ -27,8 +27,11 @@ import {
   Warehouse,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { hasFeature, type TierFeatures } from "@/lib/tier"
+import { usePermissions } from "@/contexts/permissions-context"
+import { ROUTE_PERMISSION_MAP, type PermissionKey } from "@/lib/permissions"
 
-import { UsersRound } from "lucide-react"
+import { UsersRound, Lock, Shield } from "lucide-react"
 
 const SIDEBAR_COLLAPSED_KEY = "admin-sidebar-collapsed"
 
@@ -45,24 +48,35 @@ export function useSidebar() {
   return useContext(SidebarContext)
 }
 
-const navItems = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/visitors", label: "Current Visitors", icon: Users },
-  { href: "/admin/history", label: "History", icon: ClipboardList },
-  { href: "/admin/bookings", label: "Bookings", icon: Calendar },
-  { href: "/admin/reports", label: "Reports", icon: FileText },
-  { href: "/admin/evacuations", label: "Evacuations", icon: AlertTriangle },
-  { href: "/admin/hosts", label: "Hosts", icon: UserCog },
-  { href: "/admin/users", label: "User Management", icon: UsersRound },
-  { href: "/admin/vendors", label: "Vendors", icon: Warehouse },
-  { href: "/admin/locations", label: "Locations", icon: Building2 },
-  { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
-]
+const navItems: {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  requiredFeature?: keyof TierFeatures
+  requiredTierLabel?: string
+}[] = [
+    { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/admin/visitors", label: "Current Visitors", icon: Users },
+    { href: "/admin/history", label: "History", icon: ClipboardList },
+    { href: "/admin/bookings", label: "Bookings", icon: Calendar, requiredFeature: "visitorPreRegistration", requiredTierLabel: "Pro" },
+    { href: "/admin/reports", label: "Reports", icon: FileText, requiredFeature: "analyticsDashboard", requiredTierLabel: "Pro" },
+    { href: "/admin/evacuations", label: "Evacuations", icon: AlertTriangle, requiredFeature: "emergencyEvacuations", requiredTierLabel: "Enterprise" },
+    { href: "/admin/hosts", label: "Hosts", icon: UserCog },
+    { href: "/admin/users", label: "User Management", icon: UsersRound },
+    { href: "/admin/locations", label: "Locations", icon: Building2 },
+    { href: "/admin/vendors", label: "Vendors", icon: Warehouse },
+    { href: "/admin/roles", label: "Roles", icon: Shield },
+    { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText, requiredFeature: "advancedAuditLogs", requiredTierLabel: "Add-on" },
+    { href: "/admin/settings", label: "Settings", icon: Settings },
+  ]
 
 function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname()
   const { branding } = useBranding()
+  const { permissions, isLoading: permissionsLoading, profileRole } = usePermissions()
+
+  // Built-in admins see everything; custom roles see only permitted pages
+  const isBuiltInAdmin = profileRole === "admin"
 
   return (
     <>
@@ -70,6 +84,53 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
         <TooltipProvider delayDuration={0}>
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
+            const isLocked = item.requiredFeature ? !hasFeature(item.requiredFeature) : false
+
+            // Permission check: hide items the user doesn't have access to
+            // Built-in admins bypass this check; others need the permission
+            if (!isBuiltInAdmin && !permissionsLoading) {
+              const permKey = ROUTE_PERMISSION_MAP[item.href]
+              if (permKey && !permissions.has(permKey)) {
+                return null // Hide the nav item entirely
+              }
+            }
+
+            if (isLocked) {
+              const lockedContent = (
+                <div
+                  key={item.href}
+                  className={cn(
+                    "flex items-center rounded-md text-sm font-medium transition-colors cursor-not-allowed opacity-50",
+                    collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
+                    "text-sidebar-foreground",
+                  )}
+                  title={`Requires ${item.requiredTierLabel} plan`}
+                >
+                  <item.icon className="w-5 h-5 shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1">{item.label}</span>
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                    </>
+                  )}
+                </div>
+              )
+
+              if (collapsed) {
+                return (
+                  <Tooltip key={item.href}>
+                    <TooltipTrigger asChild>
+                      {lockedContent}
+                    </TooltipTrigger>
+                    <TooltipContent side="right" sideOffset={10}>
+                      {item.label} ({item.requiredTierLabel} plan)
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              }
+
+              return lockedContent
+            }
 
             const linkContent = (
               <Link

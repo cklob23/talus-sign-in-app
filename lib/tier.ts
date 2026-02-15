@@ -21,7 +21,7 @@ export interface TenantInfo {
   addons: {
     sso: boolean
     sms: boolean
-    ndas: boolean
+    vendors: boolean
     audit_logs: boolean
   }
 }
@@ -50,7 +50,7 @@ export interface TierFeatures {
   // --- Add-Ons (independent, enabled via tenant addons or Enterprise tier) ---
   ssoIntegration: boolean
   smsNotifications: boolean
-  visitorNdasWaivers: boolean
+  vendorManagement: boolean
   advancedAuditLogs: boolean
 }
 
@@ -69,7 +69,7 @@ function hasAtLeast(current: PlanTier, required: PlanTier): boolean {
  */
 export function buildTierFeatures(tenant: TenantInfo): TierFeatures {
   const plan = tenant.plan
-  const addons = tenant.addons || { sso: false, sms: false, ndas: false, audit_logs: false }
+  const addons = tenant.addons || { sso: false, sms: false, vendors: false, audit_logs: false }
   const isEnterprise = plan === "enterprise"
 
   return {
@@ -96,7 +96,7 @@ export function buildTierFeatures(tenant: TenantInfo): TierFeatures {
     // Add-Ons (independent, or auto-enabled on Enterprise)
     ssoIntegration: isEnterprise || addons.sso,
     smsNotifications: isEnterprise || addons.sms,
-    visitorNdasWaivers: isEnterprise || addons.ndas,
+    vendorManagement: isEnterprise || addons.vendors,
     advancedAuditLogs: isEnterprise || addons.audit_logs,
   }
 }
@@ -128,7 +128,7 @@ const DEFAULT_TENANT: TenantInfo = {
   addons: {
     sso: false,
     sms: false,
-    ndas: false,
+    vendors: false,
     audit_logs: false,
   },
 }
@@ -162,7 +162,7 @@ export function hasFeature(feature: keyof TierFeatures): boolean {
 const ADDON_FEATURES: (keyof TierFeatures)[] = [
   "ssoIntegration",
   "smsNotifications",
-  "visitorNdasWaivers",
+  "vendorManagement",
   "advancedAuditLogs",
 ]
 

@@ -38,6 +38,15 @@ export type AuditAction =
   | "visitor_type.created"
   | "visitor_type.updated"
   | "visitor_type.deleted"
+  // Password actions
+  | "password.reset_email_sent"
+  | "password.temporary_set"
+  // Role actions
+  | "role.created"
+  | "role.updated"
+  | "role.deleted"
+  | "role.assigned"
+  | "role.unassigned"
   // Kiosk actions
   | "kiosk.receptionist_login"
   | "kiosk.receptionist_logout"
@@ -53,6 +62,7 @@ export type EntityType =
   | "evacuation"
   | "settings"
   | "visitor_type"
+  | "role"
 
 interface LogAuditParams {
   action: AuditAction

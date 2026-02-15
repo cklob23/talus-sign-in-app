@@ -55,6 +55,7 @@ interface RememberedEmployee {
   fullName: string
   locationId: string | null
   role: "admin" | "staff" | "viewer" | "employee"
+  custom_role_id: string
   avatar_url: string | null
   created_at: string
   updated_at: string
@@ -377,6 +378,7 @@ export default function KioskPage() {
             department: profile.department || null,
             location_id: profile.location_id,
             role: profile.role,
+            custom_role_id: profile.custom_role_id,
             avatar_url: profile.avatar_url,
             last_password_change: profile.last_password_change,
             last_auth_time: profile.last_auth_time,
@@ -675,6 +677,7 @@ export default function KioskPage() {
         phone: null,
         department: null,
         role: employee.role,
+        custom_role_id: employee.custom_role_id,
         location_id: employee.locationId,
         avatar_url: employee.avatar_url,
         last_password_change: null,
@@ -2123,6 +2126,7 @@ export default function KioskPage() {
           fullName: profile.full_name || "",
           locationId: profile.location_id,
           role: profile.role,
+          custom_role_id: profile.custom_role_id,
           avatar_url: profile.avatar_url || null,
           created_at: profile.created_at,
           updated_at: profile.updated_at,
