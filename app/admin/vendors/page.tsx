@@ -423,8 +423,8 @@ export default function VendorsPage() {
                                     className="pl-9 w-full sm:w-64"
                                 />
                             </div>
-                            <Select value={filterActive} onValueChange={() => {
-                                setFilterActive
+                            <Select value={filterActive} onValueChange={(value) => {
+                                setFilterActive(value)
                                 setPage(1)
                             }}>
                                 <SelectTrigger className="w-22 sm:w-30">
