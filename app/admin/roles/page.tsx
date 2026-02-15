@@ -297,7 +297,7 @@ export default function RolesPage() {
                             No roles created yet. Click &quot;Create Role&quot; to get started.
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto px-4">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
