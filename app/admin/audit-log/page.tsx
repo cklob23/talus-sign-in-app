@@ -49,6 +49,7 @@ const ACTION_LABELS: Record<string, string> = {
   "evacuation.ended": "Evacuation ended",
   // Settings actions
   "settings.updated": "Settings updated",
+  "settings.sync_schedule_updated": "Sync schedule updated",
   // Visitor type actions
   "visitor_type.created": "Visitor type created",
   "visitor_type.updated": "Visitor type updated",
