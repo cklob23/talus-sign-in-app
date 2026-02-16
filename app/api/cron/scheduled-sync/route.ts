@@ -3,6 +3,9 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { syncAzureUsers } from "@/lib/sync/azure"
 import { syncRampVendors } from "@/lib/sync/ramp"
 
+// Allow up to 60s for sync operations (Vercel Pro/Enterprise)
+export const maxDuration = 60
+
 // Schedule frequency options mapped to milliseconds
 const SCHEDULE_MS: Record<string, number> = {
   "1h": 60 * 60 * 1000,
@@ -90,12 +93,11 @@ function isDue(schedule: string, lastSyncIso: string | null, startDateIso: strin
 }
 
 /**
- * POST handler -- called by Vercel Cron every hour.
- * Checks schedule settings and runs Azure AD / Ramp syncs when due.
+ * Core sync logic shared by both GET (Vercel Cron) and POST (manual) triggers.
  */
-export async function POST(request: Request) {
+async function runScheduledSync(request: Request) {
   try {
-    // Verify cron secret
+    // Verify cron secret (Vercel sends this as Authorization: Bearer <secret>)
     const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
@@ -135,7 +137,6 @@ export async function POST(request: Request) {
           total: result.total,
         }
 
-        // Log to audit
         await adminClient.from("audit_logs").insert({
           action: "scheduled_sync.azure",
           entity_type: "system",
@@ -214,13 +215,17 @@ export async function POST(request: Request) {
   }
 }
 
-// GET for status check
-export async function GET() {
-  return NextResponse.json({
-    endpoint: "/api/cron/scheduled-sync",
-    description:
-      "Runs scheduled Azure AD and Ramp syncs based on settings configuration",
-    method: "POST",
-    authentication: "Bearer token using CRON_SECRET environment variable",
-  })
+/**
+ * GET handler -- called by Vercel Cron every hour.
+ * Vercel Crons always send GET requests.
+ */
+export async function GET(request: Request) {
+  return runScheduledSync(request)
+}
+
+/**
+ * POST handler -- kept for manual triggers or backward compatibility.
+ */
+export async function POST(request: Request) {
+  return runScheduledSync(request)
 }

@@ -867,6 +867,40 @@ export default function SettingsPage() {
   }
 
   // --- Scheduled Sync functions ---
+  const SCHEDULE_MS: Record<string, number> = {
+    "1h": 60 * 60 * 1000,
+    "6h": 6 * 60 * 60 * 1000,
+    "12h": 12 * 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "168h": 7 * 24 * 60 * 60 * 1000,
+  }
+
+  function getNextSyncTime(schedule: string, lastSync: string | null, startDate: string | null): string {
+    if (schedule === "off" || !SCHEDULE_MS[schedule]) return ""
+    const now = Date.now()
+
+    // If a start date is in the future, show that as the next sync
+    if (startDate) {
+      const startMs = new Date(startDate).getTime()
+      if (!Number.isNaN(startMs) && startMs > now) {
+        return new Date(startMs).toLocaleString()
+      }
+    }
+
+    // If never synced, it's due now
+    if (!lastSync) return "Due now (next cron run)"
+
+    // Calculate next based on last sync + interval
+    const lastMs = new Date(lastSync).getTime()
+    const interval = SCHEDULE_MS[schedule]
+    const nextMs = lastMs + interval
+
+    if (nextMs <= now) {
+      return "Due now (next cron run)"
+    }
+    return new Date(nextMs).toLocaleString()
+  }
+
   const SYNC_SCHEDULE_OPTIONS = [
     { value: "off", label: "Off" },
     { value: "1h", label: "Every hour" },
@@ -2503,7 +2537,7 @@ export default function SettingsPage() {
                     id="ramp_client_id"
                     value={rampConfig.ramp_client_id}
                     onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_client_id: e.target.value }))}
-                    placeholder="Enter client ID"
+                    placeholder="ramp_client_..."
                     className="font-mono text-sm"
                   />
                 </div>
@@ -2566,7 +2600,7 @@ export default function SettingsPage() {
         </Card>
       ) : (
         <Card>
-          <CardHeader className="p-4 sm:p-6 opacity-60">
+          <CardHeader className="p-4 sm:p-6">
             <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
               <Store className="w-5 h-5 text-muted-foreground" />
               Ramp Integration
@@ -2660,11 +2694,9 @@ export default function SettingsPage() {
                   </div>
                 )}
 
-                {syncScheduleAzure !== "off" && syncStartAzure && (
+                {syncScheduleAzure !== "off" && (
                   <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
-                    Next sync: {new Date(syncStartAzure) > new Date()
-                      ? new Date(syncStartAzure).toLocaleString()
-                      : "Due on next cron run"}
+                    Next sync: {getNextSyncTime(syncScheduleAzure, lastAzureSync, syncStartAzure)}
                   </p>
                 )}
 
@@ -2756,11 +2788,9 @@ export default function SettingsPage() {
                   </div>
                 )}
 
-                {syncScheduleRamp !== "off" && syncStartRamp && (
+                {syncScheduleRamp !== "off" && (
                   <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
-                    Next sync: {new Date(syncStartRamp) > new Date()
-                      ? new Date(syncStartRamp).toLocaleString()
-                      : "Due on next cron run"}
+                    Next sync: {getNextSyncTime(syncScheduleRamp, lastRampSync, syncStartRamp)}
                   </p>
                 )}
 
