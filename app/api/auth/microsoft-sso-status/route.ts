@@ -32,8 +32,16 @@ export async function GET() {
 
     const hasClientId = !!clientIdSetting?.value
 
+    // Build the Supabase callback URL from the project URL
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+    const projectRefMatch = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)
+    const callbackUrl = projectRefMatch
+      ? `https://${projectRefMatch[1]}.supabase.co/auth/v1/callback`
+      : ""
+
     return NextResponse.json({
       enabled: isEnabled && hasClientId,
+      callback_url: callbackUrl,
     })
   } catch {
     return NextResponse.json({ enabled: false })

@@ -81,6 +81,25 @@ export async function GET() {
       .is("location_id", null)
       .single()
 
+    // Auto-heal: if the stored URL has a trailing /v2.0, fix it in Supabase
+    // Supabase appends /v2.0 internally, so having it in the URL causes a
+    // duplicated path (/v2.0/oauth2/v2.0/authorize) → 404 on Microsoft login
+    const azureUrlFromConfigRaw = authConfig.external_azure_url || ""
+    if (azureUrlFromConfigRaw.endsWith("/v2.0") && accessToken) {
+      const correctedUrl = azureUrlFromConfigRaw.replace(/\/v2\.0$/, "")
+      await fetch(
+        `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ external_azure_url: correctedUrl }),
+        }
+      )
+    }
+
     // Auto-populate DB backup if Management API has credentials but DB doesn't
     // This is a one-time migration for existing setups.
     // NOTE: We intentionally do NOT auto-populate azure_client_secret here because
@@ -188,9 +207,12 @@ export async function POST(request: Request) {
     }
 
     // Build the Azure tenant URL
-    // Format: https://login.microsoftonline.com/<tenant_id>/v2.0
+    // Format: https://login.microsoftonline.com/<tenant_id>
+    // NOTE: Do NOT append /v2.0 — Supabase appends that internally when
+    // constructing the OAuth authorize URL. Adding it here causes a
+    // duplicated path (/v2.0/oauth2/v2.0/authorize) which results in a 404.
     const azureUrl = tenant_id
-      ? `https://login.microsoftonline.com/${tenant_id}/v2.0`
+      ? `https://login.microsoftonline.com/${tenant_id}`
       : ""
 
     // Build the update payload for Supabase Management API

@@ -103,7 +103,7 @@ export default function LoginPage() {
       await supabase.auth.signOut()
 
       // Construct redirect URL - must match what's configured in Supabase Auth settings
-      const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
+      const callbackUrl = "https://qnerjyxhesorjrsjssba.supabase.co/auth/v1/callback"
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
