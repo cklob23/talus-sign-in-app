@@ -21,8 +21,9 @@ export interface TenantInfo {
   addons: {
     sso: boolean
     sms: boolean
-    vendors: boolean
+    ndas: boolean
     audit_logs: boolean
+    vendor_management: boolean
   }
 }
 
@@ -50,8 +51,9 @@ export interface TierFeatures {
   // --- Add-Ons (independent, enabled via tenant addons or Enterprise tier) ---
   ssoIntegration: boolean
   smsNotifications: boolean
-  vendorManagement: boolean
+  visitorNdasWaivers: boolean
   advancedAuditLogs: boolean
+  vendorManagement: boolean
 }
 
 const TIER_LEVEL: Record<PlanTier, number> = {
@@ -69,7 +71,7 @@ function hasAtLeast(current: PlanTier, required: PlanTier): boolean {
  */
 export function buildTierFeatures(tenant: TenantInfo): TierFeatures {
   const plan = tenant.plan
-  const addons = tenant.addons || { sso: false, sms: false, vendors: false, audit_logs: false }
+  const addons = tenant.addons || { sso: false, sms: false, ndas: false, audit_logs: false, vendor_management: false }
   const isEnterprise = plan === "enterprise"
 
   return {
@@ -96,8 +98,9 @@ export function buildTierFeatures(tenant: TenantInfo): TierFeatures {
     // Add-Ons (independent, or auto-enabled on Enterprise)
     ssoIntegration: isEnterprise || addons.sso,
     smsNotifications: isEnterprise || addons.sms,
-    vendorManagement: isEnterprise || addons.vendors,
+    visitorNdasWaivers: isEnterprise || addons.ndas,
     advancedAuditLogs: isEnterprise || addons.audit_logs,
+    vendorManagement: isEnterprise || addons.vendor_management,
   }
 }
 
@@ -128,8 +131,9 @@ const DEFAULT_TENANT: TenantInfo = {
   addons: {
     sso: false,
     sms: false,
-    vendors: false,
+    ndas: false,
     audit_logs: false,
+    vendor_management: false,
   },
 }
 
@@ -162,8 +166,9 @@ export function hasFeature(feature: keyof TierFeatures): boolean {
 const ADDON_FEATURES: (keyof TierFeatures)[] = [
   "ssoIntegration",
   "smsNotifications",
-  "vendorManagement",
+  "visitorNdasWaivers",
   "advancedAuditLogs",
+  "vendorManagement",
 ]
 
 export function isAddon(feature: keyof TierFeatures): boolean {

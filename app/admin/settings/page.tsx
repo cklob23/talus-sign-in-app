@@ -72,6 +72,13 @@ interface MicrosoftSsoSettings {
   azure_client_secret: string
 }
 
+interface RampSettings {
+  ramp_enabled: boolean
+  ramp_client_id: string
+  ramp_client_secret: string
+  ramp_api_base_url: string
+}
+
 interface PasswordPolicySettings {
   password_expiration: string // "never", "30", "60", "90", "180", "365"
   force_reauth: string // "never", "1", "7", "14", "30"
@@ -146,6 +153,15 @@ export default function SettingsPage() {
     password_reuse_count: 5,
   })
   const [savingPasswordPolicy, setSavingPasswordPolicy] = useState(false)
+  const [rampConfig, setRampConfig] = useState<RampSettings>({
+    ramp_enabled: false,
+    ramp_client_id: "",
+    ramp_client_secret: "",
+    ramp_api_base_url: "https://api.ramp.com/developer/v1",
+  })
+  const [savingRamp, setSavingRamp] = useState(false)
+  const [showRampSecret, setShowRampSecret] = useState(false)
+  const [rampConfigResult, setRampConfigResult] = useState<{ success: boolean; message: string } | null>(null)
   const [microsoftSso, setMicrosoftSso] = useState<MicrosoftSsoSettings>({
     microsoft_sso_enabled: false,
     azure_tenant_id: "",
@@ -349,6 +365,78 @@ export default function SettingsPage() {
     setSmsTestResult({ success: true, message: "SMS settings saved successfully." })
     setTimeout(() => setSmsTestResult(null), 3000)
     setSavingSms(false)
+  }
+
+  async function loadRampSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", ["ramp_enabled", "ramp_client_id", "ramp_client_secret", "ramp_api_base_url"])
+
+    if (data && data.length > 0) {
+      const loaded: RampSettings = {
+        ramp_enabled: false,
+        ramp_client_id: "",
+        ramp_client_secret: "",
+        ramp_api_base_url: "https://api.ramp.com/developer/v1",
+      }
+      for (const setting of data) {
+        if (setting.key === "ramp_enabled") loaded.ramp_enabled = setting.value === true || setting.value === "true"
+        if (setting.key === "ramp_client_id") loaded.ramp_client_id = String(setting.value || "")
+        if (setting.key === "ramp_client_secret") loaded.ramp_client_secret = String(setting.value || "")
+        if (setting.key === "ramp_api_base_url") loaded.ramp_api_base_url = String(setting.value || "https://api.ramp.com/developer/v1")
+      }
+      // Mask the secret if it was loaded from DB
+      if (loaded.ramp_client_secret) {
+        loaded.ramp_client_secret = "••••••••"
+      }
+      setRampConfig(loaded)
+    }
+  }
+
+  async function saveRampSettings() {
+    setSavingRamp(true)
+    setRampConfigResult(null)
+    const supabase = createClient()
+
+    const keysToSave: (keyof RampSettings)[] = ["ramp_enabled", "ramp_client_id", "ramp_client_secret", "ramp_api_base_url"]
+    for (const key of keysToSave) {
+      const value = rampConfig[key]
+      // Skip masked secrets — don't overwrite the real value with dots
+      if (key === "ramp_client_secret" && value === "••••••••") continue
+
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (existing) {
+        await supabase
+          .from("settings")
+          .update({ value })
+          .eq("key", key)
+          .is("location_id", null)
+      } else {
+        await supabase
+          .from("settings")
+          .insert({ key, value, location_id: null })
+      }
+    }
+
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: "Ramp API settings updated",
+      metadata: { ramp_api_base_url: rampConfig.ramp_api_base_url },
+    })
+
+    setRampConfigResult({ success: true, message: "Ramp API settings saved successfully." })
+    setTimeout(() => setRampConfigResult(null), 3000)
+    setSavingRamp(false)
   }
 
   async function loadColorSettings() {
@@ -1119,6 +1207,7 @@ export default function SettingsPage() {
     loadBrandingSettings()
     loadSmtpSettings()
     loadSmsSettings()
+    loadRampSettings()
     loadColorSettings()
     loadMicrosoftSsoSettings()
     loadSyncScheduleSettings()
@@ -2372,6 +2461,126 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {/* Ramp API Configuration Card */}
+      {hasFeature("vendorManagement") ? (
+        <Card>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Store className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              Ramp Integration
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Configure your Ramp API credentials for vendor synchronization.
+              You can use either an OAuth2 client (Client ID + Secret) or set RAMP_API_TOKEN as an environment variable.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
+            {rampConfigResult && (
+              <div className={`rounded-lg border p-3 text-sm ${rampConfigResult.success
+                  ? "border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400"
+                  : "border-destructive/50 bg-destructive/10 text-destructive"
+                }`}>
+                {rampConfigResult.message}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <Label className="text-sm">Enable Ramp Integration</Label>
+                <p className="text-xs sm:text-sm text-muted-foreground">Connect to Ramp to sync vendors automatically</p>
+              </div>
+              <Switch
+                checked={rampConfig.ramp_enabled}
+                onCheckedChange={(checked) => setRampConfig(prev => ({ ...prev, ramp_enabled: checked }))}
+              />
+            </div>
+
+            {rampConfig.ramp_enabled && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="ramp_client_id">Client ID</Label>
+                  <Input
+                    id="ramp_client_id"
+                    value={rampConfig.ramp_client_id}
+                    onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_client_id: e.target.value }))}
+                    placeholder="Enter client ID"
+                    className="font-mono text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ramp_client_secret">Client Secret</Label>
+                  <div className="relative">
+                    <Input
+                      id="ramp_client_secret"
+                      type={showRampSecret ? "text" : "password"}
+                      value={rampConfig.ramp_client_secret}
+                      onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_client_secret: e.target.value }))}
+                      placeholder="Enter client secret"
+                      className="font-mono text-sm pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowRampSecret(!showRampSecret)}
+                    >
+                      {showRampSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The secret is stored encrypted in your database. Leave unchanged to keep the existing value.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ramp_api_base_url">API Base URL</Label>
+                  <Input
+                    id="ramp_api_base_url"
+                    value={rampConfig.ramp_api_base_url}
+                    onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_api_base_url: e.target.value }))}
+                    placeholder="https://api.ramp.com/developer/v1"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use <code className="bg-muted px-1 py-0.5 rounded text-xs">https://demo-api.ramp.com/developer/v1</code> for sandbox/testing.
+                  </p>
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button onClick={saveRampSettings} disabled={savingRamp}>
+                {savingRamp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Ramp Settings"
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="p-4 sm:p-6 opacity-60">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Store className="w-5 h-5 text-muted-foreground" />
+              Ramp Integration
+              <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                <Lock className="w-3.5 h-3.5" /> Add-on
+              </span>
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Enable the Vendor Management add-on or upgrade to Enterprise to connect with Ramp for vendor synchronization
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
       {/* Scheduled Syncs Card */}
       <Card>
         <CardHeader className="p-4 sm:p-6">
@@ -2496,105 +2705,101 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Ramp Vendor Sync */}
-          <div className="rounded-lg border p-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/30">
-                <Store className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-medium">Ramp Vendor Sync</h4>
-                <p className="text-xs text-muted-foreground">
-                  Sync vendor list from Ramp for the kiosk company dropdown
-                </p>
-              </div>
-            </div>
-
-            {!process.env.NEXT_PUBLIC_RAMP_CONFIGURED && (
-              <p className="text-xs text-muted-foreground italic hidden">
-                Requires Ramp API credentials to be configured.
-              </p>
-            )}
-
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <Label className="text-sm w-28 shrink-0">Frequency</Label>
-                <Select value={syncScheduleRamp} onValueChange={setSyncScheduleRamp}>
-                  <SelectTrigger className="w-full sm:w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SYNC_SCHEDULE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {/* Ramp Vendor Sync - only shown when Vendor Management is available and Ramp is enabled */}
+          {hasFeature("vendorManagement") && rampConfig.ramp_enabled && (
+            <div className="rounded-lg border p-4 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/30">
+                  <Store className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-medium">Ramp Vendor Sync</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Sync vendor list from Ramp for the kiosk company dropdown
+                  </p>
+                </div>
               </div>
 
-              {syncScheduleRamp !== "off" && (
+              <div className="space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <Label className="text-sm w-28 shrink-0">Start Date</Label>
-                  <Input
-                    type="datetime-local"
-                    value={syncStartRamp}
-                    onChange={(e) => setSyncStartRamp(e.target.value)}
-                    className="w-full sm:w-56"
-                  />
-                  {syncStartRamp && (
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground underline"
-                      onClick={() => setSyncStartRamp("")}
-                    >
-                      Clear
-                    </button>
-                  )}
+                  <Label className="text-sm w-28 shrink-0">Frequency</Label>
+                  <Select value={syncScheduleRamp} onValueChange={setSyncScheduleRamp}>
+                    <SelectTrigger className="w-full sm:w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SYNC_SCHEDULE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
 
-              {syncScheduleRamp !== "off" && syncStartRamp && (
-                <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
-                  Next sync: {new Date(syncStartRamp) > new Date()
-                    ? new Date(syncStartRamp).toLocaleString()
-                    : "Due on next cron run"}
-                </p>
-              )}
+                {syncScheduleRamp !== "off" && (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <Label className="text-sm w-28 shrink-0">Start Date</Label>
+                    <Input
+                      type="datetime-local"
+                      value={syncStartRamp}
+                      onChange={(e) => setSyncStartRamp(e.target.value)}
+                      className="w-full sm:w-56"
+                    />
+                    {syncStartRamp && (
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground underline"
+                        onClick={() => setSyncStartRamp("")}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>
-                    Last synced:{" "}
-                    {lastRampSync
-                      ? new Date(lastRampSync).toLocaleString()
-                      : "Never"}
-                  </span>
+                {syncScheduleRamp !== "off" && syncStartRamp && (
+                  <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
+                    Next sync: {new Date(syncStartRamp) > new Date()
+                      ? new Date(syncStartRamp).toLocaleString()
+                      : "Due on next cron run"}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>
+                      Last synced:{" "}
+                      {lastRampSync
+                        ? new Date(lastRampSync).toLocaleString()
+                        : "Never"}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent"
+                    disabled={runningSyncRamp}
+                    onClick={() => handleManualSync("ramp")}
+                  >
+                    {runningSyncRamp ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Sync Now
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="bg-transparent"
-                  disabled={runningSyncRamp}
-                  onClick={() => handleManualSync("ramp")}
-                >
-                  {runningSyncRamp ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                      Syncing...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                      Sync Now
-                    </>
-                  )}
-                </Button>
+                {rampSyncProgress && (
+                  <SyncProgress progress={rampSyncProgress} compact />
+                )}
               </div>
-              {rampSyncProgress && (
-                <SyncProgress progress={rampSyncProgress} compact />
-              )}
             </div>
-          </div>
+          )}
 
           {/* Sync Logs */}
           {syncLogs.length > 0 && (

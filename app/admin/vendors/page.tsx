@@ -48,6 +48,7 @@ import {
 import type { Vendor } from "@/types/database"
 import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
 import { logAudit } from "@/lib/audit-log"
+import { TierGate } from "@/components/admin/tier-gate"
 
 interface RampPreviewVendor {
     id: string
@@ -396,130 +397,153 @@ export default function VendorsPage() {
     }
 
     return (
-        <div className="space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold">Vendor Management</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Manage your vendor list synced from Ramp. Active vendors appear in the kiosk company dropdown.
-                    </p>
+        <TierGate feature="vendorManagement" label="Vendor Management">
+            <div className="space-y-4 sm:space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold">Vendor Management</h1>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            Manage your vendor list synced from Ramp. Active vendors appear in the kiosk company dropdown.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" className="bg-transparent">
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Add Manual
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Add Vendor Manually</DialogTitle>
+                                    <DialogDescription>
+                                        Add a vendor that is not in Ramp. This vendor will not be affected by Ramp syncs.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="vendorName">Company Name</Label>
+                                        <Input
+                                            id="vendorName"
+                                            value={newVendorName}
+                                            onChange={(e) => setNewVendorName(e.target.value)}
+                                            placeholder="Enter company name"
+                                        />
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="outline" onClick={() => setIsAddOpen(false)} className="bg-transparent">
+                                        Cancel
+                                    </Button>
+                                    <Button onClick={handleAddVendor} disabled={isAdding || !newVendorName.trim()}>
+                                        {isAdding ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                Adding...
+                                            </>
+                                        ) : (
+                                            "Add Vendor"
+                                        )}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                        <Button onClick={handleFetchRampVendors} disabled={isSyncing}>
+                            {isSyncing ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Fetching...
+                                </>
+                            ) : (
+                                <>
+                                    <RefreshCw className="w-4 h-4 mr-2" />
+                                    Sync from Ramp
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-                        <DialogTrigger asChild>
-                            <Button variant="outline" className="bg-transparent">
-                                <Plus className="w-4 h-4 mr-2" />
-                                Add Manual
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Add Vendor Manually</DialogTitle>
-                                <DialogDescription>
-                                    Add a vendor that is not in Ramp. This vendor will not be affected by Ramp syncs.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="vendorName">Company Name</Label>
+
+                {syncResult && (
+                    <div
+                        className={`flex items-center gap-2 p-3 rounded-lg text-sm ${syncResult.success
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                : "bg-destructive/10 text-destructive"
+                            }`}
+                    >
+                        {syncResult.success ? (
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        ) : (
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                        )}
+                        {syncResult.message}
+                    </div>
+                )}
+
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardDescription className="text-xs">Total Vendors</CardDescription>
+                            <CardTitle className="text-2xl">{totalCount.toLocaleString()}</CardTitle>
+                        </CardHeader>
+                    </Card>
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardDescription className="text-xs">Active (In Kiosk Dropdown)</CardDescription>
+                            <CardTitle className="text-2xl text-emerald-600">{activeCountState.toLocaleString()}</CardTitle>
+                        </CardHeader>
+                    </Card>
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardDescription className="text-xs">Last Ramp Sync</CardDescription>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-muted-foreground" />
+                                {lastSyncState
+                                    ? new Date(lastSyncState).toLocaleString()
+                                    : "Never"}
+                            </CardTitle>
+                        </CardHeader>
+                    </Card>
+                </div>
+
+                <Card>
+                    <CardHeader className="p-4 sm:p-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                                    <Building2 className="w-5 h-5" />
+                                    Vendors
+                                </CardTitle>
+                                <CardDescription className="text-xs sm:text-sm">
+                                    Toggle vendors on/off to control which companies appear in the kiosk sign-in dropdown
+                                </CardDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                     <Input
-                                        id="vendorName"
-                                        value={newVendorName}
-                                        onChange={(e) => setNewVendorName(e.target.value)}
-                                        placeholder="Enter company name"
+                                        placeholder="Search vendors..."
+                                        value={search}
+                                        onChange={(e) => handleSearchChange(e.target.value)}
+                                        className="pl-9 w-full sm:w-64"
                                     />
                                 </div>
+                                <select
+                                    className="h-9 rounded-md border bg-transparent px-3 text-sm"
+                                    value={filterActive}
+                                    onChange={(e) => {
+                                        setFilterActive(e.target.value as "all" | "active" | "inactive")
+                                        setPage(1)
+                                    }}
+                                >
+                                    <option value="all">All</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                </select>
                             </div>
-                            <DialogFooter>
-                                <Button variant="outline" onClick={() => setIsAddOpen(false)} className="bg-transparent">
-                                    Cancel
-                                </Button>
-                                <Button onClick={handleAddVendor} disabled={isAdding || !newVendorName.trim()}>
-                                    {isAdding ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                            Adding...
-                                        </>
-                                    ) : (
-                                        "Add Vendor"
-                                    )}
-                                </Button>
-                            </DialogFooter>
-                        </DialogContent>
-                    </Dialog>
-                    <Button onClick={handleFetchRampVendors} disabled={isSyncing}>
-                        {isSyncing ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Fetching...
-                            </>
-                        ) : (
-                            <>
-                                <RefreshCw className="w-4 h-4 mr-2" />
-                                Sync from Ramp
-                            </>
-                        )}
-                    </Button>
-                </div>
-            </div>
-
-            {syncResult && (
-                <div
-                    className={`flex items-center gap-2 p-3 rounded-lg text-sm ${syncResult.success
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                        : "bg-destructive/10 text-destructive"
-                        }`}
-                >
-                    {syncResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    ) : (
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                    )}
-                    {syncResult.message}
-                </div>
-            )}
-
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-                <Card>
-                    <CardHeader className="p-4">
-                        <CardDescription className="text-xs">Total Vendors</CardDescription>
-                        <CardTitle className="text-2xl">{totalCount.toLocaleString()}</CardTitle>
-                    </CardHeader>
-                </Card>
-                <Card>
-                    <CardHeader className="p-4">
-                        <CardDescription className="text-xs">Active (In Kiosk Dropdown)</CardDescription>
-                        <CardTitle className="text-2xl text-emerald-600">{activeCountState.toLocaleString()}</CardTitle>
-                    </CardHeader>
-                </Card>
-                <Card>
-                    <CardHeader className="p-4">
-                        <CardDescription className="text-xs">Last Ramp Sync</CardDescription>
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-muted-foreground" />
-                            {lastSyncState
-                                ? new Date(lastSyncState).toLocaleString()
-                                : "Never"}
-                        </CardTitle>
-                    </CardHeader>
-                </Card>
-            </div>
-
-            <Card>
-                <CardHeader className="p-4 sm:p-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                                <Building2 className="w-5 h-5" />
-                                Vendors
-                            </CardTitle>
-                            <CardDescription className="text-xs sm:text-sm">
-                                Toggle vendors on/off to control which companies appear in the kiosk sign-in dropdown
-                            </CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2">
                             {selectedVendorIds.size > 0 && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 pt-2">
                                     <span className="text-sm text-muted-foreground">{selectedVendorIds.size} selected</span>
                                     <Button size="sm" variant="destructive" onClick={() => setBulkDeleteConfirmOpen(true)}>
                                         <Trash2 className="w-3.5 h-3.5 mr-1.5" />
@@ -530,349 +554,328 @@ export default function VendorsPage() {
                                     </Button>
                                 </div>
                             )}
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Search vendors..."
-                                    value={search}
-                                    onChange={(e) => handleSearchChange(e.target.value)}
-                                    className="pl-9 w-full sm:w-64"
-                                />
-                            </div>
-                            <select
-                                className="h-9 rounded-md border bg-transparent px-3 text-sm"
-                                value={filterActive}
-                                onChange={(e) => {
-                                    setFilterActive(e.target.value as "all" | "active" | "inactive")
-                                    setPage(1)
-                                }}
-                            >
-                                <option value="all">All</option>
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
                         </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
-                    {isLoading ? (
-                        <div className="flex items-center justify-center py-16">
-                            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : vendors.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                            <Building2 className="w-10 h-10 mb-3 opacity-40" />
-                            <p className="text-sm font-medium">
-                                {totalCount === 0
-                                    ? "No vendors yet"
-                                    : "No vendors match your search"}
-                            </p>
-                            <p className="text-xs mt-1">
-                                {totalCount === 0
-                                    ? "Click \"Sync from Ramp\" to import your vendor list"
-                                    : "Try adjusting your search or filter"}
-                            </p>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="overflow-x-auto rounded-lg border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-10">
-                                                <Checkbox
-                                                    checked={selectedVendorIds.size === vendors.length && vendors.length > 0}
-                                                    onCheckedChange={toggleVendorSelectAll}
-                                                    aria-label="Select all vendors"
-                                                />
-                                            </TableHead>
-                                            <TableHead>Company Name</TableHead>
-                                            <TableHead>Source</TableHead>
-                                            <TableHead>Last Synced</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead className="w-24 text-right">In Kiosk</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {vendors.map((vendor) => (
-                                            <TableRow key={vendor.id} className={selectedVendorIds.has(vendor.id) ? "bg-primary/5" : ""}>
-                                                <TableCell>
-                                                    <Checkbox
-                                                        checked={selectedVendorIds.has(vendor.id)}
-                                                        onCheckedChange={() => toggleVendorSelection(vendor.id)}
-                                                        aria-label={`Select ${vendor.name}`}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="font-medium">{vendor.name}</TableCell>
-                                                <TableCell>
-                                                    {vendor.ramp_vendor_id ? (
-                                                        <Badge variant="secondary" className="text-xs">Ramp</Badge>
-                                                    ) : (
-                                                        <Badge variant="outline" className="text-xs">Manual</Badge>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground">
-                                                    {vendor.synced_at
-                                                        ? new Date(vendor.synced_at).toLocaleDateString()
-                                                        : "--"}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {vendor.is_active ? (
-                                                        <span className="flex items-center gap-1.5 text-sm text-emerald-600">
-                                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                                            Active
-                                                        </span>
-                                                    ) : (
-                                                        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                                                            <XCircle className="w-3.5 h-3.5" />
-                                                            Inactive
-                                                        </span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Switch
-                                                        checked={vendor.is_active}
-                                                        onCheckedChange={() => handleToggleActive(vendor)}
-                                                    />
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                    </CardHeader>
+                    <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
+                        {isLoading ? (
+                            <div className="flex items-center justify-center py-16">
+                                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                             </div>
-
-                            {/* Pagination controls */}
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <span>
-                                        Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, filteredCount)} of{" "}
-                                        {filteredCount.toLocaleString()} vendors
-                                    </span>
-                                    <span className="text-muted-foreground/50">|</span>
-                                    <span className="flex items-center gap-1.5">
-                                        Per page:
-                                        <select
-                                            className="h-8 rounded-md border bg-transparent px-2 text-sm"
-                                            value={pageSize}
-                                            onChange={(e) => {
-                                                setPageSize(Number(e.target.value))
-                                                setPage(1)
-                                            }}
-                                        >
-                                            {PAGE_SIZE_OPTIONS.map((size) => (
-                                                <option key={size} value={size}>{size}</option>
-                                            ))}
-                                        </select>
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 bg-transparent"
-                                        disabled={page <= 1}
-                                        onClick={() => setPage(1)}
-                                    >
-                                        <ChevronsLeft className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 bg-transparent"
-                                        disabled={page <= 1}
-                                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                    >
-                                        <ChevronLeft className="w-4 h-4" />
-                                    </Button>
-                                    <span className="px-3 text-sm font-medium">
-                                        Page {page} of {totalPages}
-                                    </span>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 bg-transparent"
-                                        disabled={page >= totalPages}
-                                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                                    >
-                                        <ChevronRight className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 bg-transparent"
-                                        disabled={page >= totalPages}
-                                        onClick={() => setPage(totalPages)}
-                                    >
-                                        <ChevronsRight className="w-4 h-4" />
-                                    </Button>
-                                </div>
+                        ) : vendors.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                                <Building2 className="w-10 h-10 mb-3 opacity-40" />
+                                <p className="text-sm font-medium">
+                                    {totalCount === 0
+                                        ? "No vendors yet"
+                                        : "No vendors match your search"}
+                                </p>
+                                <p className="text-xs mt-1">
+                                    {totalCount === 0
+                                        ? "Click \"Sync from Ramp\" to import your vendor list"
+                                        : "Try adjusting your search or filter"}
+                                </p>
                             </div>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
-
-            {/* Ramp Vendor Preview Dialog */}
-            <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-                <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Import Vendors from Ramp</DialogTitle>
-                        <DialogDescription>
-                            Select which vendors to import. Vendors already in the system are unchecked by default.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {vendorSyncProgress ? (
-                        <div className="py-4">
-                            <SyncProgress progress={vendorSyncProgress} />
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">
-                                    {rampVendors.filter((v) => v.selected).length} of {rampVendors.length} selected
-                                </span>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(true)} className="bg-transparent">
-                                        Select All
-                                    </Button>
-                                    <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(false)} className="bg-transparent">
-                                        Deselect All
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
-                                {rampVendors.length === 0 ? (
-                                    <p className="p-4 text-center text-muted-foreground">No vendors found in Ramp</p>
-                                ) : (
-                                    <div className="divide-y">
-                                        {rampVendors.map((vendor) => (
-                                            <div
-                                                key={vendor.id}
-                                                className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${vendor.exists ? "opacity-60" : ""}`}
-                                                onClick={() => toggleRampVendorSelection(vendor.id)}
-                                            >
-                                                <Checkbox
-                                                    checked={vendor.selected}
-                                                    onCheckedChange={() => toggleRampVendorSelection(vendor.id)}
-                                                />
-                                                <Avatar className="h-10 w-10">
-                                                    <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                                                        {vendor.name
-                                                            .split(/[\s&]+/)
-                                                            .map((w) => w[0])
-                                                            .join("")
-                                                            .slice(0, 2)
-                                                            .toUpperCase()}
-                                                    </AvatarFallback>
-                                                </Avatar>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium text-sm truncate">{vendor.name}</p>
-                                                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                        {vendor.category_name && (
-                                                            <span className="flex items-center gap-1">
-                                                                <Tag className="w-3 h-3" />
-                                                                {vendor.category_name}
-                                                            </span>
-                                                        )}
-                                                        {vendor.country && (
-                                                            <span className="flex items-center gap-1">
-                                                                <Globe className="w-3 h-3" />
-                                                                {vendor.state ? `${vendor.state}, ${vendor.country}` : vendor.country}
-                                                            </span>
-                                                        )}
-                                                        {!vendor.is_active && (
-                                                            <span className="text-amber-600">Inactive in Ramp</span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                {vendor.exists && (
-                                                    <Badge variant="secondary" className="text-xs shrink-0">Exists (will update)</Badge>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    <DialogFooter>
-                        {vendorSyncProgress?.status === "completed" || vendorSyncProgress?.status === "failed" ? (
-                            <Button onClick={() => {
-                                setIsPreviewOpen(false)
-                                setRampVendors([])
-                                setVendorSyncProgress(null)
-                                if (vendorSyncProgress.status === "completed") {
-                                    loadVendors(page, pageSize, search, filterActive)
-                                    loadStats()
-                                }
-                            }}>
-                                Close
-                            </Button>
                         ) : (
                             <>
-                                <Button variant="outline" onClick={() => { setIsPreviewOpen(false); setVendorSyncProgress(null) }} className="bg-transparent" disabled={isImporting}>
-                                    Cancel
-                                </Button>
-                                <Button
-                                    onClick={handleImportSelectedVendors}
-                                    disabled={isImporting || rampVendors.filter((v) => v.selected).length === 0}
-                                >
-                                    {isImporting ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                            Importing...
-                                        </>
-                                    ) : (
-                                        `Import ${rampVendors.filter((v) => v.selected).length} Vendors`
-                                    )}
-                                </Button>
+                                <div className="overflow-x-auto rounded-lg border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-10">
+                                                    <Checkbox
+                                                        checked={selectedVendorIds.size === vendors.length && vendors.length > 0}
+                                                        onCheckedChange={toggleVendorSelectAll}
+                                                        aria-label="Select all vendors"
+                                                    />
+                                                </TableHead>
+                                                <TableHead>Company Name</TableHead>
+                                                <TableHead>Source</TableHead>
+                                                <TableHead>Last Synced</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead className="w-24 text-right">In Kiosk</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {vendors.map((vendor) => (
+                                                <TableRow key={vendor.id} className={selectedVendorIds.has(vendor.id) ? "bg-primary/5" : ""}>
+                                                    <TableCell>
+                                                        <Checkbox
+                                                            checked={selectedVendorIds.has(vendor.id)}
+                                                            onCheckedChange={() => toggleVendorSelection(vendor.id)}
+                                                            aria-label={`Select ${vendor.name}`}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">{vendor.name}</TableCell>
+                                                    <TableCell>
+                                                        {vendor.ramp_vendor_id ? (
+                                                            <Badge variant="secondary" className="text-xs">Ramp</Badge>
+                                                        ) : (
+                                                            <Badge variant="outline" className="text-xs">Manual</Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">
+                                                        {vendor.synced_at
+                                                            ? new Date(vendor.synced_at).toLocaleDateString()
+                                                            : "--"}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {vendor.is_active ? (
+                                                            <span className="flex items-center gap-1.5 text-sm text-emerald-600">
+                                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                                Active
+                                                            </span>
+                                                        ) : (
+                                                            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                                                <XCircle className="w-3.5 h-3.5" />
+                                                                Inactive
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Switch
+                                                            checked={vendor.is_active}
+                                                            onCheckedChange={() => handleToggleActive(vendor)}
+                                                        />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                {/* Pagination controls */}
+                                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <span>
+                                            Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, filteredCount)} of{" "}
+                                            {filteredCount.toLocaleString()} vendors
+                                        </span>
+                                        <span className="text-muted-foreground/50">|</span>
+                                        <span className="flex items-center gap-1.5">
+                                            Per page:
+                                            <select
+                                                className="h-8 rounded-md border bg-transparent px-2 text-sm"
+                                                value={pageSize}
+                                                onChange={(e) => {
+                                                    setPageSize(Number(e.target.value))
+                                                    setPage(1)
+                                                }}
+                                            >
+                                                {PAGE_SIZE_OPTIONS.map((size) => (
+                                                    <option key={size} value={size}>{size}</option>
+                                                ))}
+                                            </select>
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 bg-transparent"
+                                            disabled={page <= 1}
+                                            onClick={() => setPage(1)}
+                                        >
+                                            <ChevronsLeft className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 bg-transparent"
+                                            disabled={page <= 1}
+                                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </Button>
+                                        <span className="px-3 text-sm font-medium">
+                                            Page {page} of {totalPages}
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 bg-transparent"
+                                            disabled={page >= totalPages}
+                                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 bg-transparent"
+                                            disabled={page >= totalPages}
+                                            onClick={() => setPage(totalPages)}
+                                        >
+                                            <ChevronsRight className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </div>
                             </>
                         )}
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    </CardContent>
+                </Card>
 
-            {/* Bulk Delete Confirmation Dialog */}
-            <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle className="text-destructive">Delete {selectedVendorIds.size} Vendors</DialogTitle>
-                        <DialogDescription>
-                            This action cannot be undone. The following vendors will be permanently deleted:
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="max-h-[200px] overflow-y-auto border rounded-lg divide-y">
-                        {vendors.filter(v => selectedVendorIds.has(v.id)).map(v => (
-                            <div key={v.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                                <span className="truncate font-medium">{v.name}</span>
-                                {v.ramp_vendor_id ? (
-                                    <Badge variant="secondary" className="text-xs ml-2 shrink-0">Ramp</Badge>
-                                ) : (
-                                    <Badge variant="outline" className="text-xs ml-2 shrink-0">Manual</Badge>
-                                )}
+                {/* Ramp Vendor Preview Dialog */}
+                <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+                    <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                            <DialogTitle>Import Vendors from Ramp</DialogTitle>
+                            <DialogDescription>
+                                Select which vendors to import. Vendors already in the system are unchecked by default.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        {vendorSyncProgress ? (
+                            <div className="py-4">
+                                <SyncProgress progress={vendorSyncProgress} />
                             </div>
-                        ))}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)} className="bg-transparent" disabled={isBulkDeleting}>
-                            Cancel
-                        </Button>
-                        <Button variant="destructive" onClick={handleBulkDeleteVendors} disabled={isBulkDeleting}>
-                            {isBulkDeleting ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    Deleting...
-                                </>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-muted-foreground">
+                                        {rampVendors.filter((v) => v.selected).length} of {rampVendors.length} selected
+                                    </span>
+                                    <div className="flex gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(true)} className="bg-transparent">
+                                            Select All
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(false)} className="bg-transparent">
+                                            Deselect All
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                                    {rampVendors.length === 0 ? (
+                                        <p className="p-4 text-center text-muted-foreground">No vendors found in Ramp</p>
+                                    ) : (
+                                        <div className="divide-y">
+                                            {rampVendors.map((vendor) => (
+                                                <div
+                                                    key={vendor.id}
+                                                    className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${vendor.exists ? "opacity-60" : ""}`}
+                                                    onClick={() => toggleRampVendorSelection(vendor.id)}
+                                                >
+                                                    <Checkbox
+                                                        checked={vendor.selected}
+                                                        onCheckedChange={() => toggleRampVendorSelection(vendor.id)}
+                                                    />
+                                                    <Avatar className="h-10 w-10">
+                                                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                                                            {vendor.name
+                                                                .split(/[\s&]+/)
+                                                                .map((w) => w[0])
+                                                                .join("")
+                                                                .slice(0, 2)
+                                                                .toUpperCase()}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-medium text-sm truncate">{vendor.name}</p>
+                                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                                            {vendor.category_name && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Tag className="w-3 h-3" />
+                                                                    {vendor.category_name}
+                                                                </span>
+                                                            )}
+                                                            {vendor.country && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Globe className="w-3 h-3" />
+                                                                    {vendor.state ? `${vendor.state}, ${vendor.country}` : vendor.country}
+                                                                </span>
+                                                            )}
+                                                            {!vendor.is_active && (
+                                                                <span className="text-amber-600">Inactive in Ramp</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    {vendor.exists && (
+                                                        <Badge variant="secondary" className="text-xs shrink-0">Exists (will update)</Badge>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        <DialogFooter>
+                            {vendorSyncProgress?.status === "completed" || vendorSyncProgress?.status === "failed" ? (
+                                <Button onClick={() => {
+                                    setIsPreviewOpen(false)
+                                    setRampVendors([])
+                                    setVendorSyncProgress(null)
+                                    if (vendorSyncProgress.status === "completed") {
+                                        loadVendors(page, pageSize, search, filterActive)
+                                        loadStats()
+                                    }
+                                }}>
+                                    Close
+                                </Button>
                             ) : (
-                                `Delete ${selectedVendorIds.size} Vendors`
+                                <>
+                                    <Button variant="outline" onClick={() => { setIsPreviewOpen(false); setVendorSyncProgress(null) }} className="bg-transparent" disabled={isImporting}>
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleImportSelectedVendors}
+                                        disabled={isImporting || rampVendors.filter((v) => v.selected).length === 0}
+                                    >
+                                        {isImporting ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                Importing...
+                                            </>
+                                        ) : (
+                                            `Import ${rampVendors.filter((v) => v.selected).length} Vendors`
+                                        )}
+                                    </Button>
+                                </>
                             )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Bulk Delete Confirmation Dialog */}
+                <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+                    <DialogContent className="max-w-md">
+                        <DialogHeader>
+                            <DialogTitle className="text-destructive">Delete {selectedVendorIds.size} Vendors</DialogTitle>
+                            <DialogDescription>
+                                This action cannot be undone. The following vendors will be permanently deleted:
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="max-h-[200px] overflow-y-auto border rounded-lg divide-y">
+                            {vendors.filter(v => selectedVendorIds.has(v.id)).map(v => (
+                                <div key={v.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                                    <span className="truncate font-medium">{v.name}</span>
+                                    {v.ramp_vendor_id ? (
+                                        <Badge variant="secondary" className="text-xs ml-2 shrink-0">Ramp</Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="text-xs ml-2 shrink-0">Manual</Badge>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)} className="bg-transparent" disabled={isBulkDeleting}>
+                                Cancel
+                            </Button>
+                            <Button variant="destructive" onClick={handleBulkDeleteVendors} disabled={isBulkDeleting}>
+                                {isBulkDeleting ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    `Delete ${selectedVendorIds.size} Vendors`
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </div>
+        </TierGate>
     )
 }
