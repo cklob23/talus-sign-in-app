@@ -14,7 +14,6 @@ import { TalusAgLogo } from "@/components/talusag-logo"
 import { useBranding } from "@/hooks/use-branding"
 import { logAudit } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication } from "@/lib/password-policy"
-import { hasFeature } from "@/lib/tier"
 
 export default function LoginPage() {
   const { branding } = useBranding()
@@ -26,13 +25,13 @@ export default function LoginPage() {
   const [microsoftSsoEnabled, setMicrosoftSsoEnabled] = useState(false)
   const router = useRouter()
 
+  // Check Microsoft SSO status directly from the API (not via hasFeature,
+  // because the TenantProvider hasn't loaded yet on the login page)
   useEffect(() => {
-    if (hasFeature("ssoIntegration")) {
-      fetch("/api/auth/microsoft-sso-status")
-        .then((res) => res.json())
-        .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
-        .catch(() => setMicrosoftSsoEnabled(false))
-    }
+    fetch("/api/auth/microsoft-sso-status")
+      .then((res) => res.json())
+      .then((data) => setMicrosoftSsoEnabled(data.enabled === true))
+      .catch(() => setMicrosoftSsoEnabled(false))
   }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -160,7 +159,7 @@ export default function LoginPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={`admin@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
+                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -210,12 +209,12 @@ export default function LoginPage() {
                     </>
                   )}
                 </div>
-                {/* <div className="mt-4 text-center text-xs sm:text-sm">
+                <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
                   <Link href="/auth/sign-up" className="underline underline-offset-4 text-primary">
                     Sign up
                   </Link>
-                </div> */}
+                </div>
               </form>
             </CardContent>
           </Card>
