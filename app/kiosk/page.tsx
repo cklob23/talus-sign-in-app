@@ -2300,9 +2300,12 @@ export default function KioskPage() {
       // Sign out of Supabase Auth with global scope to clear all sessions
       await supabase.auth.signOut({ scope: "global" })
 
-      // Clear remembered employee from local storage
-      localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
-      localStorage.removeItem("rememberedEmployee")
+      // NOTE: Do NOT clear REMEMBERED_EMPLOYEE_KEY here.
+      // The "Remember Me" localStorage entry should survive sign-outs
+      // so the auto sign-in countdown works when the employee returns.
+      // Only forgetEmployee() (triggered by "Not you?") should clear it.
+
+      // Clear runtime state but keep rememberedEmployee so the card shows on return
 
       // Clear all state
       setRememberedEmployee(null)
