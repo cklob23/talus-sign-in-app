@@ -7,7 +7,7 @@ export interface BrandingSettings {
 }
 
 const defaultBranding: BrandingSettings = {
-  companyName: "Talus",
+  companyName: "Talus Ag",
   companyLogo: "",
   companyLogoSmall: "",
 }
@@ -15,7 +15,7 @@ const defaultBranding: BrandingSettings = {
 // Server-side function to get branding settings
 export async function getBrandingSettings(): Promise<BrandingSettings> {
   const supabase = await createClient()
-  
+
   const { data } = await supabase
     .from("settings")
     .select("key, value")

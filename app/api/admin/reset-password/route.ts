@@ -26,7 +26,7 @@ async function getSmtpSettings() {
     user: s.smtp_user || process.env.SMTP_USER || "",
     pass: s.smtp_pass || process.env.SMTP_PASS || "",
     fromEmail: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || s.smtp_user || process.env.SMTP_USER || "",
-    companyName: s.company_name || "TalusAg",
+    companyName: s.company_name || "Talus Ag",
     companyLogo: s.company_logo || "",
   }
 }

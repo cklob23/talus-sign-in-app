@@ -32,7 +32,7 @@ async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
     user: s.smtp_user || process.env.SMTP_USER || "",
     pass: s.smtp_pass || process.env.SMTP_PASS || "",
     fromEmail: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || s.smtp_user || process.env.SMTP_USER || "",
-    companyName: s.company_name || "TalusAg",
+    companyName: s.company_name || "Talus Ag",
     companyLogo: s.company_logo || "",
   }
 }
@@ -114,23 +114,35 @@ async function runAutoSignout(request: Request) {
       })
     }
 
+    // Check if auto sign-out is enabled globally
+    const { data: autoSignOutSetting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "auto_sign_out")
+      .is("location_id", null)
+      .single()
+
+    const autoSignOutEnabled =
+      autoSignOutSetting?.value === true || autoSignOutSetting?.value === "true"
+
+    if (!autoSignOutEnabled) {
+      return NextResponse.json({
+        success: true,
+        message: "Auto sign-out is disabled",
+        signedOut: 0,
+        timestamp: now,
+        locations: [],
+      })
+    }
+
     for (const location of locations) {
       const tz = location.timezone || "UTC"
       const { hour, minute } = getLocalTime(tz)
       const localTimeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
 
-      // Check if auto sign-out is enabled for this location
-      const { data: autoSignOutSetting } = await supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "auto_sign_out")
-        .eq("location_id", location.id)
-        .single()
-
-      const autoSignOutEnabled =
-        autoSignOutSetting?.value === true || autoSignOutSetting?.value === "true"
-
-      if (!autoSignOutEnabled) {
+      if (false) {
+        // placeholder — auto_sign_out is global, not per-location
+      } else if (false) {
         results.push({
           locationId: location.id,
           locationName: location.name,

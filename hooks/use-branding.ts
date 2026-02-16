@@ -10,7 +10,7 @@ export interface BrandingSettings {
 }
 
 const defaultBranding: BrandingSettings = {
-  companyName: "Talus",
+  companyName: "Talus Ag",
   companyLogo: "",
   companyLogoSmall: "",
 }

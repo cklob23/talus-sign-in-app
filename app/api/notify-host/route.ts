@@ -32,7 +32,7 @@ async function getNotificationSettings() {
     user: settings.smtp_user || process.env.SMTP_USER || "",
     pass: settings.smtp_pass || process.env.SMTP_PASS || "",
     fromEmail: settings.smtp_from_email || process.env.SMTP_FROM_EMAIL || settings.smtp_user || process.env.SMTP_USER || "",
-    companyName: settings.company_name || "TalusAg",
+    companyName: settings.company_name || "Talus Ag",
     companyLogo: settings.company_logo || "",
     // Twilio
     twilioSid: settings.twilio_account_sid || "",

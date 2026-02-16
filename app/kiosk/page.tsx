@@ -709,61 +709,48 @@ export default function KioskPage() {
     setError(null)
 
     try {
-      const supabase = createClient()
-
-      // Check if already signed in today
-      const { data: existingSignIn } = await supabase
-        .from("employee_sign_ins")
-        .select("*")
-        .eq("profile_id", employee.id)
-        .is("sign_out_time", null)
-        .single()
-
-      const currentLoc = locations.find(l => l.id === selectedLocation)
-      const locationName = currentLoc?.name
-      const locationTimezone = currentLoc?.timezone
-      let signInTime = new Date().toISOString()
-
-      if (!existingSignIn) {
-        // Auto sign in - use selectedLocation instead of nearestLocation
-        const { error: insertError } = await supabase.from("employee_sign_ins").insert({
+      // Call server-side API (uses service-role key, no auth session required)
+      const response = await fetch("/api/kiosk/employee-auto-signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           profile_id: employee.id,
           location_id: selectedLocation,
-          auto_signed_in: true,
-          device_id: navigator.userAgent,
-        })
+        }),
+      })
 
-        if (insertError) {
-          console.log("[v0] Employee sign-in insert error:", insertError)
-          throw insertError
-        }
-      } else {
-        signInTime = existingSignIn.sign_in_time
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to auto sign in")
       }
 
       setCurrentEmployee({
-        id: employee.id,
-        email: employee.email,
-        full_name: employee.fullName,
+        id: result.profile.id,
+        email: result.profile.email,
+        full_name: result.profile.full_name,
         phone: null,
         department: null,
-        role: employee.role,
-        custom_role_id: employee.custom_role_id,
-        location_id: employee.locationId,
-        avatar_url: employee.avatar_url,
-        last_password_change: null,
-        last_auth_time: null,
-        failed_login_attempts: 0,
-        account_locked_until: null,
-        timezone: null,
+        role: result.profile.role,
+        custom_role_id: result.profile.custom_role_id,
+        location_id: result.profile.location_id,
+        timezone: result.profile.timezone,
+        avatar_url: result.profile.avatar_url,
+        last_auth_time: result.profile.last_auth_time,
+        last_password_change: result.profile.last_password_change,
+        account_locked_until: result.profile.account_locked_until,
+        failed_login_attempts: result.profile.failed_login_attempts,
         created_at: "",
         updated_at: "",
       })
-      setEmployeeSignInRecord({ sign_in_time: signInTime, location_name: locationName, timezone: locationTimezone })
+      setEmployeeSignInRecord({
+        sign_in_time: result.signIn.sign_in_time,
+        location_name: result.signIn.location_name,
+        timezone: result.signIn.timezone,
+      })
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
-      console.log("[v0] Auto sign-in error:", err)
       setError(err instanceof Error ? err.message : "Failed to auto sign in")
     } finally {
       setIsLoading(false)
@@ -2556,7 +2543,7 @@ export default function KioskPage() {
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-6 sm:mb-12">
               <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName || "Talus"}. Please sign in or sign out below.</p>
+              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName}. Please sign in or sign out below.</p>
             </div>
 
             {/* Geofence warning banner */}
@@ -2681,7 +2668,7 @@ export default function KioskPage() {
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
-                            {isOutsideGeofence ? "Move closer to sign in" : "Talus employees sign in here"}
+                            {isOutsideGeofence ? "Move closer to sign in" : `${branding.companyName} employees sign in here`}
                           </p>
                         </div>
                       </div>
@@ -3226,7 +3213,7 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-xl sm:text-2xl">Employee Sign In</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Sign in with your {branding.companyName || "Talus"} credentials</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Sign in with your {branding.companyName} credentials</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -3540,7 +3527,7 @@ export default function KioskPage() {
                       />
                       <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
                         I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on {branding.companyName || "Talus"} premises. I understand that failure
+                        all safety guidelines and procedures while on {branding.companyName} premises. I understand that failure
                         to comply may result in being asked to leave the facility.
                       </label>
                     </div>
@@ -3720,7 +3707,7 @@ export default function KioskPage() {
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
                     ? "Please collect your visitor badge from reception."
-                    : `Thank you for visiting ${branding.companyName || "Talus"}.`}
+                    : `Thank you for visiting ${branding.companyName}.`}
                 </p>
 
                 <Button onClick={handleReset} size="lg" className="w-full">
