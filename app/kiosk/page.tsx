@@ -404,12 +404,19 @@ export default function KioskPage() {
 
           // Remember this employee
           if (typeof window !== "undefined") {
-            localStorage.setItem("rememberedEmployee", JSON.stringify({
+            const rememberedData: RememberedEmployee = {
               id: profile.id,
               email: profile.email,
-              fullName: profile.full_name,
+              fullName: profile.full_name || "",
               locationId: profile.location_id,
-            }))
+              role: profile.role,
+              custom_role_id: profile.custom_role_id,
+              avatar_url: profile.avatar_url || null,
+              created_at: profile.created_at,
+              updated_at: profile.updated_at,
+            }
+            localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
+            setRememberedEmployee(rememberedData)
           }
         }
 
@@ -596,6 +603,19 @@ export default function KioskPage() {
   const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
   const currentTimezone = currentLocation?.timezone || "UTC"
 
+  // Geofence enforcement
+  const geofenceRadius = currentLocation?.auto_signin_radius_meters
+  // If no radius is set (null/0), geofencing is disabled — allow everyone
+  // If user denied geolocation (no coords), we can't enforce — allow but warn
+  const isOutsideGeofence = Boolean(
+    geofenceRadius && geofenceRadius > 0 && selectedLocationDistance && selectedLocationDistance > geofenceRadius
+  )
+  const isWithinGeofence = !isOutsideGeofence
+
+  // Auto sign-in countdown for remembered employees within geofence
+  const [autoSignInCountdown, setAutoSignInCountdown] = useState<number | null>(null)
+  const autoSignInTimerRef = useRef<NodeJS.Timeout | null>(null)
+
   // Update clock every second
   useEffect(() => {
     const timer = setInterval(() => {
@@ -604,22 +624,73 @@ export default function KioskPage() {
     return () => clearInterval(timer)
   }, [])
 
-  // Check for remembered employee and auto-login
+  // Check for remembered employee on mount
   useEffect(() => {
     const stored = localStorage.getItem(REMEMBERED_EMPLOYEE_KEY)
     if (stored) {
       try {
         const employee = JSON.parse(stored) as RememberedEmployee
         setRememberedEmployee(employee)
-        // Auto-login if at their location
-        if (nearestLocation && employee.locationId === nearestLocation.location.id) {
-          autoSignInEmployee(employee)
-        }
       } catch (e) {
         localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
       }
     }
-  }, [nearestLocation])
+  }, [])
+
+  // Auto sign-in countdown for remembered employees within geofence
+  useEffect(() => {
+    if (!rememberedEmployee || employeeSignedIn || mode !== "home") return
+    if (!selectedLocation) return
+
+    const radius = currentLocation?.auto_signin_radius_meters
+    const hasGeofence = radius && radius > 0
+
+    // If geofence is configured, we need a distance to check against
+    if (hasGeofence && selectedLocationDistance && selectedLocationDistance > radius) {
+      // Outside geofence — clear any running countdown
+      if (autoSignInTimerRef.current) {
+        clearInterval(autoSignInTimerRef.current)
+        autoSignInTimerRef.current = null
+      }
+      setAutoSignInCountdown(null)
+      return
+    }
+
+    // If geofence is configured but we don't have distance yet (geo still loading),
+    // wait — don't start countdown until we know
+    if (hasGeofence && !selectedLocationDistance) return
+
+    // Either no geofence (auto-sign-in always allowed) or within geofence
+    // Start a 5-second countdown, then auto sign-in
+    if (autoSignInTimerRef.current) return // already running
+    setAutoSignInCountdown(5)
+    autoSignInTimerRef.current = setInterval(() => {
+      setAutoSignInCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          if (autoSignInTimerRef.current) {
+            clearInterval(autoSignInTimerRef.current)
+            autoSignInTimerRef.current = null
+          }
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => {
+      if (autoSignInTimerRef.current) {
+        clearInterval(autoSignInTimerRef.current)
+        autoSignInTimerRef.current = null
+      }
+    }
+  }, [rememberedEmployee, employeeSignedIn, mode, selectedLocation, selectedLocationDistance, currentLocation?.auto_signin_radius_meters])
+
+  // Fire auto sign-in when countdown reaches 0
+  useEffect(() => {
+    if (autoSignInCountdown === 0 && rememberedEmployee && !employeeSignedIn) {
+      autoSignInEmployee(rememberedEmployee)
+    }
+  }, [autoSignInCountdown])
 
   // Pre-fill employee email when entering employee-login mode with a remembered employee
   useEffect(() => {
@@ -845,6 +916,10 @@ export default function KioskPage() {
   // Complete sign-in for a pre-registered booking
   async function handleBookingSignIn() {
     if (!selectedBooking) return
+    if (isOutsideGeofence) {
+      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to check in.`)
+      return
+    }
     setIsLoading(true)
     setError(null)
 
@@ -1326,6 +1401,11 @@ export default function KioskPage() {
   // Check if visitor type requires training and redirect if needed
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isOutsideGeofence) {
+      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to sign in.`)
+      return
+    }
+
     const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
 
     if (selectedType?.requires_training) {
@@ -2029,6 +2109,12 @@ export default function KioskPage() {
 
   async function handleEmployeeLogin(e: React.FormEvent) {
     e.preventDefault()
+
+    if (isOutsideGeofence) {
+      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to sign in.`)
+      return
+    }
+
     setIsLoading(true)
     setError(null)
 
@@ -2470,11 +2556,26 @@ export default function KioskPage() {
               <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName || "Talus"}. Please sign in or sign out below.</p>
             </div>
 
+            {/* Geofence warning banner */}
+            {isOutsideGeofence && selectedLocationDistance && geofenceRadius && (
+              <div className="mb-4 sm:mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 sm:p-4 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-amber-800">
+                    You are {formatDistance(selectedLocationDistance, "")} from {currentLocation?.name || "this location"}
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Sign-in is only available within {formatDistance(geofenceRadius, "")} of this location. Please move closer to sign in.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Visitor options - always shown */}
             <div className={`grid gap-3 sm:gap-6 ${hasFeature("visitorPreRegistration") ? "grid-cols-3" : "grid-cols-2"}`}>
               <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
-                onClick={() => setMode("sign-in")}
+                className={`transition-all group flex flex-col h-full ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-primary/50"}`}
+                onClick={() => !isOutsideGeofence && setMode("sign-in")}
               >
                 <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
                   <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
@@ -2484,7 +2585,7 @@ export default function KioskPage() {
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                  <Button className="w-full" size="lg">
+                  <Button className="w-full" size="lg" disabled={isOutsideGeofence}>
                     Sign In
                   </Button>
                 </CardContent>
@@ -2492,8 +2593,8 @@ export default function KioskPage() {
 
               {hasFeature("visitorPreRegistration") && (
                 <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-blue-500/50 transition-all group flex flex-col h-full"
-                  onClick={() => setMode("booking")}
+                  className={`transition-all group flex flex-col h-full ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-blue-500/50"}`}
+                  onClick={() => !isOutsideGeofence && setMode("booking")}
                 >
                   <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
                     <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
@@ -2503,7 +2604,7 @@ export default function KioskPage() {
                     <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
                   </CardHeader>
                   <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg">
+                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg" disabled={isOutsideGeofence}>
                       Check In
                     </Button>
                   </CardContent>
@@ -2565,8 +2666,8 @@ export default function KioskPage() {
                 </Card>
               ) : (
                 <Card
-                  className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group mb-4 sm:mb-6"
-                  onClick={() => setMode("employee-login")}
+                  className={`transition-all group mb-4 sm:mb-6 ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-primary/50"}`}
+                  onClick={() => !isOutsideGeofence && setMode("employee-login")}
                 >
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex items-center justify-between gap-2">
@@ -2576,7 +2677,9 @@ export default function KioskPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">{branding.companyName || "Talus"} employees sign in here</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
+                            {isOutsideGeofence ? "Move closer to sign in" : "Talus employees sign in here"}
+                          </p>
                         </div>
                       </div>
                       <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
@@ -2587,7 +2690,7 @@ export default function KioskPage() {
 
               {/* Remembered employee - only show quick sign-in option if NOT already signed in */}
               {rememberedEmployee && !employeeSignedIn && (
-                <Card className="mb-4 sm:mb-6 border-blue-200 bg-blue-50/50">
+                <Card className={`mb-4 sm:mb-6 ${isOutsideGeofence ? "border-amber-200 bg-amber-50/50" : autoSignInCountdown !== null && autoSignInCountdown > 0 ? "border-green-300 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
@@ -2600,10 +2703,16 @@ export default function KioskPage() {
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
-                            {nearestLocation && rememberedEmployee.locationId === nearestLocation.location.id ? (
-                              "You're at your registered location"
+                            {isOutsideGeofence ? (
+                              <span className="text-amber-700">
+                                {selectedLocationDistance ? formatDistance(selectedLocationDistance, "away") : "Too far away"} — move closer to sign in
+                              </span>
+                            ) : autoSignInCountdown !== null && autoSignInCountdown > 0 ? (
+                              <span className="text-green-700">
+                                Auto signing in, in {autoSignInCountdown}s...
+                              </span>
                             ) : (
-                              "Quick sign in available"
+                              selectedLocationDistance ? formatDistance(selectedLocationDistance, "from location") : "Quick sign in available"
                             )}
                           </p>
                         </div>
@@ -2615,22 +2724,46 @@ export default function KioskPage() {
                           className="text-xs sm:text-sm bg-transparent"
                           onClick={(e) => {
                             e.stopPropagation()
+                            // Cancel any running countdown
+                            if (autoSignInTimerRef.current) {
+                              clearInterval(autoSignInTimerRef.current)
+                              autoSignInTimerRef.current = null
+                            }
+                            setAutoSignInCountdown(null)
                             forgetEmployee()
                           }}
                         >
                           Not you?
                         </Button>
-                        <Button
-                          size="sm"
-                          className="text-xs sm:text-sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            autoSignInEmployee(rememberedEmployee)
-                          }}
-                          disabled={isLoading}
-                        >
-                          Sign In
-                        </Button>
+                        {autoSignInCountdown !== null && autoSignInCountdown > 0 ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs sm:text-sm bg-transparent"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (autoSignInTimerRef.current) {
+                                clearInterval(autoSignInTimerRef.current)
+                                autoSignInTimerRef.current = null
+                              }
+                              setAutoSignInCountdown(null)
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="text-xs sm:text-sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              autoSignInEmployee(rememberedEmployee)
+                            }}
+                            disabled={isLoading || isOutsideGeofence}
+                          >
+                            Sign In
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -2846,9 +2979,19 @@ export default function KioskPage() {
                     />
                   </div>
 
+                  {isOutsideGeofence && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">
+                        You are too far from {currentLocation?.name || "this location"}.
+                        Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to sign in.
+                      </p>
+                    </div>
+                  )}
+
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence}>
                     {isLoading ? "Processing..." : selectedVisitorType?.requires_training ? (
                       <>
                         <PlayCircle className="w-4 h-4 mr-2" />
@@ -2981,6 +3124,16 @@ export default function KioskPage() {
                       </div>
                     )}
 
+                    {isOutsideGeofence && (
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700">
+                          You are too far from {currentLocation?.name || "this location"}.
+                          Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to check in.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="flex gap-3">
                       <Button
                         variant="outline"
@@ -2995,7 +3148,7 @@ export default function KioskPage() {
                       </Button>
                       <Button
                         className="flex-1"
-                        disabled={!selectedBooking || isLoading}
+                        disabled={!selectedBooking || isLoading || isOutsideGeofence}
                         onClick={handleBookingSignIn}
                       >
                         {isLoading ? (
@@ -3138,9 +3291,19 @@ export default function KioskPage() {
                     </div>
                   )}
 
+                  {isOutsideGeofence && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">
+                        You are too far from {currentLocation?.name || "this location"}.
+                        Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to sign in.
+                      </p>
+                    </div>
+                  )}
+
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence}>
                     {isLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />

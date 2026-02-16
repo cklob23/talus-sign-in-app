@@ -1,45 +1,124 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import nodemailer from "nodemailer"
 
-// This endpoint can be called by a cron job (e.g., Vercel Cron) at end of day
-// to automatically sign out all visitors
+export const maxDuration = 60
 
-export async function POST(request: Request) {
+function createAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+}
+
+/** Load SMTP + company branding from the settings table */
+async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
+  const { data } = await supabase
+    .from("settings")
+    .select("key, value")
+    .is("location_id", null)
+    .in("key", [
+      "smtp_host", "smtp_port", "smtp_user", "smtp_pass",
+      "smtp_from_email", "company_name", "company_logo",
+    ])
+
+  const s: Record<string, string> = {}
+  if (data) for (const row of data) s[row.key] = String(row.value || "")
+
+  return {
+    host: s.smtp_host || process.env.SMTP_HOST || "",
+    port: Number.parseInt(s.smtp_port || process.env.SMTP_PORT || "587", 10),
+    user: s.smtp_user || process.env.SMTP_USER || "",
+    pass: s.smtp_pass || process.env.SMTP_PASS || "",
+    fromEmail: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || s.smtp_user || process.env.SMTP_USER || "",
+    companyName: s.company_name || "TalusAg",
+    companyLogo: s.company_logo || "",
+  }
+}
+
+/**
+ * Get the current local time in a timezone.
+ * Returns { hour, minute } in the location's local time.
+ */
+function getLocalTime(timezone: string): { hour: number; minute: number } {
   try {
-    // Verify the request is authorized (in production, use a secret key)
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    })
+    const parts = formatter.formatToParts(new Date())
+    const hour = Number(parts.find(p => p.type === "hour")?.value ?? 0)
+    const minute = Number(parts.find(p => p.type === "minute")?.value ?? 0)
+    return { hour, minute }
+  } catch {
+    // Invalid timezone — return a time that won't trigger sign-out
+    return { hour: 12, minute: 0 }
+  }
+}
+
+/**
+ * Core auto-signout logic. Called by both GET (Vercel Cron) and POST (manual).
+ *
+ * The cron runs every 15 minutes. For each location where auto_sign_out is
+ * enabled, we check if the local time is in the 23:45–23:59 window (11:45 PM
+ * to 11:59 PM). If so, we sign out all active visitors and email their hosts.
+ */
+async function runAutoSignout(request: Request) {
+  try {
+    // Verify cron secret
     const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
-    
-    // If CRON_SECRET is set, verify it
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Create admin client
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    const supabase = createAdminClient()
+    const now = new Date().toISOString()
 
-    // Get all locations
+    // Get all locations with their timezone
     const { data: locations } = await supabase
       .from("locations")
-      .select("id, name")
+      .select("id, name, timezone")
 
     if (!locations || locations.length === 0) {
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: "No locations found",
-        signedOut: 0 
+        signedOut: 0,
       })
     }
 
-    const now = new Date().toISOString()
     let totalSignedOut = 0
-    const results: { locationId: string; locationName: string; signedOut: number; enabled: boolean }[] = []
+    const results: {
+      locationId: string
+      locationName: string
+      timezone: string
+      localTime: string
+      signedOut: number
+      enabled: boolean
+      emailsSent: number
+    }[] = []
 
-    // Process each location separately
+    // Load SMTP settings once for host notification emails
+    const smtp = await getSmtpSettings(supabase)
+    let transporter: nodemailer.Transporter | null = null
+    if (smtp.host && smtp.user && smtp.pass) {
+      transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.port === 465,
+        auth: { user: smtp.user, pass: smtp.pass },
+      })
+    }
+
     for (const location of locations) {
+      const tz = location.timezone || "UTC"
+      const { hour, minute } = getLocalTime(tz)
+      const localTimeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+
       // Check if auto sign-out is enabled for this location
       const { data: autoSignOutSetting } = await supabase
         .from("settings")
@@ -48,41 +127,68 @@ export async function POST(request: Request) {
         .eq("location_id", location.id)
         .single()
 
-      const autoSignOutEnabled = autoSignOutSetting?.value === true || autoSignOutSetting?.value === "true"
+      const autoSignOutEnabled =
+        autoSignOutSetting?.value === true || autoSignOutSetting?.value === "true"
 
       if (!autoSignOutEnabled) {
-        results.push({ 
-          locationId: location.id, 
-          locationName: location.name, 
-          signedOut: 0, 
-          enabled: false 
+        results.push({
+          locationId: location.id,
+          locationName: location.name,
+          timezone: tz,
+          localTime: localTimeStr,
+          signedOut: 0,
+          enabled: false,
+          emailsSent: 0,
         })
         continue
       }
 
-      // Get active sign-ins for this location
+      // Only sign out if local time is in the 23:45–23:59 window
+      if (hour !== 23 || minute < 45) {
+        results.push({
+          locationId: location.id,
+          locationName: location.name,
+          timezone: tz,
+          localTime: localTimeStr,
+          signedOut: 0,
+          enabled: true,
+          emailsSent: 0,
+        })
+        continue
+      }
+
+      // Get active visitor sign-ins for this location with host info
       const { data: activeSignIns, error: fetchError } = await supabase
         .from("sign_ins")
-        .select("id")
+        .select(`
+          id,
+          visitor_id,
+          visitors!inner ( full_name, email, company ),
+          host_id,
+          hosts ( full_name, email )
+        `)
         .eq("location_id", location.id)
         .is("sign_out_time", null)
 
       if (fetchError) {
-        console.error(`[v0] Error fetching sign-ins for location ${location.name}:`, fetchError)
+        console.error(`[Auto Sign-out] Error fetching sign-ins for ${location.name}:`, fetchError)
         continue
       }
 
       if (!activeSignIns || activeSignIns.length === 0) {
-        results.push({ 
-          locationId: location.id, 
-          locationName: location.name, 
-          signedOut: 0, 
-          enabled: true 
+        results.push({
+          locationId: location.id,
+          locationName: location.name,
+          timezone: tz,
+          localTime: localTimeStr,
+          signedOut: 0,
+          enabled: true,
+          emailsSent: 0,
         })
         continue
       }
 
-      // Update all active sign-ins for this location
+      // Sign out all active visitors at this location
       const { error: updateError } = await supabase
         .from("sign_ins")
         .update({ sign_out_time: now })
@@ -90,28 +196,106 @@ export async function POST(request: Request) {
         .is("sign_out_time", null)
 
       if (updateError) {
-        console.error(`[v0] Error signing out visitors for location ${location.name}:`, updateError)
+        console.error(`[Auto Sign-out] Error signing out visitors at ${location.name}:`, updateError)
         continue
       }
 
+      // Audit log
+      await supabase.from("audit_logs").insert({
+        action: "visitor.auto_sign_out",
+        entity_type: "system",
+        description: `Auto sign-out: ${activeSignIns.length} visitor(s) signed out at ${location.name} (${tz}, local time ${localTimeStr})`,
+      })
+
       totalSignedOut += activeSignIns.length
-      results.push({ 
-        locationId: location.id, 
-        locationName: location.name, 
-        signedOut: activeSignIns.length, 
-        enabled: true 
+
+      // Email hosts about auto-signed-out visitors
+      let emailsSent = 0
+      if (transporter) {
+        // Group visitors by host email to send one email per host
+        const hostVisitors: Record<string, {
+          hostName: string
+          hostEmail: string
+          visitors: { name: string; company: string | null }[]
+        }> = {}
+
+        for (const signIn of activeSignIns) {
+          const host = signIn.hosts as any
+          if (!host?.email) continue
+
+          const visitor = signIn.visitors as any
+          if (!visitor) continue
+
+          if (!hostVisitors[host.email]) {
+            hostVisitors[host.email] = {
+              hostName: host.full_name,
+              hostEmail: host.email,
+              visitors: [],
+            }
+          }
+          hostVisitors[host.email].visitors.push({
+            name: visitor.full_name,
+            company: visitor.company,
+          })
+        }
+
+        for (const hv of Object.values(hostVisitors)) {
+          try {
+            const visitorList = hv.visitors
+              .map(v => `<li style="padding:4px 0;color:#333;">${v.name}${v.company ? ` <span style="color:#888;">(${v.company})</span>` : ""}</li>`)
+              .join("")
+
+            const htmlBody = `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+                ${smtp.companyLogo ? `<img src="${smtp.companyLogo}" alt="${smtp.companyName}" style="height:40px;margin-bottom:24px;" />` : `<h2 style="margin-bottom:24px;color:#333;">${smtp.companyName}</h2>`}
+                <p style="font-size:16px;color:#333;">Hi ${hv.hostName},</p>
+                <p style="font-size:14px;color:#555;line-height:1.6;">
+                  The following visitor${hv.visitors.length > 1 ? "s were" : " was"} automatically signed out at <strong>${location.name}</strong> at end of day (${localTimeStr} ${tz}):
+                </p>
+                <ul style="font-size:14px;line-height:1.8;padding-left:20px;margin:16px 0;">
+                  ${visitorList}
+                </ul>
+                <p style="font-size:13px;color:#888;line-height:1.5;">
+                  This is an automated notification. If any of these visitors are still on-site, please have them sign in again tomorrow.
+                </p>
+                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+                <p style="font-size:11px;color:#aaa;">${smtp.companyName} Visitor Management</p>
+              </div>
+            `
+
+            await transporter.sendMail({
+              from: `"${smtp.companyName}" <${smtp.fromEmail}>`,
+              to: hv.hostEmail,
+              subject: `${smtp.companyName} - Visitor${hv.visitors.length > 1 ? "s" : ""} Auto Signed Out at ${location.name}`,
+              html: htmlBody,
+            })
+            emailsSent++
+          } catch (emailErr) {
+            console.error(`[Auto Sign-out] Failed to email host ${hv.hostEmail}:`, emailErr)
+          }
+        }
+      }
+
+      results.push({
+        locationId: location.id,
+        locationName: location.name,
+        timezone: tz,
+        localTime: localTimeStr,
+        signedOut: activeSignIns.length,
+        enabled: true,
+        emailsSent,
       })
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: `Successfully signed out ${totalSignedOut} visitor(s) across ${locations.length} location(s)`,
+    return NextResponse.json({
+      success: true,
+      message: `Signed out ${totalSignedOut} visitor(s) across locations at end of day`,
       signedOut: totalSignedOut,
       timestamp: now,
-      locations: results
+      locations: results,
     })
   } catch (error) {
-    console.error("[v0] Error in auto-signout API:", error)
+    console.error("[Auto Sign-out] Error:", error)
     return NextResponse.json(
       { error: "Failed to process auto sign-out" },
       { status: 500 }
@@ -119,13 +303,17 @@ export async function POST(request: Request) {
   }
 }
 
-// GET endpoint for manual trigger or status check
-export async function GET() {
-  return NextResponse.json({
-    endpoint: "/api/auto-signout",
-    description: "Automatically signs out all visitors at end of day",
-    method: "POST",
-    authentication: "Bearer token using CRON_SECRET environment variable",
-    usage: "Set up a Vercel Cron job to call this endpoint daily at your desired time (e.g., 6 PM)"
-  })
+/**
+ * GET handler -- called by Vercel Cron every 15 minutes.
+ * Vercel Crons always send GET requests.
+ */
+export async function GET(request: Request) {
+  return runAutoSignout(request)
+}
+
+/**
+ * POST handler -- kept for manual triggers or backward compatibility.
+ */
+export async function POST(request: Request) {
+  return runAutoSignout(request)
 }

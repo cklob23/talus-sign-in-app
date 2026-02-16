@@ -23,17 +23,17 @@ export default function ResetPasswordPage() {
     const router = useRouter()
 
     useEffect(() => {
-        // Supabase will automatically exchange the token from the email link
-        // and establish a session. We just need to wait for it.
         const supabase = createClient()
 
+        // Listen for the PASSWORD_RECOVERY event (hash-fragment flow)
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-            if (event === "PASSWORD_RECOVERY") {
+            if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
                 setIsReady(true)
             }
         })
 
-        // Also check if we already have a session (in case the event fired before we subscribed)
+        // Our verify-recovery endpoint already established a server-side session
+        // and redirected here, so check if we already have a valid session
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session) {
                 setIsReady(true)
@@ -69,7 +69,7 @@ export default function ResetPasswordPage() {
 
             // Redirect to login after a short delay
             setTimeout(() => {
-                router.push("/auth/login")
+                router.push("/kiosk")
             }, 3000)
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to update password")

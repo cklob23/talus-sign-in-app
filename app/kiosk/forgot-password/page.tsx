@@ -2,8 +2,8 @@
 
 import React from "react"
 
-import { useState } from "react"
-import { createClient } from "@/lib/supabase/client"
+import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,14 +12,27 @@ import { ArrowLeft, Mail, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { TalusAgLogo } from "@/components/talusag-logo"
-import { useBranding } from "@/hooks/use-branding"
+
+const ERROR_MESSAGES: Record<string, string> = {
+    invalid_link: "This reset link is invalid. Please request a new one.",
+    expired_link: "This reset link has expired. Please request a new one.",
+    verification_failed: "Verification failed. Please request a new reset link.",
+}
 
 export default function ForgotPasswordPage() {
-    const { branding } = useBranding()
+    const searchParams = useSearchParams()
     const [email, setEmail] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [isSuccess, setIsSuccess] = useState(false)
     const [error, setError] = useState<string | null>(null)
+
+    // Show error from redirect (e.g. expired/invalid token)
+    useEffect(() => {
+        const errorParam = searchParams.get("error")
+        if (errorParam && ERROR_MESSAGES[errorParam]) {
+            setError(ERROR_MESSAGES[errorParam])
+        }
+    }, [searchParams])
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
@@ -27,17 +40,16 @@ export default function ForgotPasswordPage() {
         setError(null)
 
         try {
-            const supabase = createClient()
-
-            // Get the current origin for the redirect URL
-            const redirectUrl = `${window.location.origin}/kiosk/reset-password`
-
-            const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: redirectUrl,
+            const response = await fetch("/api/auth/forgot-password", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email }),
             })
 
-            if (resetError) {
-                throw resetError
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to send reset email")
             }
 
             setIsSuccess(true)
@@ -53,7 +65,7 @@ export default function ForgotPasswordPage() {
             {/* Header */}
             <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <div className="container flex h-14 items-center px-4">
-                    <Link href="/kiosk">
+                    <Link href="/kiosk" className="flex items-center gap-2">
                         <TalusAgLogo />
                     </Link>
                 </div>
@@ -108,7 +120,7 @@ export default function ForgotPasswordPage() {
                                     <Input
                                         id="email"
                                         type="email"
-                                        placeholder={`you@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
+                                        placeholder="you@company.com"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         required
