@@ -47,8 +47,10 @@ import { useBranding } from "@/hooks/use-branding"
 
 type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
-// Storage key for remembered employee
+// Storage key for remembered employee (persists across sign-outs for auto sign-in)
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
+// Storage key for active employee session (persists across same-tab navigation, clears on sign-out or tab close)
+const ACTIVE_EMPLOYEE_SESSION_KEY = "talusag_active_employee_session"
 
 interface RememberedEmployee {
   id: string
@@ -641,6 +643,35 @@ export default function KioskPage() {
       }
     }
   }, [])
+
+  // Restore active employee session on mount (survives same-tab navigation)
+  useEffect(() => {
+    const session = sessionStorage.getItem(ACTIVE_EMPLOYEE_SESSION_KEY)
+    if (session) {
+      try {
+        const { employee, signInRecord } = JSON.parse(session)
+        if (employee && signInRecord) {
+          setCurrentEmployee(employee)
+          setEmployeeSignInRecord(signInRecord)
+          setEmployeeSignedIn(true)
+          setMode("employee-dashboard")
+        }
+      } catch {
+        sessionStorage.removeItem(ACTIVE_EMPLOYEE_SESSION_KEY)
+      }
+    }
+  }, [])
+
+  // Persist active employee session to sessionStorage whenever it changes
+  // This allows the session to survive same-tab navigation (e.g. visiting admin portal and back)
+  useEffect(() => {
+    if (employeeSignedIn && currentEmployee && employeeSignInRecord) {
+      sessionStorage.setItem(ACTIVE_EMPLOYEE_SESSION_KEY, JSON.stringify({
+        employee: currentEmployee,
+        signInRecord: employeeSignInRecord,
+      }))
+    }
+  }, [employeeSignedIn, currentEmployee, employeeSignInRecord])
 
   // Auto sign-in countdown for remembered employees within geofence
   useEffect(() => {
@@ -2304,11 +2335,12 @@ export default function KioskPage() {
       setIsLoading(false)
     }
   }
-  
+
   async function forgetEmployee() {
-    // Clear local storage
+    // Clear local storage and session storage
     localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
     localStorage.removeItem("rememberedEmployee")
+    sessionStorage.removeItem(ACTIVE_EMPLOYEE_SESSION_KEY)
     setRememberedEmployee(null)
 
     // Also sign out of Supabase if currently authenticated
