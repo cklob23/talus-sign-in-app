@@ -72,6 +72,7 @@ export function AdminHeader() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [companyName, setCompanyName] = useState("Talus")
   const router = useRouter()
   const { branding } = useBranding()
 
@@ -243,7 +244,7 @@ export function AdminHeader() {
     <header className="h-14 sm:h-16 border-b bg-background flex items-center justify-between px-3 sm:px-6">
       <div className="flex items-center gap-2">
         <MobileSidebar />
-        <h2 className="text-base sm:text-lg font-semibold">{branding.companyName} Admin</h2>
+        <h2 className="text-base sm:text-lg font-semibold">{branding?.companyName || "Talus"} Admin</h2>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
         <Popover open={isOpen} onOpenChange={handleOpenChange}>

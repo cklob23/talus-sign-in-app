@@ -238,9 +238,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No vendors provided" }, { status: 400 })
     }
 
+    // Query existing vendor ramp IDs to distinguish creates from updates
+    const incomingRampIds = selectedVendors.map(v => v.id).filter(Boolean)
+    const { data: existingVendorRows } = await adminClient
+      .from("vendors")
+      .select("ramp_vendor_id")
+      .in("ramp_vendor_id", incomingRampIds)
+
+    const existingIdSet = new Set(
+      (existingVendorRows || []).map((v: { ramp_vendor_id: string }) => v.ramp_vendor_id)
+    )
+
     // Batch upsert selected vendors (chunks of 100 for speed)
     const now = new Date().toISOString()
-    let upserted = 0
+    let createdCount = 0
+    let updatedCount = 0
     const errors: string[] = []
 
     const BATCH_SIZE = 100
@@ -257,7 +269,7 @@ export async function POST(request: Request) {
         synced_at: now,
       }))
 
-      const { error, count } = await adminClient
+      const { error } = await adminClient
         .from("vendors")
         .upsert(batch, { onConflict: "ramp_vendor_id", count: "exact" })
 
@@ -265,9 +277,17 @@ export async function POST(request: Request) {
         console.error(`Batch ${i / BATCH_SIZE + 1} error:`, error)
         errors.push(`Batch ${i / BATCH_SIZE + 1}: ${error.message}`)
       } else {
-        upserted += count || batch.length
+        for (const item of batch) {
+          if (existingIdSet.has(item.ramp_vendor_id)) {
+            updatedCount++
+          } else {
+            createdCount++
+          }
+        }
       }
     }
+
+    const upserted = createdCount + updatedCount
 
     if (errors.length > 0 && upserted === 0) {
       return NextResponse.json(
@@ -300,8 +320,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       synced: upserted,
+      created: createdCount,
+      updated: updatedCount,
       total_selected: selectedVendors.length,
-      ...(errors.length > 0 ? { warnings: errors } : {}),
+      errors: errors.length > 0 ? errors : undefined,
     })
   } catch (err) {
     console.error("Ramp import error:", err)

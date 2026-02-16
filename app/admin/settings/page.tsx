@@ -25,6 +25,8 @@ import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
+import { refreshBranding } from "@/hooks/use-branding"
 import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/lib/tier"
 import Image from "next/image"
 
@@ -168,6 +170,9 @@ export default function SettingsPage() {
   const [syncScheduleError, setSyncScheduleError] = useState<string | null>(null)
   const [runningSyncAzure, setRunningSyncAzure] = useState(false)
   const [runningSyncRamp, setRunningSyncRamp] = useState(false)
+  const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: "azure" | "ramp"; status: "started" | "completed" | "failed"; message: string }>>([])
+  const [azureSyncProgress, setAzureSyncProgress] = useState<SyncProgressData | null>(null)
+  const [rampSyncProgress, setRampSyncProgress] = useState<SyncProgressData | null>(null)
 
   const [form, setForm] = useState({
     name: "",
@@ -562,6 +567,10 @@ export default function SettingsPage() {
       metadata: { company_name: branding.company_name }
     })
 
+    // Refresh the shared branding cache so all components (header, sidebar,
+    // kiosk, login, etc.) update immediately without a page reload.
+    await refreshBranding()
+
     setSavingBranding(false)
   }
 
@@ -843,60 +852,145 @@ export default function SettingsPage() {
     }
   }
 
+  function addSyncLog(type: "azure" | "ramp", status: "started" | "completed" | "failed", message: string) {
+    setSyncLogs(prev => [{ time: new Date().toISOString(), type, status, message }, ...prev].slice(0, 50))
+  }
+
   async function handleManualSync(type: "azure" | "ramp") {
     if (type === "azure") {
       setRunningSyncAzure(true)
     } else {
       setRunningSyncRamp(true)
     }
+    setSyncScheduleError(null)
+    setSyncScheduleSuccess(null)
+
+    const label = type === "azure" ? "Azure AD" : "Ramp"
+    const setProgress = type === "azure" ? setAzureSyncProgress : setRampSyncProgress
+    addSyncLog(type, "started", `${label} sync started manually`)
+
+    // Audit: sync started
+    await logAudit({
+      action: type === "azure" ? "sync.azure_started" : "sync.ramp_started",
+      entityType: "sync",
+      description: `${label} sync started manually`,
+      metadata: { trigger: "manual" },
+    })
 
     try {
-      // Fetch preview data from existing sync endpoints
+      // Step 1: Fetch all items from the source
+      addSyncLog(type, "started", `Fetching ${label} data...`)
       const res = await fetch(
         type === "azure" ? "/api/admin/sync-azure-users" : "/api/admin/vendors/sync",
         { method: "GET" }
       )
       const data = await res.json()
 
-      if (type === "azure") {
-        if (data.users) {
-          // Auto-import all users
-          const importRes = await fetch("/api/admin/sync-azure-users", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ users: data.users }),
-          })
-          const importData = await importRes.json()
-          setLastAzureSync(new Date().toISOString())
-          setSyncScheduleSuccess(`Azure AD sync complete: ${importData.synced || 0} users synced.`)
-        } else {
-          setSyncScheduleError(data.error || "Failed to fetch Azure AD users.")
-        }
-      } else {
-        if (data.vendors) {
-          // Auto-import all vendors
-          const CHUNK_SIZE = 200
-          let totalSynced = 0
-          for (let i = 0; i < data.vendors.length; i += CHUNK_SIZE) {
-            const chunk = data.vendors.slice(i, i + CHUNK_SIZE)
-            const importRes = await fetch("/api/admin/vendors/sync", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ vendors: chunk }),
-            })
-            const importData = await importRes.json()
-            totalSynced += importData.synced || 0
-          }
-          setLastRampSync(new Date().toISOString())
-          setSyncScheduleSuccess(`Ramp sync complete: ${totalSynced} vendors synced.`)
-        } else {
-          setSyncScheduleError(data.error || "Failed to fetch Ramp vendors.")
-        }
+      const items = type === "azure" ? data.users : data.vendors
+      if (!items || items.length === 0) {
+        const errMsg = data.error || `No ${type === "azure" ? "users" : "vendors"} found.`
+        setSyncScheduleError(errMsg)
+        addSyncLog(type, "failed", errMsg)
+        setProgress(null)
+        await logAudit({
+          action: type === "azure" ? "sync.azure_failed" : "sync.ramp_failed",
+          entityType: "sync",
+          description: errMsg,
+          metadata: { error: errMsg },
+        })
+        return
       }
 
-      setTimeout(() => setSyncScheduleSuccess(null), 5000)
+      addSyncLog(type, "started", `Found ${items.length} ${type === "azure" ? "users" : "vendors"}, importing...`)
+
+      // Step 2: Chunk and import with progress
+      const CHUNK_SIZE = type === "azure" ? 10 : 50
+      const endpoint = type === "azure" ? "/api/admin/sync-azure-users" : "/api/admin/vendors/sync"
+      const bodyKey = type === "azure" ? "users" : "vendors"
+
+      const progress: SyncProgressData = {
+        current: 0,
+        total: items.length,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        errors: [],
+        status: "running",
+        label: `Syncing ${type === "azure" ? "users" : "vendors"}`,
+      }
+      setProgress({ ...progress })
+
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE)
+
+        try {
+          const importRes = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ [bodyKey]: chunk }),
+          })
+          const importData = await importRes.json()
+
+          if (!importRes.ok) {
+            progress.errors.push(importData.error || `Chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed`)
+          } else {
+            progress.created += importData.created || 0
+            progress.updated += importData.updated || 0
+            progress.skipped += importData.skipped || 0
+            if (importData.errors) {
+              progress.errors.push(...importData.errors)
+              for (const err of importData.errors) addSyncLog(type, "failed", err)
+            }
+          }
+        } catch (chunkErr) {
+          progress.errors.push(`Chunk ${Math.floor(i / CHUNK_SIZE) + 1}: ${chunkErr instanceof Error ? chunkErr.message : "Failed"}`)
+        }
+
+        progress.current = Math.min(i + chunk.length, items.length)
+        setProgress({ ...progress })
+      }
+
+      progress.status = progress.errors.length > 0 && progress.created === 0 && progress.updated === 0 ? "failed" : "completed"
+      setProgress({ ...progress })
+
+      if (type === "azure") setLastAzureSync(new Date().toISOString())
+      else setLastRampSync(new Date().toISOString())
+
+      const msg = `${label} sync complete: ${progress.created} created, ${progress.updated} updated${progress.skipped ? `, ${progress.skipped} skipped` : ""}${progress.errors.length ? `, ${progress.errors.length} errors` : ""}.`
+      setSyncScheduleSuccess(msg)
+      addSyncLog(type, progress.status === "failed" ? "failed" : "completed", msg)
+
+      await logAudit({
+        action: progress.status === "failed"
+          ? (type === "azure" ? "sync.azure_failed" : "sync.ramp_failed")
+          : (type === "azure" ? "sync.azure_completed" : "sync.ramp_completed"),
+        entityType: "sync",
+        description: msg,
+        metadata: {
+          created: progress.created,
+          updated: progress.updated,
+          skipped: progress.skipped,
+          errors: progress.errors.length,
+          total: items.length,
+        },
+      })
+
+      // Auto-clear progress after showing completion
+      setTimeout(() => {
+        setProgress(null)
+        setSyncScheduleSuccess(null)
+      }, 5000)
     } catch (err) {
-      setSyncScheduleError(err instanceof Error ? err.message : "Sync failed.")
+      const errMsg = err instanceof Error ? err.message : "Sync failed."
+      setSyncScheduleError(errMsg)
+      addSyncLog(type, "failed", errMsg)
+      setProgress({ current: 0, total: 0, created: 0, updated: 0, skipped: 0, errors: [errMsg], status: "failed", label })
+      await logAudit({
+        action: type === "azure" ? "sync.azure_failed" : "sync.ramp_failed",
+        entityType: "sync",
+        description: errMsg,
+        metadata: { error: errMsg },
+      })
     } finally {
       if (type === "azure") setRunningSyncAzure(false)
       else setRunningSyncRamp(false)
@@ -1130,9 +1224,9 @@ export default function SettingsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
         </div>
-        {/* <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
           {getTierName()} plan
-        </span> */}
+        </span>
       </div>
 
       <Card>
@@ -2383,13 +2477,21 @@ export default function SettingsPage() {
                     onClick={() => handleManualSync("azure")}
                   >
                     {runningSyncAzure ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                        Syncing...
+                      </>
                     ) : (
-                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Sync Now
+                      </>
                     )}
-                    Sync Now
                   </Button>
                 </div>
+                {azureSyncProgress && (
+                  <SyncProgress progress={azureSyncProgress} compact />
+                )}
               </div>
             )}
           </div>
@@ -2476,15 +2578,60 @@ export default function SettingsPage() {
                   onClick={() => handleManualSync("ramp")}
                 >
                   {runningSyncRamp ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                      Syncing...
+                    </>
                   ) : (
-                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                      Sync Now
+                    </>
                   )}
-                  Sync Now
                 </Button>
               </div>
+              {rampSyncProgress && (
+                <SyncProgress progress={rampSyncProgress} compact />
+              )}
             </div>
           </div>
+
+          {/* Sync Logs */}
+          {syncLogs.length > 0 && (
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">Sync Log</h4>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => setSyncLogs([])}
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1.5 text-xs font-mono">
+                {syncLogs.map((log, i) => (
+                  <div
+                    key={`${log.time}-${i}`}
+                    className={`flex gap-2 items-start px-2 py-1 rounded ${log.status === "failed"
+                        ? "bg-destructive/10 text-destructive"
+                        : log.status === "completed"
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                  >
+                    <span className="shrink-0 tabular-nums">
+                      {new Date(log.time).toLocaleTimeString()}
+                    </span>
+                    <span className="shrink-0 uppercase font-semibold w-12">
+                      {log.type === "azure" ? "AD" : "RAMP"}
+                    </span>
+                    <span className="break-all">{log.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end">
             <Button

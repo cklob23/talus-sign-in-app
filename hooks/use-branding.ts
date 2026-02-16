@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 export interface BrandingSettings {
@@ -10,14 +10,32 @@ export interface BrandingSettings {
 }
 
 const defaultBranding: BrandingSettings = {
-  companyName: "",
+  companyName: "Talus",
   companyLogo: "",
   companyLogoSmall: "",
 }
 
-// Cache for branding settings to avoid repeated fetches
-let cachedBranding: BrandingSettings | null = null
+// ---- Shared branding store (singleton, module-scoped) ----
+let cachedBranding: BrandingSettings = defaultBranding
+let initialFetchDone = false
 let fetchPromise: Promise<BrandingSettings> | null = null
+
+// Subscribers: every mounted useBranding() hook registers a callback here.
+// When the cache changes, all subscribers re-render with the new value.
+const subscribers = new Set<() => void>()
+
+function subscribe(cb: () => void) {
+  subscribers.add(cb)
+  return () => { subscribers.delete(cb) }
+}
+
+function getSnapshot(): BrandingSettings {
+  return cachedBranding
+}
+
+function notify() {
+  for (const cb of subscribers) cb()
+}
 
 async function fetchBrandingSettings(): Promise<BrandingSettings> {
   const supabase = createClient()
@@ -46,48 +64,44 @@ async function fetchBrandingSettings(): Promise<BrandingSettings> {
   return branding
 }
 
+/**
+ * Refresh the shared branding cache and notify ALL mounted consumers.
+ * Can be called from anywhere (including outside React components).
+ */
+export async function refreshBranding() {
+  const result = await fetchBrandingSettings()
+  cachedBranding = result
+  initialFetchDone = true
+  notify()
+  return result
+}
+
+// ---- Hook ----
+
 export function useBranding() {
-  const [branding, setBranding] = useState<BrandingSettings>(cachedBranding || defaultBranding)
-  const [isLoading, setIsLoading] = useState(!cachedBranding)
+  const branding = useSyncExternalStore(subscribe, getSnapshot, () => defaultBranding)
+  const [isLoading, setIsLoading] = useState(!initialFetchDone)
 
   useEffect(() => {
-    // If we have cached branding, use it
-    if (cachedBranding) {
-      setBranding(cachedBranding)
+    if (initialFetchDone) {
       setIsLoading(false)
       return
     }
 
-    // If a fetch is already in progress, wait for it
-    if (fetchPromise) {
-      fetchPromise.then((result) => {
-        setBranding(result)
-        setIsLoading(false)
-      })
-      return
+    // Deduplicate the initial fetch across all hook instances
+    if (!fetchPromise) {
+      fetchPromise = refreshBranding()
+      fetchPromise.finally(() => { fetchPromise = null })
     }
 
-    // Start a new fetch
-    fetchPromise = fetchBrandingSettings()
-    fetchPromise.then((result) => {
-      cachedBranding = result
-      setBranding(result)
-      setIsLoading(false)
-      fetchPromise = null
-    }).catch(() => {
-      setIsLoading(false)
-      fetchPromise = null
-    })
+    fetchPromise.then(() => setIsLoading(false)).catch(() => setIsLoading(false))
   }, [])
 
-  // Function to refresh branding (useful after settings update)
-  const refreshBranding = async () => {
+  const refresh = useCallback(async () => {
     setIsLoading(true)
-    const result = await fetchBrandingSettings()
-    cachedBranding = result
-    setBranding(result)
+    await refreshBranding()
     setIsLoading(false)
-  }
+  }, [])
 
-  return { branding, isLoading, refreshBranding }
+  return { branding, isLoading, refreshBranding: refresh }
 }

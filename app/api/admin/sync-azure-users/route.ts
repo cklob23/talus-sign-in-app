@@ -72,7 +72,7 @@ export async function GET() {
 
     if (!usersResponse.ok) {
       const errorData = await usersResponse.json().catch(() => ({}))
-      
+
       if (usersResponse.status === 401 || usersResponse.status === 403) {
         return NextResponse.json(
           {
@@ -81,7 +81,7 @@ export async function GET() {
           { status: 403 }
         )
       }
-      
+
       return NextResponse.json(
         { error: `Failed to fetch users from Azure AD: ${errorData.error?.message || "Unknown error"}` },
         { status: 500 }
@@ -171,13 +171,18 @@ export async function POST(request: NextRequest) {
     // Use admin client to create auth users and bypass RLS
     const adminClient = createAdminClient()
 
-    let syncedCount = 0
+    let createdCount = 0
+    let updatedCount = 0
+    let skippedCount = 0
     const errors: string[] = []
 
     // Process each selected user
     for (const azureUser of selectedUsers) {
       const email = azureUser.mail || azureUser.userPrincipalName
-      if (!email) continue
+      if (!email) {
+        skippedCount++
+        continue
+      }
 
       try {
         // Check if profile with this email already exists
@@ -188,9 +193,11 @@ export async function POST(request: NextRequest) {
           .single()
 
         let profileId: string
+        let isUpdate = false
 
         if (existingProfile) {
           profileId = existingProfile.id
+          isUpdate = true
           // Update existing profile (without avatar for now)
           const { error: updateError } = await adminClient
             .from("profiles")
@@ -199,7 +206,7 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", existingProfile.id)
-          
+
           if (updateError) {
             throw new Error(updateError.message)
           }
@@ -261,7 +268,7 @@ export async function POST(request: NextRequest) {
             const arrayBuffer = await photoBlob.arrayBuffer()
             const buffer = new Uint8Array(arrayBuffer)
             const mimeType = photoResponse.headers.get("content-type") || "image/jpeg"
-            
+
             // Determine file extension from mime type
             const extMap: Record<string, string> = {
               "image/jpeg": "jpg",
@@ -270,7 +277,7 @@ export async function POST(request: NextRequest) {
               "image/webp": "webp",
             }
             const fileExt = extMap[mimeType] || "jpg"
-            
+
             // Use same filename format as upload-avatar route: ${profileId}-${Date.now()}.${fileExt}
             const fileName = `${profileId}-${Date.now()}.${fileExt}`
             const filePath = fileName
@@ -278,7 +285,7 @@ export async function POST(request: NextRequest) {
             // Ensure avatars bucket exists
             const { data: buckets } = await adminClient.storage.listBuckets()
             const avatarsBucketExists = buckets?.some(b => b.name === "avatars")
-            
+
             if (!avatarsBucketExists) {
               await adminClient.storage.createBucket("avatars", {
                 public: true,
@@ -313,11 +320,17 @@ export async function POST(request: NextRequest) {
           console.log(`No photo available for ${email}`)
         }
 
-        syncedCount++
+        if (isUpdate) {
+          updatedCount++
+        } else {
+          createdCount++
+        }
       } catch (userError) {
         errors.push(`Failed to sync ${email}: ${userError instanceof Error ? userError.message : "Unknown error"}`)
       }
     }
+
+    const syncedCount = createdCount + updatedCount
 
     // Update last sync timestamp for scheduled sync tracking
     if (syncedCount > 0) {
@@ -342,6 +355,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       synced: syncedCount,
+      created: createdCount,
+      updated: updatedCount,
+      skipped: skippedCount,
       total: selectedUsers.length,
       errors: errors.length > 0 ? errors : undefined,
     })

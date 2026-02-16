@@ -62,6 +62,13 @@ const ACTION_LABELS: Record<string, string> = {
   "role.deleted": "Role deleted",
   "role.assigned": "Role assigned",
   "role.unassigned": "Role unassigned",
+  // Sync actions
+  "sync.azure_started": "Azure AD sync started",
+  "sync.azure_completed": "Azure AD sync completed",
+  "sync.azure_failed": "Azure AD sync failed",
+  "sync.ramp_started": "Ramp sync started",
+  "sync.ramp_completed": "Ramp sync completed",
+  "sync.ramp_failed": "Ramp sync failed",
   // Kiosk actions
   "kiosk.receptionist_login": "Receptionist logged in",
   "kiosk.receptionist_logout": "Receptionist logged out",
@@ -78,6 +85,8 @@ const ENTITY_TYPES = [
   { value: "evacuation", label: "Evacuations" },
   { value: "settings", label: "Settings" },
   { value: "visitor_type", label: "Visitor Types" },
+  { value: "role", label: "Roles" },
+  { value: "sync", label: "Syncs" },
 ]
 
 type AuditLogWithUser = Omit<AuditLog, 'user'> & {

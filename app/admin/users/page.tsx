@@ -24,6 +24,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, UsersRound, RefreshCw, Cloud, Loader2, KeyRound, MoreHorizontal, Mail, Eye, EyeOff } from "lucide-react"
+import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,9 +79,12 @@ export default function UsersPage() {
     selected: boolean
   }>>([])
   const [isAzurePreviewOpen, setIsAzurePreviewOpen] = useState(false)
+  const [azureSyncProgress, setAzureSyncProgress] = useState<SyncProgressData | null>(null)
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
   const [isBulkActionOpen, setIsBulkActionOpen] = useState(false)
-  const [bulkAction, setBulkAction] = useState<"role" | "location" | "host" | null>(null)
+  const [bulkAction, setBulkAction] = useState<"role" | "location" | "host" | "delete" | null>(null)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false)
   const [bulkValue, setBulkValue] = useState("")
   const [isPasswordResetDialogOpen, setIsPasswordResetDialogOpen] = useState(false)
   const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null)
@@ -349,31 +353,86 @@ export default function UsersPage() {
     setIsSyncing(true)
     setSyncMessage(null)
 
+    const progress: SyncProgressData = {
+      current: 0,
+      total: selectedUsers.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+      status: "running",
+      label: "Importing users",
+    }
+    setAzureSyncProgress({ ...progress })
+
+    // Audit: sync started
+    await logAudit({
+      action: "sync.azure_started",
+      entityType: "sync",
+      description: `Azure AD user sync started: ${selectedUsers.length} users selected`,
+      metadata: { total: selectedUsers.length, trigger: "manual" },
+    })
+
+    const CHUNK_SIZE = 10
     try {
-      const response = await fetch("/api/admin/sync-azure-users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ users: selectedUsers }),
-      })
+      for (let i = 0; i < selectedUsers.length; i += CHUNK_SIZE) {
+        const chunk = selectedUsers.slice(i, i + CHUNK_SIZE)
 
-      const result = await response.json()
+        const response = await fetch("/api/admin/sync-azure-users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ users: chunk }),
+        })
 
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to import users")
+        const result = await response.json()
+
+        if (!response.ok) {
+          progress.errors.push(result.error || `Chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed`)
+        } else {
+          progress.created += result.created || 0
+          progress.updated += result.updated || 0
+          progress.skipped += result.skipped || 0
+          if (result.errors) {
+            progress.errors.push(...result.errors)
+          }
+        }
+
+        progress.current = Math.min(i + chunk.length, selectedUsers.length)
+        setAzureSyncProgress({ ...progress })
       }
 
-      setSyncMessage({
-        type: "success",
-        text: `Successfully imported ${result.synced} users from Azure AD`,
+      progress.status = progress.errors.length > 0 && progress.created === 0 && progress.updated === 0 ? "failed" : "completed"
+      setAzureSyncProgress({ ...progress })
+
+      // Audit: sync completed
+      const summary = `Azure AD sync completed: ${progress.created} created, ${progress.updated} updated, ${progress.skipped} skipped, ${progress.errors.length} errors`
+      await logAudit({
+        action: progress.status === "failed" ? "sync.azure_failed" : "sync.azure_completed",
+        entityType: "sync",
+        description: summary,
+        metadata: {
+          created: progress.created,
+          updated: progress.updated,
+          skipped: progress.skipped,
+          errors: progress.errors.length,
+          total: selectedUsers.length,
+        },
       })
-      setIsAzurePreviewOpen(false)
-      setAzureUsers([])
-      loadData()
+
+      if (progress.status === "completed") {
+        setSyncMessage({ type: "success", text: summary })
+        // Auto-close after a delay so user can see the final summary
+        setTimeout(() => {
+          setIsAzurePreviewOpen(false)
+          setAzureUsers([])
+          setAzureSyncProgress(null)
+          loadData()
+        }, 2000)
+      }
     } catch (error) {
-      setSyncMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "Failed to import users from Azure AD",
-      })
+      progress.status = "failed"
+      progress.errors.push(error instanceof Error ? error.message : "Import failed")
+      setAzureSyncProgress({ ...progress })
     } finally {
       setIsSyncing(false)
     }
@@ -514,6 +573,51 @@ export default function UsersPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedUserIds.size === 0) return
+    setIsBulkDeleting(true)
+
+    const selectedProfiles = profiles.filter(p => selectedUserIds.has(p.id))
+    let deleted = 0
+    const errors: string[] = []
+
+    for (const profile of selectedProfiles) {
+      try {
+        const response = await fetch(`/api/admin/profiles?id=${profile.id}`, { method: "DELETE" })
+        if (!response.ok) {
+          const result = await response.json()
+          errors.push(`${profile.full_name || profile.email}: ${result.error || "Failed"}`)
+        } else {
+          deleted++
+        }
+      } catch {
+        errors.push(`${profile.full_name || profile.email}: Request failed`)
+      }
+    }
+
+    await logAudit({
+      action: "user.bulk_deleted",
+      entityType: "user",
+      description: `Bulk deleted ${deleted} users${errors.length ? `, ${errors.length} failed` : ""}`,
+      metadata: {
+        deleted,
+        failed: errors.length,
+        userNames: selectedProfiles.map(p => p.full_name || p.email).filter(Boolean),
+      },
+    })
+
+    setIsBulkDeleting(false)
+    setBulkDeleteConfirmOpen(false)
+    setSelectedUserIds(new Set())
+
+    if (errors.length > 0) {
+      setSyncMessage({ type: "error", text: `Deleted ${deleted} users. ${errors.length} failed: ${errors[0]}` })
+    } else {
+      setSyncMessage({ type: "success", text: `Successfully deleted ${deleted} users` })
+    }
+    loadData()
   }
 
   async function handlePasswordReset(userId: string) {
@@ -781,79 +885,98 @@ export default function UsersPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                {azureUsers.filter(u => u.selected).length} of {azureUsers.length} selected
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(true)} className="bg-transparent">
-                  Select All
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(false)} className="bg-transparent">
-                  Deselect All
-                </Button>
+          {azureSyncProgress ? (
+            <div className="py-4">
+              <SyncProgress progress={azureSyncProgress} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  {azureUsers.filter(u => u.selected).length} of {azureUsers.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(true)} className="bg-transparent">
+                    Select All
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => selectAllAzureUsers(false)} className="bg-transparent">
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+
+              <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                {azureUsers.length === 0 ? (
+                  <p className="p-4 text-center text-muted-foreground">No users found in Azure AD</p>
+                ) : (
+                  <div className="divide-y">
+                    {azureUsers.map(user => {
+                      const existsInSystem = profiles.some(p =>
+                        p.email?.toLowerCase() === (user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
+                      )
+                      return (
+                        <div
+                          key={user.id}
+                          className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${existsInSystem ? "opacity-60" : ""}`}
+                          onClick={() => toggleAzureUserSelection(user.id)}
+                        >
+                          <Checkbox
+                            checked={user.selected}
+                            onCheckedChange={() => toggleAzureUserSelection(user.id)}
+                          />
+                          <Avatar className="h-10 w-10">
+                            {user.photo ? (
+                              <AvatarImage src={user.photo || "/placeholder.svg"} />
+                            ) : null}
+                            <AvatarFallback>
+                              {user.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{user.displayName}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {user.mail || user.userPrincipalName}
+                            </p>
+                          </div>
+                          {existsInSystem && (
+                            <Badge variant="secondary" className="text-xs">Exists (will update)</Badge>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </div>
-
-            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
-              {azureUsers.length === 0 ? (
-                <p className="p-4 text-center text-muted-foreground">No users found in Azure AD</p>
-              ) : (
-                <div className="divide-y">
-                  {azureUsers.map(user => {
-                    const existsInSystem = profiles.some(p =>
-                      p.email?.toLowerCase() === (user.mail?.toLowerCase() || user.userPrincipalName?.toLowerCase())
-                    )
-                    return (
-                      <div
-                        key={user.id}
-                        className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${existsInSystem ? "opacity-60" : ""}`}
-                        onClick={() => toggleAzureUserSelection(user.id)}
-                      >
-                        <Checkbox
-                          checked={user.selected}
-                          onCheckedChange={() => toggleAzureUserSelection(user.id)}
-                        />
-                        <Avatar className="h-10 w-10">
-                          {user.photo ? (
-                            <AvatarImage src={user.photo || "/placeholder.svg"} />
-                          ) : null}
-                          <AvatarFallback>
-                            {user.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{user.displayName}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {user.mail || user.userPrincipalName}
-                          </p>
-                        </div>
-                        {existsInSystem && (
-                          <Badge variant="secondary" className="text-xs">Already exists</Badge>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAzurePreviewOpen(false)} className="bg-transparent">
-              Cancel
-            </Button>
-            <Button onClick={handleImportSelectedUsers} disabled={isSyncing || azureUsers.filter(u => u.selected).length === 0}>
-              {isSyncing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                `Import ${azureUsers.filter(u => u.selected).length} Users`
-              )}
-            </Button>
+            {azureSyncProgress?.status === "completed" || azureSyncProgress?.status === "failed" ? (
+              <Button onClick={() => {
+                setIsAzurePreviewOpen(false)
+                setAzureUsers([])
+                setAzureSyncProgress(null)
+                if (azureSyncProgress.status === "completed") loadData()
+              }}>
+                Close
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => { setIsAzurePreviewOpen(false); setAzureSyncProgress(null) }} className="bg-transparent" disabled={isSyncing}>
+                  Cancel
+                </Button>
+                <Button onClick={handleImportSelectedUsers} disabled={isSyncing || azureUsers.filter(u => u.selected).length === 0}>
+                  {isSyncing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    `Import ${azureUsers.filter(u => u.selected).length} Users`
+                  )}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -945,6 +1068,46 @@ export default function UsersPage() {
             <Button onClick={handleBulkAction} disabled={!bulkAction || !bulkValue || isLoading}>
               {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Apply to {selectedUserIds.size} Users
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Delete {selectedUserIds.size} Users</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The following users will be permanently deleted:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[200px] overflow-y-auto border rounded-lg divide-y">
+            {profiles.filter(p => selectedUserIds.has(p.id)).map(p => (
+              <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                <Avatar className="h-6 w-6">
+                  {p.avatar_url ? <AvatarImage src={p.avatar_url} /> : null}
+                  <AvatarFallback className="text-[10px]">
+                    {(p.full_name || p.email || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate">{p.full_name || p.email}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)} className="bg-transparent" disabled={isBulkDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting}>
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedUserIds.size} Users`
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1067,6 +1230,10 @@ export default function UsersPage() {
                 <span className="text-sm text-muted-foreground">{selectedUserIds.size} selected</span>
                 <Button size="sm" onClick={() => setIsBulkActionOpen(true)}>
                   Bulk Actions
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => setBulkDeleteConfirmOpen(true)}>
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                  Delete
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setSelectedUserIds(new Set())} className="bg-transparent">
                   Clear

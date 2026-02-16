@@ -53,7 +53,7 @@ export async function GET() {
 
     if (!response.ok) {
       const errorText = await response.text()
-      
+
       // Provide a helpful error for common token issues
       if (response.status === 401 || errorText.includes("JWT")) {
         return NextResponse.json({
@@ -61,7 +61,7 @@ export async function GET() {
           needs_token: true,
         }, { status: 401 })
       }
-      
+
       return NextResponse.json(
         { error: `Failed to fetch auth config: ${errorText}` },
         { status: response.status }
@@ -81,6 +81,40 @@ export async function GET() {
       .is("location_id", null)
       .single()
 
+    // Auto-populate DB backup if Management API has credentials but DB doesn't
+    // This is a one-time migration for existing setups.
+    // NOTE: We intentionally do NOT auto-populate azure_client_secret here because
+    // the Management API may return a value that differs from the raw Client Secret
+    // Value needed for the Graph API client_credentials grant. The secret must be
+    // explicitly saved by the admin via the SSO settings form.
+    const keysToBackup: { key: string; value: unknown }[] = [
+      { key: "microsoft_sso_enabled", value: authConfig.external_azure_enabled || false },
+      { key: "azure_client_id", value: authConfig.external_azure_client_id || "" },
+    ]
+
+    // Extract tenant_id from URL if present
+    const azureUrlFromConfig = authConfig.external_azure_url || ""
+    const tenantMatch = azureUrlFromConfig.match(/microsoftonline\.com\/([^/]+)/)
+    if (tenantMatch) {
+      keysToBackup.push({ key: "azure_tenant_id", value: tenantMatch[1] })
+    }
+
+    for (const { key, value } of keysToBackup) {
+      if (!value) continue
+      const { data: existing } = await supabase
+        .from("settings")
+        .select("id, value")
+        .eq("key", key)
+        .is("location_id", null)
+        .single()
+
+      if (!existing) {
+        await supabase.from("settings").insert({ key, value: String(value), location_id: null })
+      } else if (!existing.value && value) {
+        await supabase.from("settings").update({ value: String(value) }).eq("id", existing.id)
+      }
+    }
+
     return NextResponse.json({
       enabled: authConfig.external_azure_enabled || false,
       client_id: authConfig.external_azure_client_id || "",
@@ -88,7 +122,7 @@ export async function GET() {
       url: authConfig.external_azure_url || "",
       has_secret: !!authConfig.external_azure_secret,
       callback_url: supabaseCallbackUrl,
-      tenant_id: tenantIdSetting?.value || "",
+      tenant_id: tenantIdSetting?.value || tenantMatch?.[1] || "",
     })
   } catch (error: unknown) {
     return NextResponse.json(
@@ -194,27 +228,32 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errorText = await response.text()
-      
+
       if (response.status === 401 || errorText.includes("JWT")) {
         return NextResponse.json({
           error: "Invalid SUPABASE_ACCESS_TOKEN. This must be a personal access token from https://supabase.com/dashboard/account/tokens — not a project API key (anon/service_role).",
           needs_token: true,
         }, { status: 401 })
       }
-      
+
       return NextResponse.json(
         { error: `Failed to update auth config: ${errorText}` },
         { status: response.status }
       )
     }
 
-    // Also persist the enabled state and client_id to the local settings table
-    // so the public SSO status endpoint can read it without needing the Management API
-    const settingsToSave = [
+    // Persist credentials to the local settings table as a secure backup
+    // so syncs can use DB-stored credentials when the Management API is unavailable
+    const settingsToSave: { key: string; value: unknown }[] = [
       { key: "microsoft_sso_enabled", value: enabled },
       { key: "azure_client_id", value: client_id || "" },
       { key: "azure_tenant_id", value: tenant_id || "" },
     ]
+
+    // Only save the secret if it's a real value (not the masked placeholder)
+    if (secret && secret !== "••••••••") {
+      settingsToSave.push({ key: "azure_client_secret", value: secret })
+    }
 
     for (const { key, value } of settingsToSave) {
       const { data: existing } = await supabase

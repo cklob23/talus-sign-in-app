@@ -7,6 +7,7 @@ export type AuditAction =
   | "user.created"
   | "user.updated"
   | "user.deleted"
+  | "user.bulk_deleted"
   // Visitor actions
   | "visitor.sign_in"
   | "visitor.sign_out"
@@ -47,9 +48,18 @@ export type AuditAction =
   | "role.deleted"
   | "role.assigned"
   | "role.unassigned"
+  // Sync actions
+  | "sync.azure_started"
+  | "sync.azure_completed"
+  | "sync.azure_failed"
+  | "sync.ramp_started"
+  | "sync.ramp_completed"
+  | "sync.ramp_failed"
   // Kiosk actions
   | "kiosk.receptionist_login"
   | "kiosk.receptionist_logout"
+  // Vendor actions
+  | "vendor.bulk_deleted"
 
 export type EntityType =
   | "user"
@@ -63,6 +73,8 @@ export type EntityType =
   | "settings"
   | "visitor_type"
   | "role"
+  | "sync"
+  | "vendor"
 
 interface LogAuditParams {
   action: AuditAction

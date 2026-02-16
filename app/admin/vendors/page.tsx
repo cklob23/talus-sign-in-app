@@ -43,8 +43,11 @@ import {
     ChevronRight,
     ChevronsLeft,
     ChevronsRight,
+    Trash2,
 } from "lucide-react"
 import type { Vendor } from "@/types/database"
+import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
+import { logAudit } from "@/lib/audit-log"
 
 interface RampPreviewVendor {
     id: string
@@ -69,7 +72,7 @@ export default function VendorsPage() {
     const [isSyncing, setIsSyncing] = useState(false)
     const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null)
     const [search, setSearch] = useState("")
-    const [filterActive, setFilterActive] = useState("all")
+    const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all")
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(150)
     const [filteredCount, setFilteredCount] = useState(0)
@@ -79,7 +82,11 @@ export default function VendorsPage() {
     const [rampVendors, setRampVendors] = useState<RampPreviewVendor[]>([])
     const [isPreviewOpen, setIsPreviewOpen] = useState(false)
     const [isImporting, setIsImporting] = useState(false)
+    const [vendorSyncProgress, setVendorSyncProgress] = useState<SyncProgressData | null>(null)
     const [lastSyncState, setLastSync] = useState<string | null>(null)
+    const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set())
+    const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false)
+    const [isBulkDeleting, setIsBulkDeleting] = useState(false)
     const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
 
     // Load vendor stats (total + active counts) -- separate from paginated list
@@ -135,6 +142,7 @@ export default function VendorsPage() {
     function handleSearchChange(value: string) {
         setSearch(value)
         setPage(1)
+        setSelectedVendorIds(new Set())
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
         searchDebounceRef.current = setTimeout(() => {
             loadVendors(1, pageSize, value, filterActive)
@@ -182,11 +190,27 @@ export default function VendorsPage() {
         setIsImporting(true)
         setSyncResult(null)
 
-        // Chunk imports into batches of 200 to avoid request body size limits
-        const CHUNK_SIZE = 200
-        let totalSynced = 0
-        const warnings: string[] = []
+        const progress: SyncProgressData = {
+            current: 0,
+            total: selectedVendors.length,
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            errors: [],
+            status: "running",
+            label: "Importing vendors",
+        }
+        setVendorSyncProgress({ ...progress })
 
+        // Audit: sync started
+        await logAudit({
+            action: "sync.ramp_started",
+            entityType: "sync",
+            description: `Ramp vendor sync started: ${selectedVendors.length} vendors selected`,
+            metadata: { total: selectedVendors.length, trigger: "manual" },
+        })
+
+        const CHUNK_SIZE = 50
         try {
             for (let i = 0; i < selectedVendors.length; i += CHUNK_SIZE) {
                 const chunk = selectedVendors.slice(i, i + CHUNK_SIZE)
@@ -213,33 +237,57 @@ export default function VendorsPage() {
                 try {
                     data = text ? JSON.parse(text) : {}
                 } catch {
-                    throw new Error(`Invalid response from server (batch ${Math.floor(i / CHUNK_SIZE) + 1})`)
+                    progress.errors.push(`Invalid response from server (batch ${Math.floor(i / CHUNK_SIZE) + 1})`)
+                    progress.current = Math.min(i + chunk.length, selectedVendors.length)
+                    setVendorSyncProgress({ ...progress })
+                    continue
                 }
 
                 if (!res.ok) {
-                    warnings.push(data.error || `Batch ${Math.floor(i / CHUNK_SIZE) + 1} failed`)
+                    progress.errors.push(data.error || `Batch ${Math.floor(i / CHUNK_SIZE) + 1} failed`)
                 } else {
-                    totalSynced += data.synced || 0
+                    progress.created += data.created || 0
+                    progress.updated += data.updated || 0
+                    if (data.errors) {
+                        progress.errors.push(...data.errors)
+                    }
                 }
+
+                progress.current = Math.min(i + chunk.length, selectedVendors.length)
+                setVendorSyncProgress({ ...progress })
             }
 
-            if (totalSynced > 0) {
-                setSyncResult({
-                    success: true,
-                    message: `Imported ${totalSynced} vendors from Ramp.${warnings.length > 0 ? ` (${warnings.length} batch warnings)` : ""}`,
-                })
-                setIsPreviewOpen(false)
-                setRampVendors([])
-                await loadVendors(page, pageSize, search, filterActive)
-                await loadStats()
-            } else {
-                setSyncResult({
-                    success: false,
-                    message: warnings[0] || "Import failed",
-                })
+            progress.status = progress.errors.length > 0 && progress.created === 0 && progress.updated === 0 ? "failed" : "completed"
+            setVendorSyncProgress({ ...progress })
+
+            // Audit: sync completed
+            const summary = `Ramp vendor sync completed: ${progress.created} created, ${progress.updated} updated, ${progress.errors.length} errors`
+            await logAudit({
+                action: progress.status === "failed" ? "sync.ramp_failed" : "sync.ramp_completed",
+                entityType: "sync",
+                description: summary,
+                metadata: {
+                    created: progress.created,
+                    updated: progress.updated,
+                    errors: progress.errors.length,
+                    total: selectedVendors.length,
+                },
+            })
+
+            if (progress.status === "completed") {
+                setSyncResult({ success: true, message: summary })
+                setTimeout(() => {
+                    setIsPreviewOpen(false)
+                    setRampVendors([])
+                    setVendorSyncProgress(null)
+                    loadVendors(page, pageSize, search, filterActive)
+                    loadStats()
+                }, 2000)
             }
         } catch (err) {
-            setSyncResult({ success: false, message: err instanceof Error ? err.message : "Failed to import vendors" })
+            progress.status = "failed"
+            progress.errors.push(err instanceof Error ? err.message : "Import failed")
+            setVendorSyncProgress({ ...progress })
         } finally {
             setIsImporting(false)
         }
@@ -289,6 +337,62 @@ export default function VendorsPage() {
             await loadStats()
         }
         setIsAdding(false)
+    }
+
+    function toggleVendorSelectAll() {
+        if (selectedVendorIds.size === vendors.length) {
+            setSelectedVendorIds(new Set())
+        } else {
+            setSelectedVendorIds(new Set(vendors.map(v => v.id)))
+        }
+    }
+
+    function toggleVendorSelection(id: string) {
+        setSelectedVendorIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+    }
+
+    async function handleBulkDeleteVendors() {
+        if (selectedVendorIds.size === 0) return
+        setIsBulkDeleting(true)
+
+        try {
+            const response = await fetch("/api/admin/vendors", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: Array.from(selectedVendorIds) }),
+            })
+
+            const result = await response.json()
+
+            if (!response.ok) {
+                throw new Error(result.error || "Failed to delete vendors")
+            }
+
+            await logAudit({
+                action: "vendor.bulk_deleted",
+                entityType: "vendor",
+                description: `Bulk deleted ${result.deleted} vendors`,
+                metadata: {
+                    deleted: result.deleted,
+                    vendorNames: result.vendors?.map((v: { name: string }) => v.name) || [],
+                },
+            })
+
+            setSyncResult({ success: true, message: `Successfully deleted ${result.deleted} vendors` })
+            setSelectedVendorIds(new Set())
+            setBulkDeleteConfirmOpen(false)
+            await loadVendors(page, pageSize, search, filterActive)
+            await loadStats()
+        } catch (error) {
+            setSyncResult({ success: false, message: error instanceof Error ? error.message : "Failed to delete vendors" })
+        } finally {
+            setIsBulkDeleting(false)
+        }
     }
 
     return (
@@ -362,8 +466,8 @@ export default function VendorsPage() {
             {syncResult && (
                 <div
                     className={`flex items-center gap-2 p-3 rounded-lg text-sm ${syncResult.success
-                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                            : "bg-destructive/10 text-destructive"
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        : "bg-destructive/10 text-destructive"
                         }`}
                 >
                     {syncResult.success ? (
@@ -414,6 +518,18 @@ export default function VendorsPage() {
                             </CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
+                            {selectedVendorIds.size > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted-foreground">{selectedVendorIds.size} selected</span>
+                                    <Button size="sm" variant="destructive" onClick={() => setBulkDeleteConfirmOpen(true)}>
+                                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                                        Delete
+                                    </Button>
+                                    <Button size="sm" variant="outline" onClick={() => setSelectedVendorIds(new Set())} className="bg-transparent">
+                                        Clear
+                                    </Button>
+                                </div>
+                            )}
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                 <Input
@@ -423,19 +539,18 @@ export default function VendorsPage() {
                                     className="pl-9 w-full sm:w-64"
                                 />
                             </div>
-                            <Select value={filterActive} onValueChange={(value) => {
-                                setFilterActive(value)
-                                setPage(1)
-                            }}>
-                                <SelectTrigger className="w-22 sm:w-30">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All</SelectItem>
-                                    <SelectItem value="active">Active</SelectItem>
-                                    <SelectItem value="inactive">Inactive</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <select
+                                className="h-9 rounded-md border bg-transparent px-3 text-sm"
+                                value={filterActive}
+                                onChange={(e) => {
+                                    setFilterActive(e.target.value as "all" | "active" | "inactive")
+                                    setPage(1)
+                                }}
+                            >
+                                <option value="all">All</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
                         </div>
                     </div>
                 </CardHeader>
@@ -464,6 +579,13 @@ export default function VendorsPage() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead className="w-10">
+                                                <Checkbox
+                                                    checked={selectedVendorIds.size === vendors.length && vendors.length > 0}
+                                                    onCheckedChange={toggleVendorSelectAll}
+                                                    aria-label="Select all vendors"
+                                                />
+                                            </TableHead>
                                             <TableHead>Company Name</TableHead>
                                             <TableHead>Source</TableHead>
                                             <TableHead>Last Synced</TableHead>
@@ -473,7 +595,14 @@ export default function VendorsPage() {
                                     </TableHeader>
                                     <TableBody>
                                         {vendors.map((vendor) => (
-                                            <TableRow key={vendor.id}>
+                                            <TableRow key={vendor.id} className={selectedVendorIds.has(vendor.id) ? "bg-primary/5" : ""}>
+                                                <TableCell>
+                                                    <Checkbox
+                                                        checked={selectedVendorIds.has(vendor.id)}
+                                                        onCheckedChange={() => toggleVendorSelection(vendor.id)}
+                                                        aria-label={`Select ${vendor.name}`}
+                                                    />
+                                                </TableCell>
                                                 <TableCell className="font-medium">{vendor.name}</TableCell>
                                                 <TableCell>
                                                     {vendor.ramp_vendor_id ? (
@@ -593,91 +722,152 @@ export default function VendorsPage() {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">
-                                {rampVendors.filter((v) => v.selected).length} of {rampVendors.length} selected
-                            </span>
-                            <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(true)} className="bg-transparent">
-                                    Select All
-                                </Button>
-                                <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(false)} className="bg-transparent">
-                                    Deselect All
-                                </Button>
+                    {vendorSyncProgress ? (
+                        <div className="py-4">
+                            <SyncProgress progress={vendorSyncProgress} />
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-muted-foreground">
+                                    {rampVendors.filter((v) => v.selected).length} of {rampVendors.length} selected
+                                </span>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(true)} className="bg-transparent">
+                                        Select All
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => selectAllRampVendors(false)} className="bg-transparent">
+                                        Deselect All
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                                {rampVendors.length === 0 ? (
+                                    <p className="p-4 text-center text-muted-foreground">No vendors found in Ramp</p>
+                                ) : (
+                                    <div className="divide-y">
+                                        {rampVendors.map((vendor) => (
+                                            <div
+                                                key={vendor.id}
+                                                className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${vendor.exists ? "opacity-60" : ""}`}
+                                                onClick={() => toggleRampVendorSelection(vendor.id)}
+                                            >
+                                                <Checkbox
+                                                    checked={vendor.selected}
+                                                    onCheckedChange={() => toggleRampVendorSelection(vendor.id)}
+                                                />
+                                                <Avatar className="h-10 w-10">
+                                                    <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                                                        {vendor.name
+                                                            .split(/[\s&]+/)
+                                                            .map((w) => w[0])
+                                                            .join("")
+                                                            .slice(0, 2)
+                                                            .toUpperCase()}
+                                                    </AvatarFallback>
+                                                </Avatar>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-medium text-sm truncate">{vendor.name}</p>
+                                                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                                        {vendor.category_name && (
+                                                            <span className="flex items-center gap-1">
+                                                                <Tag className="w-3 h-3" />
+                                                                {vendor.category_name}
+                                                            </span>
+                                                        )}
+                                                        {vendor.country && (
+                                                            <span className="flex items-center gap-1">
+                                                                <Globe className="w-3 h-3" />
+                                                                {vendor.state ? `${vendor.state}, ${vendor.country}` : vendor.country}
+                                                            </span>
+                                                        )}
+                                                        {!vendor.is_active && (
+                                                            <span className="text-amber-600">Inactive in Ramp</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {vendor.exists && (
+                                                    <Badge variant="secondary" className="text-xs shrink-0">Exists (will update)</Badge>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
-
-                        <div className="border rounded-lg max-h-[400px] overflow-y-auto">
-                            {rampVendors.length === 0 ? (
-                                <p className="p-4 text-center text-muted-foreground">No vendors found in Ramp</p>
-                            ) : (
-                                <div className="divide-y">
-                                    {rampVendors.map((vendor) => (
-                                        <div
-                                            key={vendor.id}
-                                            className={`flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer ${vendor.exists ? "opacity-60" : ""}`}
-                                            onClick={() => toggleRampVendorSelection(vendor.id)}
-                                        >
-                                            <Checkbox
-                                                checked={vendor.selected}
-                                                onCheckedChange={() => toggleRampVendorSelection(vendor.id)}
-                                            />
-                                            <Avatar className="h-10 w-10">
-                                                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                                                    {vendor.name
-                                                        .split(/[\s&]+/)
-                                                        .map((w) => w[0])
-                                                        .join("")
-                                                        .slice(0, 2)
-                                                        .toUpperCase()}
-                                                </AvatarFallback>
-                                            </Avatar>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-medium text-sm truncate">{vendor.name}</p>
-                                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                    {vendor.category_name && (
-                                                        <span className="flex items-center gap-1">
-                                                            <Tag className="w-3 h-3" />
-                                                            {vendor.category_name}
-                                                        </span>
-                                                    )}
-                                                    {vendor.country && (
-                                                        <span className="flex items-center gap-1">
-                                                            <Globe className="w-3 h-3" />
-                                                            {vendor.state ? `${vendor.state}, ${vendor.country}` : vendor.country}
-                                                        </span>
-                                                    )}
-                                                    {!vendor.is_active && (
-                                                        <span className="text-amber-600">Inactive in Ramp</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {vendor.exists && (
-                                                <Badge variant="secondary" className="text-xs shrink-0">Already imported</Badge>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    )}
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsPreviewOpen(false)} className="bg-transparent">
+                        {vendorSyncProgress?.status === "completed" || vendorSyncProgress?.status === "failed" ? (
+                            <Button onClick={() => {
+                                setIsPreviewOpen(false)
+                                setRampVendors([])
+                                setVendorSyncProgress(null)
+                                if (vendorSyncProgress.status === "completed") {
+                                    loadVendors(page, pageSize, search, filterActive)
+                                    loadStats()
+                                }
+                            }}>
+                                Close
+                            </Button>
+                        ) : (
+                            <>
+                                <Button variant="outline" onClick={() => { setIsPreviewOpen(false); setVendorSyncProgress(null) }} className="bg-transparent" disabled={isImporting}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleImportSelectedVendors}
+                                    disabled={isImporting || rampVendors.filter((v) => v.selected).length === 0}
+                                >
+                                    {isImporting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Importing...
+                                        </>
+                                    ) : (
+                                        `Import ${rampVendors.filter((v) => v.selected).length} Vendors`
+                                    )}
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Bulk Delete Confirmation Dialog */}
+            <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-destructive">Delete {selectedVendorIds.size} Vendors</DialogTitle>
+                        <DialogDescription>
+                            This action cannot be undone. The following vendors will be permanently deleted:
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[200px] overflow-y-auto border rounded-lg divide-y">
+                        {vendors.filter(v => selectedVendorIds.has(v.id)).map(v => (
+                            <div key={v.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                                <span className="truncate font-medium">{v.name}</span>
+                                {v.ramp_vendor_id ? (
+                                    <Badge variant="secondary" className="text-xs ml-2 shrink-0">Ramp</Badge>
+                                ) : (
+                                    <Badge variant="outline" className="text-xs ml-2 shrink-0">Manual</Badge>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)} className="bg-transparent" disabled={isBulkDeleting}>
                             Cancel
                         </Button>
-                        <Button
-                            onClick={handleImportSelectedVendors}
-                            disabled={isImporting || rampVendors.filter((v) => v.selected).length === 0}
-                        >
-                            {isImporting ? (
+                        <Button variant="destructive" onClick={handleBulkDeleteVendors} disabled={isBulkDeleting}>
+                            {isBulkDeleting ? (
                                 <>
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    Importing...
+                                    Deleting...
                                 </>
                             ) : (
-                                `Import ${rampVendors.filter((v) => v.selected).length} Vendors`
+                                `Delete ${selectedVendorIds.size} Vendors`
                             )}
                         </Button>
                     </DialogFooter>

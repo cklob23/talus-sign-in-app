@@ -15,53 +15,123 @@ export interface AzureSyncResult {
 }
 
 /**
- * Fetch Azure AD credentials from Supabase Management API
+ * Fetch Azure AD credentials from the settings table (DB backup).
+ * Falls back gracefully if keys aren't stored yet.
+ */
+async function getCredentialsFromDB(): Promise<AzureCredentials | null> {
+  try {
+    const { createClient } = await import("@supabase/supabase-js")
+    const adminClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const { data } = await adminClient
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", [
+        "microsoft_sso_enabled",
+        "azure_client_id",
+        "azure_client_secret",
+        "azure_tenant_id",
+      ])
+
+    if (!data || data.length === 0) return null
+
+    const s: Record<string, string> = {}
+    for (const row of data) {
+      // JSONB values: booleans come as true/false, strings may come
+      // as raw strings or JSON-quoted strings depending on how they
+      // were inserted.  Normalise to plain strings.
+      const v = row.value
+      if (v === null || v === undefined) {
+        s[row.key] = ""
+      } else if (typeof v === "string") {
+        s[row.key] = v
+      } else if (typeof v === "boolean" || typeof v === "number") {
+        s[row.key] = String(v)
+      } else {
+        // JSON object/array -- stringify for safety
+        s[row.key] = JSON.stringify(v)
+      }
+    }
+
+    const enabled = s.microsoft_sso_enabled === "true"
+    const clientId = s.azure_client_id || ""
+    const clientSecret = s.azure_client_secret || ""
+    const tenantId = s.azure_tenant_id || "common"
+
+    if (!enabled) return null
+    if (!clientId || !clientSecret) return null
+
+    return { tenantId, clientId, clientSecret }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch Azure AD credentials.
+ *
+ * Priority: DB settings table FIRST (user-supplied secret value),
+ * then Supabase Management API as fallback.
+ *
+ * The Management API may return a secret that differs from the raw
+ * Client Secret Value needed for the client_credentials grant
+ * (Graph API).  The DB stores the exact value the admin pasted, so
+ * it is always preferred.
  */
 export async function getAzureCredentials(): Promise<AzureCredentials> {
+  // 1. Try DB-stored credentials first (most reliable source)
+  const dbCreds = await getCredentialsFromDB()
+  if (dbCreds) {
+    return dbCreds
+  }
+
+  // 2. Fallback: Supabase Management API
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
   const projectRef = supabaseUrl.replace("https://", "").split(".")[0]
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN
 
-  if (!accessToken) {
-    throw new Error("SUPABASE_ACCESS_TOKEN is not configured.")
-  }
+  if (accessToken) {
+    try {
+      const response = await fetch(
+        `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      )
 
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
+      if (response.ok) {
+        const config = await response.json()
+
+        const clientId = config.external_azure_client_id || config.EXTERNAL_AZURE_CLIENT_ID || ""
+        const clientSecret = config.external_azure_secret || config.EXTERNAL_AZURE_SECRET || ""
+        const azureUrl = config.external_azure_url || config.EXTERNAL_AZURE_URL || ""
+        const enabled = config.external_azure_enabled === true || config.EXTERNAL_AZURE_ENABLED === true
+
+        if (enabled && clientId && clientSecret) {
+          let tenantId = "common"
+          if (azureUrl) {
+            const match = azureUrl.match(/microsoftonline\.com\/([^/]+)/)
+            if (match) tenantId = match[1]
+          }
+          return { tenantId, clientId, clientSecret }
+        }
+      }
+    } catch {
+      // Management API failed
     }
+  }
+
+  throw new Error(
+    "Microsoft SSO is not enabled or credentials are missing. Configure it in Settings first."
   )
-
-  if (!response.ok) {
-    throw new Error("Failed to read auth config from Supabase.")
-  }
-
-  const config = await response.json()
-
-  const clientId = config.EXTERNAL_AZURE_CLIENT_ID || ""
-  const clientSecret = config.EXTERNAL_AZURE_SECRET || ""
-  const azureUrl = config.EXTERNAL_AZURE_URL || ""
-  const enabled = config.EXTERNAL_AZURE_ENABLED === true
-
-  if (!enabled) {
-    throw new Error("Microsoft SSO is not enabled. Configure it in Settings first.")
-  }
-
-  if (!clientId || !clientSecret) {
-    throw new Error("Microsoft SSO Client ID or Secret is missing.")
-  }
-
-  let tenantId = "common"
-  if (azureUrl) {
-    const match = azureUrl.match(/microsoftonline\.com\/([^/]+)/)
-    if (match) tenantId = match[1]
-  }
-
-  return { tenantId, clientId, clientSecret }
 }
 
 /**
@@ -69,7 +139,7 @@ export async function getAzureCredentials(): Promise<AzureCredentials> {
  */
 export async function getAzureAccessToken(credentials: AzureCredentials): Promise<string> {
   const tokenUrl = `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`
-
+  
   const params = new URLSearchParams({
     client_id: credentials.clientId,
     client_secret: credentials.clientSecret,
