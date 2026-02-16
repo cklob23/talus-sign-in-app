@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
+import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -292,11 +293,12 @@ export default function KioskPage() {
 
       const callbackUrl = `${window.location.origin}/auth/callback?type=kiosk&next=/kiosk`
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
           redirectTo: callbackUrl,
           scopes: "email profile openid User.Read",
+          skipBrowserRedirect: true,
           queryParams: {
             prompt: "select_account",
           },
@@ -304,6 +306,9 @@ export default function KioskPage() {
       })
 
       if (error) throw error
+      if (data?.url) {
+        window.location.href = fixAzureOAuthUrl(data.url)
+      }
     } catch (error: unknown) {
       setReceptionistError(error instanceof Error ? error.message : "Microsoft login failed")
       setReceptionistLoading(false)
@@ -2234,13 +2239,17 @@ export default function KioskPage() {
         options: {
           redirectTo: redirectUrl,
           scopes: "email profile openid User.Read",
+          skipBrowserRedirect: true,
           queryParams: {
-            prompt: "select_account", // Always show account picker for reliability
+            prompt: "select_account",
           },
         },
       })
 
       if (error) throw error
+      if (data?.url) {
+        window.location.href = fixAzureOAuthUrl(data.url)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign in with Microsoft")
       setIsLoading(false)

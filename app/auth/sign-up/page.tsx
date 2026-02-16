@@ -12,6 +12,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { useBranding } from "@/hooks/use-branding"
+import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 
 export default function SignUpPage() {
   const { branding } = useBranding()
@@ -70,20 +71,24 @@ export default function SignUpPage() {
     setError(null)
 
     try {
-      const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || 
+      const redirectUrl = process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
         `${window.location.origin}/auth/callback`
-      
-      const { error } = await supabase.auth.signInWithOAuth({
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
           redirectTo: `${redirectUrl}?type=admin&next=/admin`,
           scopes: "email profile openid User.Read",
+          skipBrowserRedirect: true,
           queryParams: {
             prompt: "select_account",
           },
         },
       })
       if (error) throw error
+      if (data?.url) {
+        window.location.href = fixAzureOAuthUrl(data.url)
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsLoading(false)
@@ -154,7 +159,7 @@ export default function SignUpPage() {
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
-                  
+
                   {microsoftSsoEnabled && (
                     <>
                       <div className="relative">
@@ -174,10 +179,10 @@ export default function SignUpPage() {
                         disabled={isLoading}
                       >
                         <svg className="mr-2 h-4 w-4" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                          <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                          <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+                          <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+                          <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+                          <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
                         </svg>
                         Sign up with Microsoft
                       </Button>

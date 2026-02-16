@@ -14,6 +14,7 @@ import { TalusAgLogo } from "@/components/talusag-logo"
 import { useBranding } from "@/hooks/use-branding"
 import { logAudit } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication } from "@/lib/password-policy"
+import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 
 export default function LoginPage() {
   const { branding } = useBranding()
@@ -103,20 +104,24 @@ export default function LoginPage() {
       await supabase.auth.signOut()
 
       // Construct redirect URL - must match what's configured in Supabase Auth settings
-      const callbackUrl = "https://qnerjyxhesorjrsjssba.supabase.co/auth/v1/callback"
+      const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",
         options: {
           redirectTo: callbackUrl,
           scopes: "email profile openid User.Read",
+          skipBrowserRedirect: true,
           queryParams: {
-            prompt: "select_account", // Always show account picker
+            prompt: "select_account",
           },
         },
       })
 
       if (error) throw error
+      if (data?.url) {
+        window.location.href = fixAzureOAuthUrl(data.url)
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsLoading(false)
@@ -159,7 +164,7 @@ export default function LoginPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
+                      placeholder={`admin@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
