@@ -144,6 +144,9 @@ export default function AuditLogPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedUserId, setSelectedUserId] = useState<string>("all")
   const [selectedAction, setSelectedAction] = useState<string>("all")
+  // Photo lookup maps: entity_id -> photo URL
+  const [visitorPhotos, setVisitorPhotos] = useState<Record<string, string>>({})
+  const [employeePhotos, setEmployeePhotos] = useState<Record<string, string>>({})
   const { timezone: userTimezone } = useTimezone()
   // Default to last 7 days, allow up to 30 days lookback
   const [startDate, setStartDate] = useState<Date>(() => startOfDay(subDays(new Date(), 7)))
@@ -180,8 +183,60 @@ export default function AuditLogPage() {
       console.error("Error loading audit logs:", error)
       setLogs([])
     } else {
-      setLogs(data as AuditLogWithUser[])
+      const typedLogs = data as AuditLogWithUser[]
+      setLogs(typedLogs)
       setHasMore(data.length === pageSize)
+
+      // Batch-fetch visitor and employee photos for this page of logs
+      const visitorIds = new Set<string>()
+      const employeeIds = new Set<string>()
+
+      for (const log of typedLogs) {
+        if (!log.entity_id) continue
+        if (log.entity_type === "visitor" && log.action.startsWith("visitor.")) {
+          visitorIds.add(log.entity_id)
+        }
+        if (log.entity_type === "employee" && log.action.startsWith("employee.")) {
+          // entity_id is a profile ID for employees
+          employeeIds.add(log.entity_id)
+        }
+      }
+
+      // Fetch visitor photos
+      if (visitorIds.size > 0) {
+        const { data: visitors } = await supabase
+          .from("visitors")
+          .select("id, photo_url")
+          .in("id", Array.from(visitorIds))
+          .not("photo_url", "is", null)
+        if (visitors) {
+          const map: Record<string, string> = {}
+          for (const v of visitors) {
+            if (v.photo_url) map[v.id] = v.photo_url
+          }
+          setVisitorPhotos(map)
+        }
+      } else {
+        setVisitorPhotos({})
+      }
+
+      // Fetch employee (profile) photos
+      if (employeeIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, avatar_url")
+          .in("id", Array.from(employeeIds))
+          .not("avatar_url", "is", null)
+        if (profiles) {
+          const map: Record<string, string> = {}
+          for (const p of profiles) {
+            if (p.avatar_url) map[p.id] = p.avatar_url
+          }
+          setEmployeePhotos(map)
+        }
+      } else {
+        setEmployeePhotos({})
+      }
     }
 
     setIsLoading(false)
@@ -217,6 +272,23 @@ export default function AuditLogPage() {
 
   function getActionLabel(action: string): string {
     return ACTION_LABELS[action] || action
+  }
+
+  function getAvatarUrl(log: AuditLogWithUser): string | undefined {
+    // 1. If the log has a linked user profile with an avatar, use it
+    if (log.user?.avatar_url) return log.user.avatar_url
+
+    // 2. For visitor actions, look up photo from the visitors table
+    if (log.entity_type === "visitor" && log.entity_id && visitorPhotos[log.entity_id]) {
+      return visitorPhotos[log.entity_id]
+    }
+
+    // 3. For employee actions, look up avatar from the profiles table
+    if (log.entity_type === "employee" && log.entity_id && employeePhotos[log.entity_id]) {
+      return employeePhotos[log.entity_id]
+    }
+
+    return undefined
   }
 
   const dateRangeString = `${startDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} - ${endDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}`
@@ -393,7 +465,7 @@ export default function AuditLogPage() {
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-2">
                             <Avatar className="h-8 w-8">
-                              <AvatarImage src={log.user?.avatar_url || undefined} />
+                              <AvatarImage src={getAvatarUrl(log)} />
                               <AvatarFallback className="text-xs">
                                 {initials}
                               </AvatarFallback>
@@ -436,7 +508,7 @@ export default function AuditLogPage() {
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Avatar className="h-6 w-6">
-                                  <AvatarImage src={log.user?.avatar_url || undefined} />
+                                  <AvatarImage src={getAvatarUrl(log)} />
                                   <AvatarFallback className="text-xs">
                                     {initials}
                                   </AvatarFallback>
