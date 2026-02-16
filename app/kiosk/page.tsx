@@ -2312,6 +2312,9 @@ export default function KioskPage() {
       const supabase = createClient()
       await supabase.auth.signOut({ scope: "global" }).catch(() => { })
 
+      // Clear the active session from sessionStorage
+      sessionStorage.removeItem(ACTIVE_EMPLOYEE_SESSION_KEY)
+
       // NOTE: Do NOT clear REMEMBERED_EMPLOYEE_KEY here.
       // The "Remember Me" localStorage entry should survive sign-outs
       // so the auto sign-in countdown works when the employee returns.
