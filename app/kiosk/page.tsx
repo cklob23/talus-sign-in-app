@@ -2261,40 +2261,25 @@ export default function KioskPage() {
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
+      // Use server-side API to update the sign-in record (bypasses RLS)
+      // This works for all sign-in methods: password, Microsoft SSO, and auto sign-in
+      const response = await fetch("/api/kiosk/employee-signout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile_id: currentEmployee.id,
+          location_id: selectedLocation,
+        }),
+      })
 
-      // Find active employee sign-in
-      const { data: signIn } = await supabase
-        .from("employee_sign_ins")
-        .select("*")
-        .eq("profile_id", currentEmployee.id)
-        .is("sign_out_time", null)
-        .order("sign_in_time", { ascending: false })
-        .limit(1)
-        .single()
-
-      if (signIn) {
-        await supabase
-          .from("employee_sign_ins")
-          .update({ sign_out_time: new Date().toISOString() })
-          .eq("id", signIn.id)
-
-        // Log employee sign-out via API to bypass RLS
-        await logAuditViaApi({
-          action: "employee.sign_out",
-          entityType: "employee",
-          entityId: currentEmployee.id,
-          description: `Employee signed out: ${currentEmployee.full_name || currentEmployee.email}`,
-          metadata: {
-            profile_id: currentEmployee.id,
-            sign_in_id: signIn.id,
-            location_id: signIn.location_id
-          }
-        })
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to sign out")
       }
 
-      // Sign out of Supabase Auth with global scope to clear all sessions
-      await supabase.auth.signOut({ scope: "global" })
+      // Also sign out of Supabase Auth if there's an active session
+      const supabase = createClient()
+      await supabase.auth.signOut({ scope: "global" }).catch(() => { })
 
       // NOTE: Do NOT clear REMEMBERED_EMPLOYEE_KEY here.
       // The "Remember Me" localStorage entry should survive sign-outs
@@ -2302,9 +2287,6 @@ export default function KioskPage() {
       // Only forgetEmployee() (triggered by "Not you?") should clear it.
 
       // Clear runtime state but keep rememberedEmployee so the card shows on return
-
-      // Clear all state
-      setRememberedEmployee(null)
       setSuccessData({
         name: currentEmployee.full_name || currentEmployee.email,
         badge: "Employee",
@@ -2322,7 +2304,7 @@ export default function KioskPage() {
       setIsLoading(false)
     }
   }
-
+  
   async function forgetEmployee() {
     // Clear local storage
     localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
