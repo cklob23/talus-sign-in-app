@@ -449,7 +449,7 @@ export default function AuditLogPage() {
 
         {/* Data Table */}
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="px-4">
             {isLoading ? (
               <p className="text-center py-8 text-muted-foreground">Loading...</p>
             ) : logs.length === 0 ? (

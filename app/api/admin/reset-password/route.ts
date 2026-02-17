@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     `
 
     await transporter.sendMail({
-      from: `"${smtp.companyName}" <${smtp.fromEmail}>`,
+      from: `"${smtp.companyName} Visitor Management" <${smtp.fromEmail}>`,
       to: email,
       subject: `${smtp.companyName} Visitor Management - Reset Your Password`,
       html: htmlBody,
