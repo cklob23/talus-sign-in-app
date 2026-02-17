@@ -36,6 +36,7 @@ import {
   RefreshCw,
   Lock,
   Shield,
+  Calendar,
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
@@ -1530,7 +1531,7 @@ export default function KioskPage() {
     setVideoStarted(true)
 
     // Simulate 47.39 minutes of required watching time
-    const totalDuration = 2843.4
+    const totalDuration = 60 * 3.45
     let elapsed = 0
 
     videoTimerRef.current = setInterval(() => {
@@ -2787,7 +2788,7 @@ export default function KioskPage() {
               )}
 
               <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
-                <Clock className="w-4 h-4" />
+                <Calendar className="w-4 h-4" />
                 {formatDate(new Date().toISOString(), locations.find(l => l.id === selectedLocation)?.timezone || "UTC")}
               </p>
             </div>
