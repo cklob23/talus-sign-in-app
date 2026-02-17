@@ -64,19 +64,31 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
+    // Determine the correct app origin for building redirect URLs
+    const appOrigin = process.env.NEXT_PUBLIC_APP_URL
+      || (process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+        : request.headers.get("origin")
+        || "https://signin.talusag.com")
+
+    // The redirect_to tells Supabase where to send the user AFTER it verifies the token.
+    // We point it at our /auth/callback which handles PKCE code exchange, then
+    // /auth/callback redirects to next=/kiosk/reset-password
+    const redirectTo = `${appOrigin}/auth/callback?type=recovery&next=/kiosk/reset-password`
+
     // ------------------------------------------------------------------
-    // generateLink creates a recovery token AND returns the hashed_token,
-    // but does NOT send an email.  We build a link to our own
-    // /api/auth/verify-recovery endpoint which exchanges the token and
-    // redirects to /kiosk/reset-password — fully bypassing Supabase's
-    // redirect_to configuration and avoiding domain mismatches.
+    // generateLink creates a recovery token AND returns the action_link,
+    // but does NOT send an email. The action_link goes through Supabase's
+    // /auth/v1/verify which handles token verification and redirects to
+    // our redirect_to with a PKCE code for proper session establishment.
     // ------------------------------------------------------------------
     const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
       type: "recovery",
       email,
+      options: { redirectTo },
     })
 
-    if (linkError || !linkData?.properties?.hashed_token) {
+    if (linkError || !linkData?.properties?.action_link) {
       console.error("[Reset Password] generateLink error:", linkError)
       return NextResponse.json(
         { error: linkError?.message || "Failed to generate recovery link" },
@@ -84,14 +96,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // Build a direct link to OUR verify-recovery endpoint (bypasses Supabase redirect entirely)
-    const appOrigin = process.env.NEXT_PUBLIC_APP_URL
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL
-        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-        : request.headers.get("origin")
-        || "https://signin.talusag.com")
-
-    const resetLink = `${appOrigin}/api/auth/verify-recovery?token=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
+    // Use the action_link with our redirect_to explicitly set
+    const linkUrl = new URL(linkData.properties.action_link)
+    linkUrl.searchParams.set("redirect_to", redirectTo)
+    const resetLink = linkUrl.toString()
 
     // ---------- send email via SMTP ----------
     const smtp = await getSmtpSettings()
@@ -133,7 +141,7 @@ export async function POST(request: Request) {
     `
 
     await transporter.sendMail({
-      from: `"${smtp.companyName} Visitor Management" <${smtp.fromEmail}>`,
+      from: `"${smtp.companyName}" <${smtp.fromEmail}>`,
       to: email,
       subject: `${smtp.companyName} Visitor Management - Reset Your Password`,
       html: htmlBody,

@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = await cookies()
-    
+
     // Track cookies that need to be set on the response
     const cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[] = []
 
@@ -61,12 +61,12 @@ export async function GET(request: Request) {
     // Helper function to create redirect with all session cookies
     function createRedirectWithCookies(url: string): NextResponse {
       const response = NextResponse.redirect(url)
-      
+
       // Apply all cookies that Supabase wants to set to the redirect response
       for (const { name, value, options } of cookiesToSet) {
         response.cookies.set(name, value, options)
       }
-      
+
       return response
     }
 
@@ -77,6 +77,11 @@ export async function GET(request: Request) {
     }
 
     if (data.user) {
+      // Handle password recovery — redirect to reset-password page with session set
+      if (type === "recovery") {
+        return createRedirectWithCookies(getRedirectUrl("/kiosk/reset-password"))
+      }
+
       // If this is an employee login from kiosk, record the sign-in
       if (type === "employee" && locationId) {
         // Check if user has a profile with employee/admin/staff role
@@ -94,7 +99,7 @@ export async function GET(request: Request) {
             auto_signed_in: false,
             device_id: "Microsoft OAuth",
           })
-          
+
           // Log employee sign-in
           await logAuditServer({
             supabase,
@@ -207,7 +212,7 @@ export async function GET(request: Request) {
         description: `Admin logged in via Microsoft: ${data.user.email}`,
         metadata: { method: "microsoft_oauth", portal: "admin" }
       })
-      
+
       // For admin login, redirect to admin dashboard
       return createRedirectWithCookies(getRedirectUrl(next))
     }
