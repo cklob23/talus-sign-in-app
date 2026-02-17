@@ -77,11 +77,6 @@ export async function GET(request: Request) {
     }
 
     if (data.user) {
-      // Handle password recovery — redirect to reset-password page with session set
-      if (type === "recovery") {
-        return createRedirectWithCookies(getRedirectUrl("/kiosk/reset-password"))
-      }
-
       // If this is an employee login from kiosk, record the sign-in
       if (type === "employee" && locationId) {
         // Check if user has a profile with employee/admin/staff role
