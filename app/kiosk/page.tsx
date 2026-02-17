@@ -7,6 +7,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
+import { printVisitorBadge } from "@/lib/print-badge"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,7 +37,8 @@ import {
   RefreshCw,
   Lock,
   Shield,
-  Calendar,
+  Printer,
+  Calendar
 } from "lucide-react"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
@@ -101,7 +103,16 @@ export default function KioskPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [signOutEmail, setSignOutEmail] = useState("")
-  const [successData, setSuccessData] = useState<{ name: string; badge: string; type: "in" | "out" } | null>(null)
+  const [successData, setSuccessData] = useState<{
+    name: string
+    badge: string
+    type: "in" | "out"
+    company?: string
+    visitorType?: string
+    locationName?: string
+    photoUrl?: string
+  } | null>(null)
+
 
   const [form, setForm] = useState<SignInForm>({
     firstName: "",
@@ -1412,6 +1423,9 @@ export default function KioskPage() {
       name: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
       badge: badgeNumber,
       type: "in",
+      company: selectedBooking.visitor_company || undefined,
+      locationName: currentLocation?.name || undefined,
+      photoUrl: photoUrl || capturedPhoto || undefined,
     })
 
     // Reset booking state
@@ -1906,6 +1920,10 @@ export default function KioskPage() {
         name: `${form.firstName} ${form.lastName}`,
         badge: badgeNumber,
         type: "in",
+        company: form.company || undefined,
+        visitorType: visitorTypes.find(t => t.id === form.visitorTypeId)?.name || undefined,
+        locationName: currentLocation?.name || undefined,
+        photoUrl: photoUrl || capturedPhoto || undefined,
       })
       setMode("success")
       resetForm()
@@ -3737,9 +3755,31 @@ export default function KioskPage() {
                     : `Thank you for visiting ${branding.companyName}.`}
                 </p>
 
-                <Button onClick={handleReset} size="lg" className="w-full">
-                  Done
-                </Button>
+                <div className="flex flex-col gap-2">
+                  {successData.type === "in" && (
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="w-full"
+                      onClick={() =>
+                        printVisitorBadge({
+                          visitorName: successData.name,
+                          visitorCompany: successData.company,
+                          visitorType: successData.visitorType,
+                          badgeNumber: successData.badge,
+                          locationName: successData.locationName,
+                          photoUrl: successData.photoUrl,
+                        })
+                      }
+                    >
+                      <Printer className="w-4 h-4 mr-2" />
+                      Print Badge
+                    </Button>
+                  )}
+                  <Button onClick={handleReset} size="lg" className="w-full">
+                    Done
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>

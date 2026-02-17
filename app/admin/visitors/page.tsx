@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { LogOut, RefreshCw, Users, Briefcase, User } from "lucide-react"
+import { LogOut, RefreshCw, Users, Briefcase, User, Printer } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { printVisitorBadge } from "@/lib/print-badge"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
   profile: Profile | null
@@ -25,7 +26,7 @@ export default function CurrentVisitorsPage() {
   async function loadData() {
     setIsLoading(true)
     const supabase = createClient()
-    
+
     // Load current visitors
     const { data: visitorData } = await supabase
       .from("sign_ins")
@@ -62,7 +63,7 @@ export default function CurrentVisitorsPage() {
   async function loadVisitors() {
     setIsLoading(true)
     const supabase = createClient()
-    
+
     // Load current visitors
     const { data: visitorData } = await supabase
       .from("sign_ins")
@@ -195,10 +196,30 @@ export default function CurrentVisitorsPage() {
                           <span>Badge: {signIn.badge_number}</span>
                           <span>Duration: {formatDuration(signIn.sign_in_time)}</span>
                         </div>
-                        <Button variant="outline" size="sm" className="w-full bg-transparent" onClick={() => handleVisitorSignOut(signIn.id)}>
-                          <LogOut className="w-4 h-4 mr-1" />
-                          Sign Out
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 bg-transparent"
+                            onClick={() =>
+                              printVisitorBadge({
+                                visitorName: `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim(),
+                                visitorCompany: signIn.visitor?.company || undefined,
+                                visitorType: signIn.visitor_type?.name || undefined,
+                                badgeNumber: signIn.badge_number || "N/A",
+                                locationName: signIn.location?.name || undefined,
+                                photoUrl: signIn.visitor?.photo_url || undefined,
+                              })
+                            }
+                          >
+                            <Printer className="w-4 h-4 mr-1" />
+                            Print Badge
+                          </Button>
+                          <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={() => handleVisitorSignOut(signIn.id)}>
+                            <LogOut className="w-4 h-4 mr-1" />
+                            Sign Out
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -257,10 +278,29 @@ export default function CurrentVisitorsPage() {
                             <TableCell className="font-mono">{signIn.badge_number}</TableCell>
                             <TableCell>{formatDuration(signIn.sign_in_time)}</TableCell>
                             <TableCell className="text-right">
-                              <Button variant="outline" size="sm" onClick={() => handleVisitorSignOut(signIn.id)}>
-                                <LogOut className="w-4 h-4 mr-1" />
-                                Sign Out
-                              </Button>
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    printVisitorBadge({
+                                      visitorName: `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim(),
+                                      visitorCompany: signIn.visitor?.company || undefined,
+                                      visitorType: signIn.visitor_type?.name || undefined,
+                                      badgeNumber: signIn.badge_number || "N/A",
+                                      locationName: signIn.location?.name || undefined,
+                                      photoUrl: signIn.visitor?.photo_url || undefined,
+                                    })
+                                  }
+                                >
+                                  <Printer className="w-4 h-4 mr-1" />
+                                  Print
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => handleVisitorSignOut(signIn.id)}>
+                                  <LogOut className="w-4 h-4 mr-1" />
+                                  Sign Out
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}

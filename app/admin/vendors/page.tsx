@@ -468,8 +468,8 @@ export default function VendorsPage() {
                 {syncResult && (
                     <div
                         className={`flex items-center gap-2 p-3 rounded-lg text-sm ${syncResult.success
-                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                                : "bg-destructive/10 text-destructive"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                            : "bg-destructive/10 text-destructive"
                             }`}
                     >
                         {syncResult.success ? (
