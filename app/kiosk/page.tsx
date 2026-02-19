@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 import { printVisitorBadge } from "@/lib/print-badge"
+import { usePreciseGeolocation } from "@/hooks/use-precise-geolocation"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -124,14 +125,20 @@ export default function KioskPage() {
     hostId: "",
     purpose: "",
   })
-
-  // Geolocation state
-  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null)
-  const [geoError, setGeoError] = useState<string | null>(null)
-  const [isDetectingLocation, setIsDetectingLocation] = useState(true)
-  const [nearestLocation, setNearestLocation] = useState<{ location: Location; distance: number } | null>(null)
-  const [selectedLocationDistance, setSelectedLocationDistance] = useState<number | null>(null)
+  // Distance unit preference
+  const [useMiles, setUseMiles] = useState(false)
+  // Geolocation (via Vincenty-based high-precision hook with averaged readings)
   const [userLocationName, setUserLocationName] = useState<string | null>(null)
+  const {
+    userCoords,
+    nearestLocation,
+    selectedLocationDistance,
+    calculateDistance,
+    formatDistance,
+    geoError,
+    isDetectingLocation,
+    retryGeolocation,
+  } = usePreciseGeolocation(locations, useMiles, selectedLocation)
 
   // Employee login state
   const [employeeEmail, setEmployeeEmail] = useState("")
@@ -155,9 +162,6 @@ export default function KioskPage() {
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  // Distance unit preference
-  const [useMiles, setUseMiles] = useState(false)
 
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
@@ -479,79 +483,8 @@ export default function KioskPage() {
     loadSettings()
   }, [selectedLocation])
 
-  // Calculate distance between two coordinates using Haversine formula
-  const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371e3 // Earth's radius in meters
-    const φ1 = (lat1 * Math.PI) / 180
-    const φ2 = (lat2 * Math.PI) / 180
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-    return R * c // Distance in meters
-  }, [])
-
-  // Format distance with unit preference
-  const formatDistance = useCallback((meters: number, suffix = "away"): string => {
-    if (useMiles) {
-      const miles = meters / 1609.34
-      if (miles < 0.1) {
-        const feet = Math.round(meters * 3.28084)
-        return `${feet}ft ${suffix}`
-      }
-      return `${miles.toFixed(1)}mi ${suffix}`
-    }
-    // Metric
-    if (meters < 1000) {
-      return `${Math.round(meters)}m ${suffix}`
-    }
-    return `${(meters / 1000).toFixed(1)}km ${suffix}`
-  }, [useMiles])
-
-  // Find nearest location based on user coordinates
-  const findNearestLocation = useCallback((coords: { lat: number; lng: number }, locs: Location[]) => {
-    let nearest: { location: Location; distance: number } | null = null
-
-    for (const loc of locs) {
-      if (loc.latitude && loc.longitude) {
-        const distance = calculateDistance(coords.lat, coords.lng, loc.latitude, loc.longitude)
-        if (!nearest || distance < nearest.distance) {
-          nearest = { location: loc, distance }
-        }
-      }
-    }
-
-    return nearest
-  }, [calculateDistance])
-
-  // Get user's geolocation
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setGeoError("Geolocation is not supported by your browser")
-      setIsDetectingLocation(false)
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const coords = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        }
-        setUserCoords(coords)
-        setIsDetectingLocation(false)
-      },
-      (error) => {
-        console.log("[v0] Geolocation error:", error.message)
-        setGeoError("Unable to get your location. Please select manually.")
-        setIsDetectingLocation(false)
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    )
-  }, [])
+  // NOTE: calculateDistance, formatDistance, watchPosition, findNearestLocation,
+  // and selectedLocationDistance are now provided by usePreciseGeolocation hook.
 
   // Reverse geocode user coordinates to get location name
   useEffect(() => {
@@ -586,36 +519,16 @@ export default function KioskPage() {
     reverseGeocode()
   }, [userCoords])
 
-  // Auto-select nearest location when coordinates and locations are available
-  useEffect(() => {
-    if (userCoords && locations.length > 0) {
-      const nearest = findNearestLocation(userCoords, locations)
-      if (nearest) {
-        setNearestLocation(nearest)
-        setSelectedLocation(nearest.location.id)
-      }
-    }
-  }, [userCoords, locations, findNearestLocation])
+  // Track whether the user has manually changed the location dropdown
+  const [userManuallySelectedLocation, setUserManuallySelectedLocation] = useState(false)
 
-  // Calculate distance to selected location when it changes
+  // Auto-select nearest location when geolocation finds one
+  // Always update unless the user has explicitly picked a different location
   useEffect(() => {
-    if (userCoords && selectedLocation) {
-      const selectedLoc = locations.find(l => l.id === selectedLocation)
-      if (selectedLoc?.latitude && selectedLoc?.longitude) {
-        const distance = calculateDistance(
-          userCoords.lat,
-          userCoords.lng,
-          selectedLoc.latitude,
-          selectedLoc.longitude
-        )
-        setSelectedLocationDistance(distance)
-      } else {
-        setSelectedLocationDistance(null)
-      }
-    } else {
-      setSelectedLocationDistance(null)
+    if (nearestLocation && !userManuallySelectedLocation) {
+      setSelectedLocation(nearestLocation.location.id)
     }
-  }, [userCoords, selectedLocation, locations, calculateDistance])
+  }, [nearestLocation, userManuallySelectedLocation])
 
   // Get the current selected location object
   const currentLocation = locations.find(l => l.id === selectedLocation)
@@ -711,7 +624,7 @@ export default function KioskPage() {
     // Either no geofence (auto-sign-in always allowed) or within geofence
     // Start a 5-second countdown, then auto sign-in
     if (autoSignInTimerRef.current) return // already running
-    setAutoSignInCountdown(5)
+    setAutoSignInCountdown(7)
     autoSignInTimerRef.current = setInterval(() => {
       setAutoSignInCountdown(prev => {
         if (prev === null || prev <= 1) {
@@ -864,7 +777,10 @@ export default function KioskPage() {
 
     if (locData && locData.length > 0) {
       setLocations(locData)
-      setSelectedLocation(locData[0].id)
+      // Only set a default if geolocation hasn't already picked one
+      if (!selectedLocation) {
+        setSelectedLocation(locData[0].id)
+      }
     }
     if (typesData) setVisitorTypes(typesData)
     if (hostsData) setHosts(hostsData)
@@ -2428,6 +2344,31 @@ export default function KioskPage() {
                         {formatDistance(selectedLocationDistance)}
                       </Badge>
                     )}
+                    {userCoords && userCoords.accuracy > 100 && (
+                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
+                        Refine
+                      </Button>
+                    )}
+                  </>
+                ) : nearestLocation ? (
+                  <>
+                    <MapPin className="w-4 h-4 text-primary" />
+                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {formatDistance(nearestLocation.distance)}
+                    </Badge>
+                    {userCoords && userCoords.accuracy > 100 && (
+                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
+                        Refine
+                      </Button>
+                    )}
+                  </>
+                ) : geoError ? (
+                  <>
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground">
+                      Retry location
+                    </Button>
                   </>
                 ) : nearestLocation ? (
                   <>
@@ -2451,7 +2392,7 @@ export default function KioskPage() {
               </div>
 
               {locations.length > 1 && (
-                <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+                <Select value={selectedLocation} onValueChange={(val) => { setSelectedLocation(val); setUserManuallySelectedLocation(true) }}>
                   <SelectTrigger className="w-[140px] sm:w-[180px]">
                     <SelectValue placeholder="Location" />
                   </SelectTrigger>

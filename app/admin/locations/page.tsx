@@ -18,7 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, Trash2, Building2, MapPin, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Building2, MapPin, Loader2, Crosshair } from "lucide-react"
 import type { Location } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
 
@@ -28,6 +28,7 @@ export default function LocationsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
   const [isGeocoding, setIsGeocoding] = useState(false)
+  const [isGettingGPS, setIsGettingGPS] = useState(false)
   const [form, setForm] = useState({
     name: "",
     address: "",
@@ -49,31 +50,76 @@ export default function LocationsPage() {
     loadData()
   }, [])
 
-  // Geocode address using OpenStreetMap Nominatim API (free, no API key required)
+  // Capture precise GPS coordinates from the device
+  // This is more accurate than geocoding an address because it uses the
+  // device's actual GPS hardware rather than estimating from address text
+  async function captureGPSCoordinates() {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser")
+      return
+    }
+
+    setIsGettingGPS(true)
+
+    // Use watchPosition and keep the best (most accurate) reading
+    let bestAccuracy = Infinity
+    let bestLat = 0
+    let bestLng = 0
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        if (accuracy < bestAccuracy) {
+          bestAccuracy = accuracy
+          bestLat = latitude
+          bestLng = longitude
+          // Update form in real time with the best reading so far
+          setForm(prev => ({ ...prev, latitude: bestLat, longitude: bestLng }))
+        }
+        // Stop once we get a GPS-quality fix (<=30m) 
+        if (accuracy <= 30) {
+          navigator.geolocation.clearWatch(watchId)
+          clearTimeout(timer)
+          setIsGettingGPS(false)
+        }
+      },
+      (error) => {
+        console.error("GPS error:", error.message)
+        alert("Unable to get your location. Make sure location services are enabled.")
+        clearTimeout(timer)
+        setIsGettingGPS(false)
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    )
+
+    // Timeout after 10s — use whatever we have
+    const timer = setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId)
+      setIsGettingGPS(false)
+      if (bestAccuracy < Infinity) {
+        setForm(prev => ({ ...prev, latitude: bestLat, longitude: bestLng }))
+      }
+    }, 10000)
+  }
+
+  // Geocode address using Google Maps Geocoding API (via server-side route)
   async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
     if (!address.trim()) return null
-    
+
     setIsGeocoding(true)
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
-        {
-          headers: {
-            'User-Agent': 'TalusAg-VisitorManagement/1.0'
-          }
-        }
+        `/api/geocode?address=${encodeURIComponent(address)}`
       )
       const data = await response.json()
-      
-      if (data && data.length > 0) {
-        return {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon)
-        }
+
+      if (response.ok && data.lat != null && data.lng != null) {
+        return { lat: data.lat, lng: data.lng }
       }
+      console.error("Geocoding failed:", data.error)
       return null
     } catch (error) {
-      console.error('Geocoding error:', error)
+      console.error("Geocoding error:", error)
       return null
     } finally {
       setIsGeocoding(false)
@@ -82,9 +128,9 @@ export default function LocationsPage() {
 
   function openCreateDialog() {
     setEditingLocation(null)
-    setForm({ 
-      name: "", 
-      address: "", 
+    setForm({
+      name: "",
+      address: "",
       timezone: "America/New_York",
       latitude: null,
       longitude: null,
@@ -113,9 +159,9 @@ export default function LocationsPage() {
     // Try to geocode if address changed and no coords set
     let latitude = form.latitude
     let longitude = form.longitude
-    
+
     if (form.address && (
-      !editingLocation || 
+      !editingLocation ||
       editingLocation.address !== form.address ||
       !latitude || !longitude
     )) {
@@ -240,17 +286,63 @@ export default function LocationsPage() {
                   Employees within this distance can auto sign-in
                 </p>
               </div>
-              {form.latitude && form.longitude && (
-                <div className="p-3 bg-muted rounded-lg text-sm">
-                  <p className="font-medium flex items-center gap-1">
-                    <MapPin className="w-4 h-4 text-green-600" />
-                    Coordinates Set
-                  </p>
-                  <p className="text-muted-foreground">
-                    Lat: {form.latitude.toFixed(6)}, Lng: {form.longitude.toFixed(6)}
-                  </p>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Coordinates</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={captureGPSCoordinates}
+                    disabled={isGettingGPS}
+                  >
+                    {isGettingGPS ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <Crosshair className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {isGettingGPS ? "Getting GPS..." : "Use My Location"}
+                  </Button>
                 </div>
-              )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="latitude" className="text-xs text-muted-foreground">Latitude</Label>
+                    <Input
+                      id="latitude"
+                      type="number"
+                      step="any"
+                      value={form.latitude ?? ""}
+                      onChange={(e) => setForm({ ...form, latitude: e.target.value ? parseFloat(e.target.value) : null })}
+                      placeholder="e.g. 34.052235"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="longitude" className="text-xs text-muted-foreground">Longitude</Label>
+                    <Input
+                      id="longitude"
+                      type="number"
+                      step="any"
+                      value={form.longitude ?? ""}
+                      onChange={(e) => setForm({ ...form, longitude: e.target.value ? parseFloat(e.target.value) : null })}
+                      placeholder="e.g. -118.243683"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Auto-filled from address, or use GPS/manual entry for best precision.
+                </p>
+                {form.latitude && form.longitude && (
+                  <div className="p-2.5 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg text-sm">
+                    <p className="font-medium flex items-center gap-1 text-green-700 dark:text-green-400">
+                      <MapPin className="w-3.5 h-3.5" />
+                      Coordinates Set
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-500 font-mono mt-0.5">
+                      {form.latitude.toFixed(7)}, {form.longitude.toFixed(7)}
+                    </p>
+                  </div>
+                )}
+              </div>
               <DialogFooter>
                 <Button type="submit" disabled={isGeocoding}>
                   {isGeocoding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -292,12 +384,11 @@ export default function LocationsPage() {
                       {location.latitude && location.longitude ? (
                         <span className="text-green-600 flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
-                          {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                          {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                         </span>
                       ) : (
                         <span>No coords</span>
                       )}
-                       <span>Auto Sign-In (meters): {location.auto_signin_radius_meters}</span>
                     </div>
                     <div className="flex justify-end gap-2 pt-1">
                       <Button variant="ghost" size="sm" onClick={() => openEditDialog(location)}>
@@ -321,7 +412,6 @@ export default function LocationsPage() {
                       <TableHead>Address</TableHead>
                       <TableHead>Coordinates</TableHead>
                       <TableHead>Timezone</TableHead>
-                      <TableHead>Auto Sign-In Radius (meters)</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -334,14 +424,13 @@ export default function LocationsPage() {
                           {location.latitude && location.longitude ? (
                             <span className="text-xs font-mono text-green-600 flex items-center gap-1">
                               <MapPin className="w-3 h-3" />
-                              {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                              {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                             </span>
                           ) : (
                             <span className="text-xs text-muted-foreground">Not set</span>
                           )}
                         </TableCell>
                         <TableCell>{location.timezone}</TableCell>
-                        <TableCell>{location.auto_signin_radius_meters || "-"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(location)}>
