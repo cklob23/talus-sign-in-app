@@ -24,11 +24,18 @@ export default async function AdminDashboardPage() {
 
   // Get today's total sign-ins (visitors)
   const today = new Date()
-  today.setHours(0, 0, 0, 0)
+
+  const startOfTodayUTC = new Date(Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+    0, 0, 0, 0
+  ))
+
   const { count: todayVisitors } = await supabase
     .from("sign_ins")
     .select("*", { count: "exact", head: true })
-    .gte("sign_in_time", today.toISOString())
+    .gte("sign_in_time", startOfTodayUTC)
 
   // Get today's employee sign-ins
   const { count: todayEmployees } = await supabase
