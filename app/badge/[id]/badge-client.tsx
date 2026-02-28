@@ -4,7 +4,7 @@ import { useRef, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { MapPin, Clock, Building2, User, Download, Share2, Wallet } from "lucide-react"
+import { MapPin, Clock, Building2, User, Download, Share2 } from "lucide-react"
 
 const TALUS_GREEN = "#4d8b31"
 
@@ -296,8 +296,7 @@ export function DigitalBadgeClient({
                                     <img
                                         src={photoUrl}
                                         alt={visitorName}
-                                        className="w-24 h-24 rounded-full object-cover mb-3"
-                                        style={{ border: `4px solid ${TALUS_GREEN}` }}
+                                        className="w-24 h-24 rounded-full object-cover mb-3 border-4 border-gray-400"
                                         crossOrigin="anonymous"
                                     />
                                 ) : (
@@ -410,17 +409,6 @@ export function DigitalBadgeClient({
                         Share
                     </Button>
                 </div>
-
-                <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    asChild
-                >
-                    <a href={`/api/badge/${signInId}/wallet`}>
-                        <Wallet className="w-4 h-4" />
-                        Add to Wallet
-                    </a>
-                </Button>
 
                 <p className="text-xs text-center text-muted-foreground">
                     Save your badge or share the link to access it later.
