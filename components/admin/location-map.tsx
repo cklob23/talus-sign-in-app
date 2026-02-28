@@ -43,7 +43,7 @@ export function LocationMap({ locations }: LocationMapProps) {
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       document.head.appendChild(link)
     }
-    
+
     // Add custom styles to fix z-index issues with navigation
     const styleId = "leaflet-zindex-fix"
     if (!document.getElementById(styleId)) {
@@ -95,32 +95,32 @@ export function LocationMap({ locations }: LocationMapProps) {
         zoomControl: true,
       })
 
-    // Add satellite tile layer (using ESRI World Imagery - free)
-    L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      {
-        attribution: "Tiles &copy; Esri",
-        maxZoom: 19,
-      }
-    ).addTo(map)
+      // Add satellite tile layer (using ESRI World Imagery - free)
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: "Tiles &copy; Esri",
+          maxZoom: 19,
+        }
+      ).addTo(map)
 
-    // Add labels overlay for readability
-    L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-      {
-        maxZoom: 19,
-      }
-    ).addTo(map)
+      // Add labels overlay for readability
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+        {
+          maxZoom: 19,
+        }
+      ).addTo(map)
 
-    // Custom icon for markers
-    const createIcon = (visitors: number, employees: number) => {
-      const total = visitors + employees
-      const size = Math.min(60, Math.max(36, 36 + total * 2))
-      const color = total > 10 ? "#ef4444" : total > 5 ? "#f97316" : "#22c55e"
-      
-      return L.divIcon({
-        className: "custom-marker",
-        html: `
+      // Custom icon for markers
+      const createIcon = (visitors: number, employees: number) => {
+        const total = visitors + employees
+        const size = Math.min(60, Math.max(36, 36 + total * 2))
+        const color = total > 10 ? "#ef4444" : total > 5 ? "#f97316" : "#22c55e"
+
+        return L.divIcon({
+          className: "custom-marker",
+          html: `
           <div style="
             width: ${size}px;
             height: ${size}px;
@@ -139,19 +139,19 @@ export function LocationMap({ locations }: LocationMapProps) {
             ${total}
           </div>
         `,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
-      })
-    }
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        })
+      }
 
-    // Add markers for each location
-    locationsWithCoords.forEach((location) => {
-      const marker = L.marker([location.latitude!, location.longitude!], {
-        icon: createIcon(location.currentVisitors, location.currentEmployees),
-      }).addTo(map)
+      // Add markers for each location
+      locationsWithCoords.forEach((location) => {
+        const marker = L.marker([location.latitude!, location.longitude!], {
+          icon: createIcon(location.currentVisitors, location.currentEmployees),
+        }).addTo(map)
 
-      // Create popup content
-      const popupContent = `
+        // Create popup content
+        const popupContent = `
         <div style="min-width: 200px; padding: 8px;">
           <h3 style="font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #111;">${location.name}</h3>
           ${location.address ? `<p style="font-size: 12px; color: #666; margin-bottom: 12px;">${location.address}</p>` : ""}
@@ -168,25 +168,25 @@ export function LocationMap({ locations }: LocationMapProps) {
         </div>
       `
 
-      marker.bindPopup(popupContent, {
-        closeButton: true,
-        className: "custom-popup",
+        marker.bindPopup(popupContent, {
+          closeButton: true,
+          className: "custom-popup",
+        })
+
+        marker.on("click", () => {
+          setSelectedLocation(location)
+        })
       })
 
-      marker.on("click", () => {
-        setSelectedLocation(location)
-      })
-    })
+      // Fit bounds if we have multiple locations
+      if (locationsWithCoords.length > 1) {
+        const bounds = L.latLngBounds(
+          locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
+        )
+        map.fitBounds(bounds, { padding: [50, 50] })
+      }
 
-    // Fit bounds if we have multiple locations
-    if (locationsWithCoords.length > 1) {
-      const bounds = L.latLngBounds(
-        locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
-      )
-      map.fitBounds(bounds, { padding: [50, 50] })
-    }
-
-    mapInstanceRef.current = map
+      mapInstanceRef.current = map
       setIsMapLoaded(true)
       initializingRef.current = false
     }
@@ -204,15 +204,15 @@ export function LocationMap({ locations }: LocationMapProps) {
         initializingRef.current = false
       }
     }
-  // Only reinitialize map when the location IDs change, not on every render
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only reinitialize map when the location IDs change, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationsWithCoords.map(l => l.id).join(",")])
 
   const totalVisitors = locations.reduce((sum, l) => sum + l.currentVisitors, 0)
   const totalEmployees = locations.reduce((sum, l) => sum + l.currentEmployees, 0)
 
   return (
-    <Card className="col-span-full">
+    <Card className="col-span-full overflow-hidden">
       <CardHeader className="pb-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -231,7 +231,7 @@ export function LocationMap({ locations }: LocationMapProps) {
           </div>
         </div>
       </CardHeader>
-      
+
       {/* Location selector - horizontal scroll on mobile, wrapping on desktop */}
       {locationsWithCoords.length > 0 && (
         <div className="px-4 pb-3 sm:px-6">
@@ -246,16 +246,15 @@ export function LocationMap({ locations }: LocationMapProps) {
                     const bounds = L.latLngBounds(
                       locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
                     )
-                    ;(mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
+                      ; (mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
                   }
                   setSelectedLocation(null)
                 }
               }}
-              className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                !selectedLocation
+              className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${!selectedLocation
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/50 hover:bg-muted border-transparent"
-              }`}
+                }`}
             >
               All Sites
             </button>
@@ -263,11 +262,10 @@ export function LocationMap({ locations }: LocationMapProps) {
               <button
                 type="button"
                 key={loc.id}
-                className={`shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors border ${
-                  selectedLocation?.id === loc.id
+                className={`shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors border ${selectedLocation?.id === loc.id
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-muted/50 hover:bg-muted border-transparent"
-                }`}
+                  }`}
                 onClick={() => {
                   if (loc.latitude && loc.longitude && mapInstanceRef.current) {
                     (mapInstanceRef.current as import("leaflet").Map).setView([loc.latitude, loc.longitude], 14)
@@ -295,12 +293,12 @@ export function LocationMap({ locations }: LocationMapProps) {
           {/* Map container - z-index set low to not overlap navigation */}
           <div
             ref={mapRef}
-            className="w-full h-[400px] rounded-b-lg relative z-0"
+            className="w-full h-[400px] relative z-0"
             style={{ background: "#1a1a2e" }}
           />
-          
+
           {!isMapLoaded && (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted/50 rounded-b-lg">
+            <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
               <div className="text-center">
                 <div className="animate-pulse text-muted-foreground">Loading map...</div>
               </div>
@@ -308,7 +306,7 @@ export function LocationMap({ locations }: LocationMapProps) {
           )}
 
           {locationsWithCoords.length === 0 && isMapLoaded && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-b-lg">
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80">
               <div className="text-center p-6">
                 <Building2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-muted-foreground">No locations with coordinates found.</p>
