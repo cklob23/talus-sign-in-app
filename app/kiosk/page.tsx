@@ -109,6 +109,7 @@ export default function KioskPage() {
     name: string
     badge: string
     type: "in" | "out"
+    email?: string
     company?: string
     visitorType?: string
     locationName?: string
@@ -1189,6 +1190,7 @@ export default function KioskPage() {
       name: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
       badge: badgeNumber,
       type: "in",
+      email: selectedBooking.visitor_email || undefined,
       company: selectedBooking.visitor_company || undefined,
       locationName: currentLocation?.name || undefined,
       photoUrl: photoUrl || capturedPhoto || undefined,
@@ -1534,6 +1536,7 @@ export default function KioskPage() {
         name: `${form.firstName} ${form.lastName}`,
         badge: badgeNumber,
         type: "in",
+        email: form.email || undefined,
         company: form.company || undefined,
         visitorType: visitorTypes.find(t => t.id === form.visitorTypeId)?.name || undefined,
         locationName: currentLocation?.name || undefined,
@@ -3418,6 +3421,7 @@ export default function KioskPage() {
                       onClick={() =>
                         printVisitorBadge({
                           visitorName: successData.name,
+                          visitorEmail: successData.email,
                           visitorCompany: successData.company,
                           visitorType: successData.visitorType,
                           badgeNumber: successData.badge,

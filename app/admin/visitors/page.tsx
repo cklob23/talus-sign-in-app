@@ -204,6 +204,7 @@ export default function CurrentVisitorsPage() {
                             onClick={() =>
                               printVisitorBadge({
                                 visitorName: `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim(),
+                                visitorEmail: signIn.visitor?.email || undefined,
                                 visitorCompany: signIn.visitor?.company || undefined,
                                 visitorType: signIn.visitor_type?.name || undefined,
                                 badgeNumber: signIn.badge_number || "N/A",
@@ -285,6 +286,7 @@ export default function CurrentVisitorsPage() {
                                   onClick={() =>
                                     printVisitorBadge({
                                       visitorName: `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim(),
+                                      visitorEmail: signIn.visitor?.email || undefined,
                                       visitorCompany: signIn.visitor?.company || undefined,
                                       visitorType: signIn.visitor_type?.name || undefined,
                                       badgeNumber: signIn.badge_number || "N/A",

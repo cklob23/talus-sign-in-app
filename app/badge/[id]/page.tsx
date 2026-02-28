@@ -64,6 +64,7 @@ export default async function DigitalBadgePage({ params }: { params: Promise<{ i
         <DigitalBadgeClient
             signInId={signIn.id}
             visitorName={visitorName}
+            visitorEmail={visitor?.email || null}
             photoUrl={photoUrl || null}
             initials={initials}
             company={visitor?.company || null}

@@ -6,6 +6,7 @@
 
 export interface BadgePrintData {
   visitorName: string
+  visitorEmail?: string
   visitorCompany?: string
   visitorType?: string
   badgeNumber: string
@@ -18,6 +19,7 @@ export interface BadgePrintData {
 export function printVisitorBadge(data: BadgePrintData, logoPath = "/talusAg_Logo.png") {
   const {
     visitorName,
+    visitorEmail,
     visitorCompany,
     visitorType,
     badgeNumber,
@@ -157,6 +159,14 @@ export function printVisitorBadge(data: BadgePrintData, logoPath = "/talusAg_Log
           margin: 0.5% 0;
         }
 
+        .visitor-email {
+          font-size: 2vmin;
+          font-weight: 400;
+          color: #6b7280;
+          margin: 0.5% 0;
+          word-break: break-all;
+        }
+
         .location {
           font-size: 2.2vmin;
           font-weight: 500;
@@ -251,6 +261,7 @@ export function printVisitorBadge(data: BadgePrintData, logoPath = "/talusAg_Log
           <img src="${logoSrc}" alt="Logo" class="logo" />
           <div class="visitor-name">${visitorName}</div>
           <div class="visitor-type">${visitorCompany || visitorType || "Visitor"}</div>
+          ${visitorEmail ? `<div class="visitor-email">${visitorEmail}</div>` : ""}
           ${locationName ? `<div class="location">${locationName}</div>` : ""}
           <div class="badge-number">${badgeNumber}</div>
         </div>

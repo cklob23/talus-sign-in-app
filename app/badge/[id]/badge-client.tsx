@@ -11,6 +11,7 @@ const TALUS_GREEN = "#4d8b31"
 interface DigitalBadgeClientProps {
     signInId: string
     visitorName: string
+    visitorEmail: string | null
     photoUrl: string | null
     initials: string
     company: string | null
@@ -29,6 +30,7 @@ interface DigitalBadgeClientProps {
 export function DigitalBadgeClient({
     signInId,
     visitorName,
+    visitorEmail,
     photoUrl,
     initials,
     company,
@@ -310,6 +312,9 @@ export function DigitalBadgeClient({
                                 <h1 className="text-xl font-bold text-foreground">{visitorName}</h1>
                                 {company && (
                                     <p className="text-sm text-muted-foreground mt-0.5">{company}</p>
+                                )}
+                                {visitorEmail && (
+                                    <p className="text-xs text-muted-foreground mt-0.5 break-all">{visitorEmail}</p>
                                 )}
                                 {/* Visitor type badge uses visitor type color */}
                                 {visitorTypeName && (
