@@ -220,18 +220,32 @@ export function DigitalBadgeClient({
             ctx.font = "bold 18px Courier New"
             ctx.fillText(badgeNumber, centerX, y)
 
-            // Convert to blob and download
-            canvas.toBlob((blob) => {
-                if (!blob) return
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement("a")
-                a.href = url
-                a.download = `visitor-badge-${badgeNumber}.png`
-                a.click()
-                URL.revokeObjectURL(url)
-            }, "image/png")
+            // Convert to blob
+            const blob = await new Promise<Blob | null>((resolve) => {
+                canvas.toBlob((b) => resolve(b), "image/png")
+            })
+            if (!blob) return
+
+            const file = new File([blob], `visitor-badge-${badgeNumber}.png`, { type: "image/png" })
+
+            // On mobile, use Web Share API with file — this triggers "Save to Photos" on iOS/Android
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share({ files: [file] })
+                    return
+                } catch {
+                    // User cancelled or share failed — fall through to download
+                }
+            }
+
+            // Fallback for desktop: trigger download
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement("a")
+            a.href = url
+            a.download = `visitor-badge-${badgeNumber}.png`
+            a.click()
+            URL.revokeObjectURL(url)
         } catch {
-            // Fallback: screenshot via share API
             alert("Unable to save badge image. Try using the Share button instead.")
         }
     }, [visitorName, photoUrl, initials, company, visitorTypeName, visitorTypeColor, locationName, locationAddress, signInTime, signOutTime, badgeNumber, isActive])
@@ -385,7 +399,7 @@ export function DigitalBadgeClient({
                         className="gap-2"
                     >
                         <Download className="w-4 h-4" />
-                        Save Image
+                        Save to Photos
                     </Button>
                     <Button
                         onClick={shareBadge}
@@ -402,9 +416,9 @@ export function DigitalBadgeClient({
                     className="w-full gap-2"
                     asChild
                 >
-                    <a href={`/api/badge/${signInId}/wallet`} download>
+                    <a href={`/api/badge/${signInId}/wallet`}>
                         <Wallet className="w-4 h-4" />
-                        Save to Files
+                        Add to Wallet
                     </a>
                 </Button>
 
