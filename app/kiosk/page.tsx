@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 import { printVisitorBadge } from "@/lib/print-badge"
+import { QRCode } from "@/components/qr-code"
 import { usePreciseGeolocation } from "@/hooks/use-precise-geolocation"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Button } from "@/components/ui/button"
@@ -112,6 +113,7 @@ export default function KioskPage() {
     visitorType?: string
     locationName?: string
     photoUrl?: string
+    signInId?: string
   } | null>(null)
 
 
@@ -1088,7 +1090,7 @@ export default function KioskPage() {
     const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
 
     // Create sign-in record - use visitor_type_id directly from booking
-    const { error: signInError } = await supabase
+    const { data: bookingSignInRecord, error: signInError } = await supabase
       .from("sign_ins")
       .insert({
         visitor_id: visitorId,
@@ -1099,6 +1101,8 @@ export default function KioskPage() {
         badge_number: badgeNumber,
         sign_in_time: new Date().toISOString(),
       })
+      .select("id")
+      .single()
 
     if (signInError) throw signInError
 
@@ -1342,6 +1346,7 @@ export default function KioskPage() {
       company: selectedBooking.visitor_company || undefined,
       locationName: currentLocation?.name || undefined,
       photoUrl: photoUrl || capturedPhoto || undefined,
+      signInId: bookingSignInRecord?.id,
     })
 
     // Reset booking state
@@ -1840,6 +1845,7 @@ export default function KioskPage() {
         visitorType: visitorTypes.find(t => t.id === form.visitorTypeId)?.name || undefined,
         locationName: currentLocation?.name || undefined,
         photoUrl: photoUrl || capturedPhoto || undefined,
+        signInId: signInRecord?.id,
       })
       setMode("success")
       resetForm()
@@ -3687,6 +3693,20 @@ export default function KioskPage() {
                   <div className="bg-secondary rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
                     <p className="text-xs sm:text-sm text-muted-foreground mb-1">Your Badge Number</p>
                     <p className="text-2xl sm:text-3xl font-mono font-bold text-foreground">{successData.badge}</p>
+                  </div>
+                )}
+                
+                {successData.type === "in" && successData.signInId && (
+                  <div className="mb-4 sm:mb-6">
+                    <div className="bg-white rounded-lg p-3 inline-block mx-auto">
+                      <QRCode
+                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/badge/${successData.signInId}`}
+                        size={140}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Scan for your digital badge
+                    </p>
                   </div>
                 )}
 
