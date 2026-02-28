@@ -261,8 +261,8 @@ export function printVisitorBadge(data: BadgePrintData, logoPath = "/talusAg_Log
           <img src="${logoSrc}" alt="Logo" class="logo" />
           <div class="visitor-name">${visitorName}</div>
           <div class="visitor-type">${visitorCompany || visitorType || "Visitor"}</div>
-          ${visitorEmail ? `<div class="visitor-email">${visitorEmail}</div>` : ""}
           ${locationName ? `<div class="location">${locationName}</div>` : ""}
+          ${visitorEmail ? `<div class="visitor-email">${visitorEmail}</div>` : ""}
           <div class="badge-number">${badgeNumber}</div>
         </div>
       </div>

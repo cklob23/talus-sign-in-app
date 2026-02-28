@@ -310,11 +310,11 @@ export function DigitalBadgeClient({
                                     </div>
                                 )}
                                 <h1 className="text-xl font-bold text-foreground">{visitorName}</h1>
-                                {company && (
-                                    <p className="text-sm text-muted-foreground mt-0.5">{company}</p>
-                                )}
                                 {visitorEmail && (
                                     <p className="text-xs text-muted-foreground mt-0.5 break-all">{visitorEmail}</p>
+                                )}
+                                {company && (
+                                    <p className="text-sm text-muted-foreground mt-0.5">{company}</p>
                                 )}
                                 {/* Visitor type badge uses visitor type color */}
                                 {visitorTypeName && (
