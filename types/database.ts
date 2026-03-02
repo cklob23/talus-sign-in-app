@@ -6,6 +6,7 @@ export interface Location {
   latitude: number | null
   longitude: number | null
   auto_signin_radius_meters: number | null
+  auto_signout_minutes: number | null
   created_at: string
   updated_at: string
 }

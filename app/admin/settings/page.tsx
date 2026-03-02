@@ -34,7 +34,6 @@ interface SystemSettings {
   auto_sign_out: boolean
   host_notifications: boolean
   sms_notifications: boolean
-  badge_printing: boolean
   use_miles: boolean
 }
 
@@ -107,7 +106,6 @@ export default function SettingsPage() {
     auto_sign_out: true,
     host_notifications: true,
     sms_notifications: false,
-    badge_printing: false,
     use_miles: false,
   })
   const [settingsLoading, setSettingsLoading] = useState(true)
@@ -233,7 +231,6 @@ export default function SettingsPage() {
       auto_sign_out: true,
       host_notifications: true,
       sms_notifications: false,
-      badge_printing: false,
       use_miles: false,
     }
 
@@ -242,7 +239,6 @@ export default function SettingsPage() {
         if (setting.key === "auto_sign_out") loadedSettings.auto_sign_out = setting.value === true || setting.value === "true"
         if (setting.key === "host_notifications") loadedSettings.host_notifications = setting.value === true || setting.value === "true"
         if (setting.key === "sms_notifications") loadedSettings.sms_notifications = setting.value === true || setting.value === "true"
-        if (setting.key === "badge_printing") loadedSettings.badge_printing = setting.value === true || setting.value === "true"
         if (setting.key === "distance_unit_miles") loadedSettings.use_miles = setting.value === true || setting.value === "true"
       }
     }
@@ -1347,9 +1343,9 @@ export default function SettingsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
         </div>
-        {/* <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
           {getTierName()} plan
-        </span> */}
+        </span>
       </div>
 
       <Card>
@@ -1633,29 +1629,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
               )}
-              {hasFeature("badgePrinting") ? (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <Label className="text-sm">Badge Printing</Label>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
-                  </div>
-                  <Switch
-                    checked={settings.badge_printing}
-                    onCheckedChange={(checked: boolean) => updateSetting("badge_printing", checked)}
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-4 opacity-50">
-                  <div className="min-w-0 flex-1">
-                    <Label className="text-sm">Badge Printing</Label>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Enable automatic visitor badge printing</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Pro</span>
-                  </div>
-                </div>
-              )}
+
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <Label className="text-sm">Distance Unit</Label>

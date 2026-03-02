@@ -36,6 +36,7 @@ export default function LocationsPage() {
     latitude: null as number | null,
     longitude: null as number | null,
     auto_signin_radius_meters: 500,
+    auto_signout_minutes: 30,
   })
 
   async function loadData() {
@@ -135,6 +136,7 @@ export default function LocationsPage() {
       latitude: null,
       longitude: null,
       auto_signin_radius_meters: 500,
+      auto_signout_minutes: 30,
     })
     setIsDialogOpen(true)
   }
@@ -148,6 +150,7 @@ export default function LocationsPage() {
       latitude: location.latitude,
       longitude: location.longitude,
       auto_signin_radius_meters: location.auto_signin_radius_meters || 500,
+      auto_signout_minutes: location.auto_signout_minutes ?? 30,
     })
     setIsDialogOpen(true)
   }
@@ -179,6 +182,7 @@ export default function LocationsPage() {
       latitude,
       longitude,
       auto_signin_radius_meters: form.auto_signin_radius_meters,
+      auto_signout_minutes: form.auto_signout_minutes,
     }
 
     if (editingLocation) {
@@ -286,6 +290,20 @@ export default function LocationsPage() {
                   Employees within this distance can auto sign-in
                 </p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="autoSignout">Auto Sign-Out Time (minutes)</Label>
+                <Input
+                  id="autoSignout"
+                  type="number"
+                  min={0}
+                  value={form.auto_signout_minutes}
+                  onChange={(e) => setForm({ ...form, auto_signout_minutes: parseInt(e.target.value) || 0 })}
+                  placeholder="30"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Employees outside the sign-in radius for this long will be automatically signed out. Set to 0 to disable.
+                </p>
+              </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Coordinates</Label>
@@ -381,6 +399,8 @@ export default function LocationsPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>TZ: {location.timezone}</span>
+                      <span>Auto SI Radius (meters): {location.auto_signin_radius_meters || "-"}</span>
+                      <span>Auto SO Time (minutes): {location.auto_signout_minutes || "-"}</span>
                       {location.latitude && location.longitude ? (
                         <span className="text-green-600 flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
@@ -412,6 +432,8 @@ export default function LocationsPage() {
                       <TableHead>Address</TableHead>
                       <TableHead>Coordinates</TableHead>
                       <TableHead>Timezone</TableHead>
+                      <TableHead>Auto Sign-In Radius (meters)</TableHead>
+                      <TableHead>Auto Sign-Out Time (minutes)</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -431,6 +453,8 @@ export default function LocationsPage() {
                           )}
                         </TableCell>
                         <TableCell>{location.timezone}</TableCell>
+                        <TableCell>{location.auto_signin_radius_meters || "-"}</TableCell>
+                        <TableCell>{location.auto_signout_minutes || "-"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(location)}>

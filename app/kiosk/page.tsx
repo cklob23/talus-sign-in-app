@@ -168,7 +168,6 @@ export default function KioskPage() {
 
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
-  const [badgePrintingEnabled, setBadgePrintingEnabled] = useState(false)
 
   // Clock state for displaying local time
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -468,16 +467,12 @@ export default function KioskPage() {
         // Reset to defaults first
         setUseMiles(false)
         setHostNotificationsEnabled(true)
-        setBadgePrintingEnabled(false)
 
         if (merged.distance_unit_miles !== undefined) {
           setUseMiles(merged.distance_unit_miles === true || merged.distance_unit_miles === "true")
         }
         if (merged.host_notifications !== undefined) {
           setHostNotificationsEnabled(merged.host_notifications === true || merged.host_notifications === "true")
-        }
-        if (merged.badge_printing !== undefined) {
-          setBadgePrintingEnabled(merged.badge_printing === true || merged.badge_printing === "true")
         }
       } catch (err) {
         console.error("Failed to load kiosk settings:", err)
@@ -655,6 +650,91 @@ export default function KioskPage() {
       autoSignInEmployee(rememberedEmployee)
     }
   }, [autoSignInCountdown])
+
+  // Auto sign-out: track how long a signed-in employee is outside the geofence
+  // Shows a visible countdown and auto-signs out when it reaches 0
+  const outsideGeofenceSinceRef = useRef<number | null>(null)
+  const autoSignOutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [autoSignOutSecondsLeft, setAutoSignOutSecondsLeft] = useState<number | null>(null)
+
+  useEffect(() => {
+    // Clean up any existing timer first
+    if (autoSignOutTimerRef.current) {
+      clearInterval(autoSignOutTimerRef.current)
+      autoSignOutTimerRef.current = null
+    }
+
+    const autoSignOutMinutes = currentLocation?.auto_signout_minutes
+    // Only monitor if: employee is signed in, auto-signout is configured, and there's a geofence
+    if (!employeeSignedIn || !currentEmployee || !autoSignOutMinutes || autoSignOutMinutes <= 0) {
+      outsideGeofenceSinceRef.current = null
+      setAutoSignOutSecondsLeft(null)
+      return
+    }
+
+    const thresholdMs = autoSignOutMinutes * 60 * 1000
+
+    if (!isOutsideGeofence) {
+      // Within geofence — reset everything
+      outsideGeofenceSinceRef.current = null
+      setAutoSignOutSecondsLeft(null)
+      return
+    }
+
+    // Outside geofence — start or continue tracking
+    if (outsideGeofenceSinceRef.current === null) {
+      outsideGeofenceSinceRef.current = Date.now()
+    }
+
+    // Tick every second for a live countdown
+    autoSignOutTimerRef.current = setInterval(() => {
+      if (outsideGeofenceSinceRef.current === null) return
+
+      const elapsed = Date.now() - outsideGeofenceSinceRef.current
+      const remaining = Math.max(0, Math.ceil((thresholdMs - elapsed) / 1000))
+      setAutoSignOutSecondsLeft(remaining)
+
+      if (remaining <= 0) {
+        // Auto sign out
+        fetch("/api/kiosk/employee-signout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profile_id: currentEmployee.id,
+            location_id: selectedLocation,
+          }),
+        }).then(() => {
+          setEmployeeSignedIn(false)
+          setCurrentEmployee(null)
+          setEmployeeSignInRecord(null)
+          setAutoSignOutSecondsLeft(null)
+          sessionStorage.removeItem("talusag_active_employee_session")
+          setMode("home")
+        }).catch(err => {
+          console.error("Auto sign-out failed:", err)
+        })
+
+        // Clear after firing
+        outsideGeofenceSinceRef.current = null
+        if (autoSignOutTimerRef.current) {
+          clearInterval(autoSignOutTimerRef.current)
+          autoSignOutTimerRef.current = null
+        }
+      }
+    }, 1000)
+
+    // Set initial countdown immediately
+    const elapsed = Date.now() - outsideGeofenceSinceRef.current
+    const remaining = Math.max(0, Math.ceil((thresholdMs - elapsed) / 1000))
+    setAutoSignOutSecondsLeft(remaining)
+
+    return () => {
+      if (autoSignOutTimerRef.current) {
+        clearInterval(autoSignOutTimerRef.current)
+        autoSignOutTimerRef.current = null
+      }
+    }
+  }, [employeeSignedIn, currentEmployee, isOutsideGeofence, currentLocation?.auto_signout_minutes, selectedLocation])
 
   // Pre-fill employee email when entering employee-login mode with a remembered employee
   useEffect(() => {
@@ -2311,7 +2391,7 @@ export default function KioskPage() {
             <div className="mt-4 sm:mt-8">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
               {employeeSignedIn && currentEmployee ? (
-                <Card className="border-green-200 bg-green-50/50 mb-4 sm:mb-6">
+                <Card className={`mb-4 sm:mb-6 ${autoSignOutSecondsLeft !== null ? "border-amber-300 bg-amber-50/50" : "border-green-200 bg-green-50/50"}`}>
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
@@ -2323,10 +2403,20 @@ export default function KioskPage() {
                         </Avatar>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm sm:text-base truncate">{currentEmployee.full_name || currentEmployee.email}</h3>
-                          <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3" />
-                            Currently signed in
-                          </p>
+                          {autoSignOutSecondsLeft !== null ? (
+                            <p className="text-xs sm:text-sm text-amber-700 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              Outside zone — auto sign-out in{" "}
+                              <span className="font-mono font-bold">
+                                {Math.floor(autoSignOutSecondsLeft / 60)}:{String(autoSignOutSecondsLeft % 60).padStart(2, "0")}
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Currently signed in
+                            </p>
+                          )}
                         </div>
                       </div>
                       <Button
