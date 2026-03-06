@@ -57,6 +57,17 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: error.message }, { status: 500 })
         }
 
+        // Update last_password_change so the user can log in (password expiry check)
+        const { error: profileError } = await adminClient
+            .from("profiles")
+            .update({ last_password_change: new Date().toISOString() })
+            .eq("id", userId)
+
+        if (profileError) {
+            console.error("[Set Temp Password] Failed to update last_password_change:", profileError)
+            // Don't fail the request - password was set successfully
+        }
+
         // Audit log
         await logAuditServer({
             supabase: getAdminClient(),

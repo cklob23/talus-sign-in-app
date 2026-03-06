@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { Eye, EyeOff, CheckCircle2 } from "lucide-react"
 
@@ -20,20 +20,40 @@ export default function ResetPasswordPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [isSuccess, setIsSuccess] = useState(false)
     const [isReady, setIsReady] = useState(false)
+    const [isExpired, setIsExpired] = useState(false)
     const router = useRouter()
+    const searchParams = useSearchParams()
 
     useEffect(() => {
         const supabase = createClient()
+        const tokenHash = searchParams.get("token_hash")
+        const type = searchParams.get("type")
 
-        // Listen for the PASSWORD_RECOVERY event (hash-fragment flow)
+        // If we have a token_hash in the URL, verify it client-side
+        // This creates a valid session directly in the browser
+        if (tokenHash && type === "recovery") {
+            supabase.auth.verifyOtp({
+                token_hash: tokenHash,
+                type: "recovery",
+            }).then(({ data, error: verifyError }) => {
+                if (verifyError || !data.session) {
+                    console.error("[reset-password] Token verification failed:", verifyError?.message)
+                    setIsExpired(true)
+                } else {
+                    setIsReady(true)
+                }
+            })
+            return
+        }
+
+        // Fallback: listen for the PASSWORD_RECOVERY event (hash-fragment flow)
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
             if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
                 setIsReady(true)
             }
         })
 
-        // Our verify-recovery endpoint already established a server-side session
-        // and redirected here, so check if we already have a valid session
+        // Also check if we already have a valid session (e.g. from a previous redirect)
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session) {
                 setIsReady(true)
@@ -41,7 +61,7 @@ export default function ResetPasswordPage() {
         })
 
         return () => subscription.unsubscribe()
-    }, [])
+    }, [searchParams])
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
@@ -61,21 +81,59 @@ export default function ResetPasswordPage() {
 
         try {
             const supabase = createClient()
-            const { error } = await supabase.auth.updateUser({ password })
+            const { data: userData, error } = await supabase.auth.updateUser({ password })
 
             if (error) throw error
+
+            // Update last_password_change so the user can log in (password expiry check)
+            if (userData?.user?.id) {
+                await supabase
+                    .from("profiles")
+                    .update({ last_password_change: new Date().toISOString() })
+                    .eq("id", userData.user.id)
+            }
 
             setIsSuccess(true)
 
             // Redirect to login after a short delay
             setTimeout(() => {
-                router.push("/kiosk")
+                router.push("/auth/login")
             }, 3000)
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Failed to update password")
         } finally {
             setIsLoading(false)
         }
+    }
+
+    if (isExpired) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30 flex flex-col">
+                <header className="p-4 sm:p-6">
+                    <Link href="/">
+                        <TalusAgLogo />
+                    </Link>
+                </header>
+                <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
+                    <Card className="w-full max-w-sm">
+                        <CardContent className="flex flex-col items-center gap-4 pt-6 pb-6 text-center">
+                            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                                <span className="text-destructive text-xl font-bold">!</span>
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold">Link Expired</h2>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    This reset link has expired or is invalid. Please request a new one.
+                                </p>
+                            </div>
+                            <Link href="/kiosk/forgot-password">
+                                <Button variant="default">Request New Link</Button>
+                            </Link>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+        )
     }
 
     if (isSuccess) {
