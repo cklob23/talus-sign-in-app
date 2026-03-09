@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Location } from "@/types/database"
-import { formatTime } from "@/lib/timezone"
+import { formatTime, formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 
 interface CombinedSignIn {
@@ -22,6 +22,26 @@ interface CombinedSignIn {
   timezone: string
 }
 
+// Format time, adding date if not from today
+function formatSignInTime(utcDateString: string, timezone: string): string {
+  const signInDate = new Date(utcDateString)
+  const now = new Date()
+
+  // Get today's date in the specified timezone
+  const todayInTz = new Date(now.toLocaleString("en-US", { timeZone: timezone }))
+  const signInInTz = new Date(signInDate.toLocaleString("en-US", { timeZone: timezone }))
+
+  const isToday =
+    todayInTz.getFullYear() === signInInTz.getFullYear() &&
+    todayInTz.getMonth() === signInInTz.getMonth() &&
+    todayInTz.getDate() === signInInTz.getDate()
+
+  if (isToday) {
+    return formatTime(utcDateString, timezone)
+  }
+  return formatDateTime(utcDateString, timezone)
+}
+
 export function RecentVisitors() {
   const [signIns, setSignIns] = useState<CombinedSignIn[]>([])
   const { timezone: userTimezone } = useTimezone()
@@ -29,7 +49,7 @@ export function RecentVisitors() {
   useEffect(() => {
     async function loadRecentSignIns() {
       const supabase = createClient()
-      
+
       // Fetch visitor sign-ins
       const { data: visitorData } = await supabase
         .from("sign_ins")
@@ -119,7 +139,7 @@ export function RecentVisitors() {
               <div key={signIn.id} className="flex items-center gap-3 sm:gap-4">
                 <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                   <AvatarImage src={signIn.photo_url || undefined} alt={signIn.name} />
-                  <AvatarFallback 
+                  <AvatarFallback
                     className={`text-xs sm:text-sm ${signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"}`}
                   >
                     {signIn.initials}
@@ -143,8 +163,8 @@ export function RecentVisitors() {
                       <span className="sm:hidden">{signIn.badge_text.slice(0, 3)}</span>
                     </Badge>
                   )}
-                  <span className="text-xs text-muted-foreground">
-                    {formatTime(signIn.sign_in_time, userTimezone)}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatSignInTime(signIn.sign_in_time, userTimezone)}
                   </span>
                 </div>
               </div>

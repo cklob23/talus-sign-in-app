@@ -6,6 +6,9 @@ import { RecentVisitors } from "@/components/admin/recent-visitors"
 import { DashboardMap } from "@/components/admin/dashboard-map"
 import { getBrandingSettings } from "@/lib/branding"
 
+// Force dynamic rendering to always show fresh data
+export const dynamic = "force-dynamic"
+
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
   const branding = await getBrandingSettings()
@@ -24,18 +27,11 @@ export default async function AdminDashboardPage() {
 
   // Get today's total sign-ins (visitors)
   const today = new Date()
-
-  const startOfTodayUTC = new Date(Date.UTC(
-    today.getUTCFullYear(),
-    today.getUTCMonth(),
-    today.getUTCDate(),
-    0, 0, 0, 0
-  ))
-
+  today.setHours(0, 0, 0, 0)
   const { count: todayVisitors } = await supabase
     .from("sign_ins")
     .select("*", { count: "exact", head: true })
-    .gte("sign_in_time", startOfTodayUTC)
+    .gte("sign_in_time", today.toISOString())
 
   // Get today's employee sign-ins
   const { count: todayEmployees } = await supabase
@@ -73,7 +69,7 @@ export default async function AdminDashboardPage() {
     <div className="space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at {branding.companyName || "Talus"} facilities</p>
+        <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at {branding.companyName} facilities</p>
       </div>
 
       {/* Location Map */}

@@ -31,7 +31,7 @@ export default function TimesheetsPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
-  const [groupFilter, setGroupFilter] = useState<string>("employees")
+  const [groupFilter, setGroupFilter] = useState<string>("all")
 
   // Stats
   const [totalHours, setTotalHours] = useState(0)
@@ -109,10 +109,9 @@ export default function TimesheetsPage() {
       )
     }
 
-    // Filter by group (only employees for now)
-    if (groupFilter === "employees") {
-      filtered = filtered.filter((e) => e.profile?.role === "employee" || e.profile?.role === "staff")
-    }
+    // Note: employee_sign_ins table only contains employee sign-ins by definition,
+    // so "employees" filter shows all entries. "all" also shows all entries.
+    // This filter is kept for future expansion if we add other user types to timesheets.
 
     setFilteredEntries(filtered)
 
@@ -228,8 +227,8 @@ export default function TimesheetsPage() {
             <SelectValue placeholder="Group" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="employees">Employees</SelectItem>
             <SelectItem value="all">All Users</SelectItem>
+            <SelectItem value="employees">Employees Only</SelectItem>
           </SelectContent>
         </Select>
 
