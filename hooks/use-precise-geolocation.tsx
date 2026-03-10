@@ -20,7 +20,15 @@ export interface PreciseGeolocationResult {
     retryGeolocation: () => void
 }
 
-export function usePreciseGeolocation(locations: AppLocation[], useMiles: boolean, selectedLocation: string | null): PreciseGeolocationResult {
+export function usePreciseGeolocation(
+    locations: AppLocation[],
+    useMiles: boolean,
+    selectedLocation: string | null,
+    /** If true, continuously refresh location every refreshIntervalMs */
+    continuousMonitoring = false,
+    /** Refresh interval in ms (default 2 minutes) */
+    refreshIntervalMs = 2 * 60 * 1000
+): PreciseGeolocationResult {
     const [userCoords, setUserCoords] = useState<Coords | null>(null)
     const [nearestLocation, setNearestLocation] = useState<{
         location: AppLocation
@@ -254,6 +262,22 @@ export function usePreciseGeolocation(locations: AppLocation[], useMiles: boolea
     }, [geoRetryCount])
 
     // ---------------------------------------------------
+    // 3.5️⃣ Continuous Monitoring (periodic refresh)
+    // ---------------------------------------------------
+    // When continuousMonitoring is enabled, periodically re-fetch location
+    // to detect if the user has moved outside the geofence
+    useEffect(() => {
+        if (!continuousMonitoring) return
+
+        const intervalId = setInterval(() => {
+            // Trigger a fresh geolocation check
+            setGeoRetryCount(c => c + 1)
+        }, refreshIntervalMs)
+
+        return () => clearInterval(intervalId)
+    }, [continuousMonitoring, refreshIntervalMs])
+
+    // ---------------------------------------------------
     // 4️⃣ Find Nearest Location
     // ---------------------------------------------------
     useEffect(() => {
@@ -305,6 +329,7 @@ export function usePreciseGeolocation(locations: AppLocation[], useMiles: boolea
 
             setSelectedLocationDistance(distance)
         }
+        console.log("Recalculated distance to selected location...")
     }, [
         userCoords,
         selectedLocation,

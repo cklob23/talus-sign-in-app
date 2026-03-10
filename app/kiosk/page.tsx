@@ -56,6 +56,10 @@ type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "traini
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
 // Storage key for active employee session (persists across same-tab navigation, clears on sign-out or tab close)
 const ACTIVE_EMPLOYEE_SESSION_KEY = "talusag_active_employee_session"
+// Storage key for last sign-out date (prevents auto sign-in until next day after manual sign-out)
+const LAST_SIGNOUT_DATE_KEY = "talusag_last_signout_date"
+// Storage key for tracking when employee went outside geofence (persists across page navigation)
+const OUTSIDE_GEOFENCE_SINCE_KEY = "talusag_outside_geofence_since"
 
 interface RememberedEmployee {
   id: string
@@ -130,7 +134,11 @@ export default function KioskPage() {
   })
   // Distance unit preference
   const [useMiles, setUseMiles] = useState(false)
+
+  const [employeeSignedIn, setEmployeeSignedIn] = useState(false)
+
   // Geolocation (via Vincenty-based high-precision hook with averaged readings)
+  // When an employee is signed in, enable continuous monitoring to detect if they leave the geofence
   const [userLocationName, setUserLocationName] = useState<string | null>(null)
   const {
     userCoords,
@@ -141,7 +149,13 @@ export default function KioskPage() {
     geoError,
     isDetectingLocation,
     retryGeolocation,
-  } = usePreciseGeolocation(locations, useMiles, selectedLocation)
+  } = usePreciseGeolocation(
+    locations,
+    useMiles,
+    selectedLocation,
+    employeeSignedIn, // Enable continuous monitoring when employee is signed in
+    5 * 1000 // Refresh location every 2 minutes
+  )
 
   // Employee login state
   const [employeeEmail, setEmployeeEmail] = useState("")
@@ -149,7 +163,6 @@ export default function KioskPage() {
   const [rememberedEmployee, setRememberedEmployee] = useState<RememberedEmployee | null>(null)
   const [currentEmployee, setCurrentEmployee] = useState<Profile | null>(null)
   const [employeeSignInRecord, setEmployeeSignInRecord] = useState<{ sign_in_time: string; location_name?: string; timezone?: string } | null>(null)
-  const [employeeSignedIn, setEmployeeSignedIn] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
 
   // Training video state
@@ -601,6 +614,21 @@ export default function KioskPage() {
     if (!rememberedEmployee || employeeSignedIn || mode !== "home") return
     if (!selectedLocation) return
 
+    // Check if employee already signed out today - skip auto sign-in until tomorrow
+    const lastSignoutDate = localStorage.getItem(LAST_SIGNOUT_DATE_KEY)
+    if (lastSignoutDate) {
+      const today = new Date().toDateString()
+      if (lastSignoutDate === today) {
+        // Employee signed out today - don't auto sign-in until next day
+        if (autoSignInTimerRef.current) {
+          clearInterval(autoSignInTimerRef.current)
+          autoSignInTimerRef.current = null
+        }
+        setAutoSignInCountdown(null)
+        return
+      }
+    }
+
     const radius = currentLocation?.auto_signin_radius_meters
     const hasGeofence = radius && radius > 0
 
@@ -653,6 +681,7 @@ export default function KioskPage() {
 
   // Auto sign-out: track how long a signed-in employee is outside the geofence
   // Shows a visible countdown and auto-signs out when it reaches 0
+  // Timestamp is persisted to sessionStorage so it survives page navigation
   const outsideGeofenceSinceRef = useRef<number | null>(null)
   const autoSignOutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [autoSignOutSecondsLeft, setAutoSignOutSecondsLeft] = useState<number | null>(null)
@@ -668,6 +697,7 @@ export default function KioskPage() {
     // Only monitor if: employee is signed in, auto-signout is configured, and there's a geofence
     if (!employeeSignedIn || !currentEmployee || !autoSignOutMinutes || autoSignOutMinutes <= 0) {
       outsideGeofenceSinceRef.current = null
+      sessionStorage.removeItem(OUTSIDE_GEOFENCE_SINCE_KEY)
       setAutoSignOutSecondsLeft(null)
       return
     }
@@ -675,15 +705,23 @@ export default function KioskPage() {
     const thresholdMs = autoSignOutMinutes * 60 * 1000
 
     if (!isOutsideGeofence) {
-      // Within geofence — reset everything
+      // Within geofence — reset everything and clear persisted timestamp
       outsideGeofenceSinceRef.current = null
+      sessionStorage.removeItem(OUTSIDE_GEOFENCE_SINCE_KEY)
       setAutoSignOutSecondsLeft(null)
       return
     }
 
     // Outside geofence — start or continue tracking
+    // First, try to restore from sessionStorage (survives page navigation)
     if (outsideGeofenceSinceRef.current === null) {
-      outsideGeofenceSinceRef.current = Date.now()
+      const stored = sessionStorage.getItem(OUTSIDE_GEOFENCE_SINCE_KEY)
+      if (stored) {
+        outsideGeofenceSinceRef.current = parseInt(stored, 10)
+      } else {
+        outsideGeofenceSinceRef.current = Date.now()
+        sessionStorage.setItem(OUTSIDE_GEOFENCE_SINCE_KEY, outsideGeofenceSinceRef.current.toString())
+      }
     }
 
     // Tick every second for a live countdown
@@ -716,6 +754,7 @@ export default function KioskPage() {
 
         // Clear after firing
         outsideGeofenceSinceRef.current = null
+        sessionStorage.removeItem(OUTSIDE_GEOFENCE_SINCE_KEY)
         if (autoSignOutTimerRef.current) {
           clearInterval(autoSignOutTimerRef.current)
           autoSignOutTimerRef.current = null
@@ -2029,8 +2068,14 @@ export default function KioskPage() {
       const supabase = createClient()
       await supabase.auth.signOut({ scope: "global" }).catch(() => { })
 
-      // Clear the active session from sessionStorage
+      // Clear the active session and geofence tracking from sessionStorage
       sessionStorage.removeItem(ACTIVE_EMPLOYEE_SESSION_KEY)
+      sessionStorage.removeItem(OUTSIDE_GEOFENCE_SINCE_KEY)
+
+      // Store today's date to prevent auto sign-in until tomorrow
+      // This ensures that after signing out for the day, the employee won't be
+      // automatically signed back in while still within the geofence
+      localStorage.setItem(LAST_SIGNOUT_DATE_KEY, new Date().toDateString())
 
       // NOTE: Do NOT clear REMEMBERED_EMPLOYEE_KEY here.
       // The "Remember Me" localStorage entry should survive sign-outs
@@ -2060,7 +2105,9 @@ export default function KioskPage() {
     // Clear local storage and session storage
     localStorage.removeItem(REMEMBERED_EMPLOYEE_KEY)
     localStorage.removeItem("rememberedEmployee")
+    localStorage.removeItem(LAST_SIGNOUT_DATE_KEY)
     sessionStorage.removeItem(ACTIVE_EMPLOYEE_SESSION_KEY)
+    sessionStorage.removeItem(OUTSIDE_GEOFENCE_SINCE_KEY)
     setRememberedEmployee(null)
 
     // Also sign out of Supabase if currently authenticated
