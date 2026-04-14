@@ -140,22 +140,68 @@ async function runAutoSignout(request: Request) {
       const { hour, minute } = getLocalTime(tz)
       const localTimeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
 
-      if (false) {
-        // placeholder — auto_sign_out is global, not per-location
-      } else if (false) {
-        results.push({
-          locationId: location.id,
-          locationName: location.name,
-          timezone: tz,
-          localTime: localTimeStr,
-          signedOut: 0,
-          enabled: false,
-          emailsSent: 0,
-        })
-        continue
+      // =====================================================
+      // EMPLOYEE AUTO-SIGNOUT - TWO MECHANISMS:
+      // 1. At 6 PM local time - daily cleanup
+      // 2. Any time - if signed in > 14 hours (safety net)
+      // This is a reliable server-side cleanup that doesn't 
+      // depend on the kiosk browser being open
+      // =====================================================
+      
+      // Calculate cutoff for max duration (14 hours ago)
+      const maxDurationHours = 14
+      const maxDurationCutoff = new Date(Date.now() - maxDurationHours * 60 * 60 * 1000).toISOString()
+      
+      // Get all employees still signed in at this location
+      const { data: activeEmployeeSignIns, error: empFetchError } = await supabase
+        .from("employee_sign_ins")
+        .select(`
+          id,
+          profile_id,
+          sign_in_time,
+          profiles!inner ( full_name, email )
+        `)
+        .eq("location_id", location.id)
+        .is("sign_out_time", null)
+
+      if (!empFetchError && activeEmployeeSignIns && activeEmployeeSignIns.length > 0) {
+        // Filter employees to sign out:
+        // - If 6 PM window (18:00-18:14): sign out ALL employees
+        // - Otherwise: sign out only those signed in > 14 hours
+        const is6PMWindow = hour === 18 && minute < 15
+        
+        const employeesToSignOut = is6PMWindow 
+          ? activeEmployeeSignIns 
+          : activeEmployeeSignIns.filter(e => e.sign_in_time < maxDurationCutoff)
+        
+        if (employeesToSignOut.length > 0) {
+          const idsToSignOut = employeesToSignOut.map(e => e.id)
+          
+          // Sign out the selected employees
+          const { error: empUpdateError } = await supabase
+            .from("employee_sign_ins")
+            .update({ sign_out_time: now })
+            .in("id", idsToSignOut)
+
+          if (!empUpdateError) {
+            const reason = is6PMWindow ? "6 PM daily cleanup" : `exceeded ${maxDurationHours}h max duration`
+            
+            // Audit log for employee auto-signout
+            await supabase.from("audit_logs").insert({
+              action: "employee.auto_sign_out",
+              entity_type: "system",
+              description: `Auto sign-out: ${employeesToSignOut.length} employee(s) at ${location.name} (${reason})`,
+            })
+
+            console.log(`[Auto Sign-out] ${reason}: Signed out ${employeesToSignOut.length} employee(s) at ${location.name}`)
+          }
+        }
       }
 
-      // Only sign out if local time is in the 23:45–23:59 window
+      // =====================================================
+      // VISITOR AUTO-SIGNOUT at 11:45 PM (23:45-23:59 window)
+      // =====================================================
+      // Only sign out visitors if local time is in the 23:45–23:59 window
       if (hour !== 23 || minute < 45) {
         results.push({
           locationId: location.id,
@@ -232,10 +278,10 @@ async function runAutoSignout(request: Request) {
         }> = {}
 
         for (const signIn of activeSignIns) {
-          const host = signIn.hosts as any
+          const host = signIn.hosts as { full_name: string; email: string } | null
           if (!host?.email) continue
 
-          const visitor = signIn.visitors as any
+          const visitor = signIn.visitors as { full_name: string; email: string; company: string | null } | null
           if (!visitor) continue
 
           if (!hostVisitors[host.email]) {
