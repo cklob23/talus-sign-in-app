@@ -278,10 +278,10 @@ async function runAutoSignout(request: Request) {
         }> = {}
 
         for (const signIn of activeSignIns) {
-          const host = signIn.hosts as { full_name: string; email: string } | null
+          const host = Array.isArray(signIn.hosts) ? signIn.hosts[0] : signIn.hosts
           if (!host?.email) continue
 
-          const visitor = signIn.visitors as { full_name: string; email: string; company: string | null } | null
+          const visitor = Array.isArray(signIn.visitors) ? signIn.visitors[0] : signIn.visitors
           if (!visitor) continue
 
           if (!hostVisitors[host.email]) {
