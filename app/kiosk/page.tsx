@@ -154,7 +154,7 @@ export default function KioskPage() {
     useMiles,
     selectedLocation,
     employeeSignedIn, // Enable continuous monitoring when employee is signed in
-    5 * 1000 // Refresh location every 2 minutes
+    30 * 1000 // Refresh location every 2 minutes
   )
 
   // Employee login state
@@ -178,6 +178,10 @@ export default function KioskPage() {
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Guards against duplicate sign-ins / duplicate host notifications caused by
+  // double/triple taps on the kiosk touchscreen or component re-renders.
+  const signInInProgressRef = useRef(false)
+  const hostNotifiedRef = useRef<string | null>(null)
 
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
@@ -398,15 +402,18 @@ export default function KioskPage() {
           .single()
 
         if (profile) {
-          // Fetch the latest sign-in record to get time and location
-          const { data: signInRecord } = await supabase
+          // Fetch the latest open sign-in record. Use limit(1) + array access
+          // (NOT .single(), which throws if multiple open rows exist) and avoid
+          // an embedded locations join (which can fail under anon RLS and would
+          // wipe out the whole row, leaving "Signed in at" blank).
+          const { data: signInRows } = await supabase
             .from("employee_sign_ins")
-            .select("sign_in_time, location:locations(name, timezone)")
+            .select("sign_in_time, location_id")
             .eq("profile_id", profile.id)
             .is("sign_out_time", null)
             .order("sign_in_time", { ascending: false })
             .limit(1)
-            .single()
+          const signInRecord = signInRows?.[0] ?? null
 
           setCurrentEmployee({
             id: profile.id,
@@ -429,12 +436,26 @@ export default function KioskPage() {
 
 
           if (signInRecord) {
-            const locations = Array.isArray(signInRecord.location) ? signInRecord.location : [signInRecord.location]
-            const loc = locations?.[0] as { name: string; timezone: string } | null | undefined
+            // Resolve the location name/timezone separately (single-table read,
+            // allowed for anon) so a join-RLS issue can't blank the sign-in time.
+            let locName: string | undefined
+            let locTz: string | undefined
+            const locId = signInRecord.location_id || profile.location_id
+            if (locId) {
+              const { data: locRow } = await supabase
+                .from("locations")
+                .select("name, timezone")
+                .eq("id", locId)
+                .maybeSingle()
+              if (locRow) {
+                locName = locRow.name
+                locTz = locRow.timezone
+              }
+            }
             setEmployeeSignInRecord({
               sign_in_time: signInRecord.sign_in_time,
-              location_name: loc?.name,
-              timezone: loc?.timezone,
+              location_name: locName,
+              timezone: locTz,
             })
           }
           setEmployeeSignedIn(true)
@@ -857,22 +878,37 @@ export default function KioskPage() {
         if (profile && ["employee", "admin", "staff"].includes(profile.role)) {
           setCurrentEmployee(profile)
 
-          // Check if they have an active sign-in
-          const { data: activeSignIn } = await supabase
+          // Check if they have an active sign-in. Use limit(1) + array access
+          // (not .single()) and resolve the location separately to stay robust
+          // against multiple open rows and anon RLS on the locations join.
+          const { data: activeSignInRows } = await supabase
             .from("employee_sign_ins")
-            .select("*, location:locations(name, timezone)")
+            .select("sign_in_time, location_id")
             .eq("profile_id", profile.id)
             .is("sign_out_time", null)
             .order("sign_in_time", { ascending: false })
             .limit(1)
-            .single()
+          const activeSignIn = activeSignInRows?.[0] ?? null
 
           if (activeSignIn) {
-            const loc = activeSignIn.location as { name: string; timezone: string } | null
+            let locName: string | undefined
+            let locTz: string | undefined
+            const locId = activeSignIn.location_id || profile.location_id
+            if (locId) {
+              const { data: locRow } = await supabase
+                .from("locations")
+                .select("name, timezone")
+                .eq("id", locId)
+                .maybeSingle()
+              if (locRow) {
+                locName = locRow.name
+                locTz = locRow.timezone
+              }
+            }
             setEmployeeSignInRecord({
               sign_in_time: activeSignIn.sign_in_time,
-              location_name: loc?.name,
-              timezone: loc?.timezone,
+              location_name: locName,
+              timezone: locTz,
             })
             setEmployeeSignedIn(true)
             setMode("employee-dashboard")
@@ -1040,64 +1076,22 @@ export default function KioskPage() {
 
             if (!hasExpired) {
               // Training is valid, proceed with sign-in
-              await completeBookingSignIn(visitorId)
+              await completeBookingSignIn(existingVisitor.id)
               return
             }
           }
         }
 
         // Need to show training video
-        // Send host notification BEFORE training starts
-        if (hostNotificationsEnabled && selectedBooking.host_id) {
-          const { data: hostData } = await supabase
-            .from("hosts")
-            .select("id, name, email, phone, profile_id")
-            .eq("id", selectedBooking.host_id)
-            .single()
-
-          if (hostData) {
-            let hostEmail = hostData.email
-            let hostName = hostData.name
-            let hostPhone = hostData.phone
-
-            if (hostData.profile_id) {
-              const { data: profileData } = await supabase
-                .from("profiles")
-                .select("full_name, email, phone")
-                .eq("id", hostData.profile_id)
-                .single()
-
-              if (profileData) {
-                hostName = profileData.full_name || hostName
-                hostEmail = profileData.email || hostEmail
-                hostPhone = profileData.phone || hostPhone
-              }
-            }
-
-            if (hostEmail || hostPhone) {
-              try {
-                await fetch("/api/notify-host", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    hostEmail,
-                    hostName,
-                    hostPhone,
-                    visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-                    visitorCompany: selectedBooking.visitor_company,
-                    purpose: selectedBooking.purpose,
-                    locationName: currentLocation?.name,
-                    locationId: currentLocation?.id,
-                    notificationType: "completing_training",
-                    visitorTypeName: visitorTypeData?.name,
-                  }),
-                })
-              } catch (notifyErr) {
-                console.error("Failed to send pre-training notification:", notifyErr)
-              }
-            }
-          }
-        }
+        // Send host notification BEFORE training starts (deduped against retaps)
+        await sendHostNotification({
+          hostId: selectedBooking.host_id,
+          visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
+          visitorCompany: selectedBooking.visitor_company,
+          purpose: selectedBooking.purpose,
+          notificationType: "completing_training",
+          visitorTypeName: visitorTypeData?.name,
+        })
 
         // Pre-fill the form with booking data for after training
         setForm({
@@ -1129,349 +1123,227 @@ export default function KioskPage() {
       proceedToPhoto()
       setIsLoading(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to sign in")
+      // Handle specific error cases with user-friendly messages
+      const errorMessage = err instanceof Error ? err.message : "Failed to sign in"
+
+      // "signal is aborted without reason" is a network/fetch error that can occur
+      // due to connectivity issues or the request being interrupted
+      if (errorMessage.toLowerCase().includes("signal") && errorMessage.toLowerCase().includes("abort")) {
+        setError("Connection interrupted. Please check your internet connection and try again.")
+      } else if (errorMessage.toLowerCase().includes("invalid login credentials")) {
+        setError("Invalid email or password. Please try again.")
+      } else {
+        setError(errorMessage)
+      }
+    } finally {
       setIsLoading(false)
     }
   }
 
-  // Complete the sign-in process for a booking
-  async function completeBookingSignIn(existingVisitorId: string | null) {
-    if (!selectedBooking) return
+  // Generate a simple, human-readable visitor badge number
+  function generateBadgeNumber(): string {
+    return `V-${Math.floor(1000 + Math.random() * 9000)}`
+  }
 
-    const supabase = createClient()
-    console.log("Completing sign-in for booking:", selectedBooking)
-    // Create or update visitor record
-    let visitorId = existingVisitorId
+  // Send a host notification at most once per visitor session and per type.
+  // The dedupe key prevents the same email/SMS from being sent multiple times
+  // when the kiosk button is tapped repeatedly or a handler re-runs.
+  async function sendHostNotification(opts: {
+    hostId: string | null
+    visitorName: string
+    visitorCompany?: string | null
+    purpose?: string | null
+    badgeNumber?: string | null
+    notificationType: "arrived" | "completing_training"
+    visitorTypeName?: string | null
+    visitorPhotoUrl?: string | null
+  }) {
+    if (!hostNotificationsEnabled || !opts.hostId) return
 
-    if (!visitorId) {
-      const { data: existingVisitor } = await supabase
-        .from("visitors")
-        .select("id")
-        .eq("email", selectedBooking.visitor_email)
-        .single()
+    const dedupeKey = `${opts.hostId}:${opts.notificationType}`
+    if (hostNotifiedRef.current === dedupeKey) return
+    // Mark immediately (synchronously) so concurrent taps can't slip through.
+    hostNotifiedRef.current = dedupeKey
 
-      if (existingVisitor) {
-        visitorId = existingVisitor.id
-        // Update existing visitor
-        await supabase
-          .from("visitors")
-          .update({
-            first_name: selectedBooking.visitor_first_name,
-            last_name: selectedBooking.visitor_last_name,
-            company: selectedBooking.visitor_company,
-          })
-          .eq("id", visitorId)
-      } else {
-        // Create new visitor
-        const { data: newVisitor, error: visitorError } = await supabase
-          .from("visitors")
-          .insert({
-            first_name: selectedBooking.visitor_first_name,
-            last_name: selectedBooking.visitor_last_name,
-            email: selectedBooking.visitor_email,
-            company: selectedBooking.visitor_company,
-          })
-          .select()
-          .single()
-
-        if (visitorError) throw visitorError
-        visitorId = newVisitor.id
-      }
-    }
-
-    // Upload photo if captured and update visitor
-    let photoUrl: string | null = null
-    if (capturedPhoto && visitorId) {
-      photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitorId)
-
-      // Update visitor with photo URL using API route to bypass RLS
-      if (photoUrl) {
-        try {
-          const response = await fetch("/api/visitor-photo", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              visitorId: visitorId,
-              photoUrl: photoUrl,
-            }),
-          })
-
-          if (!response.ok) {
-            const errorData = await response.json()
-            console.error("Error updating visitor photo_url:", errorData.error)
-          }
-        } catch (err) {
-          console.error("Failed to update visitor photo:", err)
-        }
-      }
-    }
-
-    // Generate badge number
-    const badgeNumber = `V${String(Math.floor(Math.random() * 9000) + 1000)}`
-
-    // Create sign-in record - use visitor_type_id directly from booking
-    const { data: bookingSignInRecord, error: signInError } = await supabase
-      .from("sign_ins")
-      .insert({
-        visitor_id: visitorId,
-        location_id: selectedLocation,
-        visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
-        host_id: selectedBooking.host_id,
-        purpose: selectedBooking.purpose,
-        badge_number: badgeNumber,
-        sign_in_time: new Date().toISOString(),
-      })
-      .select("id")
-      .single()
-
-    if (signInError) throw signInError
-
-    // Update booking status to checked_in
-    await supabase
-      .from("bookings")
-      .update({ status: "checked_in" })
-      .eq("id", selectedBooking.id)
-
-    // Log booking check-in via API
-    await logAuditViaApi({
-      action: "booking.checked_in",
-      entityType: "booking",
-      entityId: selectedBooking.id,
-      description: `Booking checked in: ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-      metadata: {
-        booking_id: selectedBooking.id,
-        visitor_email: selectedBooking.visitor_email,
-        host_id: selectedBooking.host_id,
-        location_id: selectedBooking.location_id
-      }
-    })
-
-    console.log(hostNotificationsEnabled, selectedBooking.host_id)
-    // Send host notification if enabled and booking has a host
-    if (hostNotificationsEnabled && selectedBooking.host_id) {
-      let hostEmail: string | null = null
-      let hostName: string | null = null
-      let hostPhone: string | null = null
-
-      // Fetch host with profile data
+    try {
+      const supabase = createClient()
       const { data: hostData } = await supabase
         .from("hosts")
         .select("id, name, email, phone, profile_id")
-        .eq("id", selectedBooking.host_id)
-        .single()
-      if (hostData) {
-        hostName = hostData.name
-        hostEmail = hostData.email
-        hostPhone = hostData.phone
+        .eq("id", opts.hostId)
+        .maybeSingle()
 
-        // If host is linked to a profile, fetch profile data
-        if (hostData.profile_id) {
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("full_name, email, phone")
-            .eq("id", hostData.profile_id)
-            .single()
+      if (!hostData) return
 
-          if (profileData) {
-            hostName = profileData.full_name || hostName
-            hostEmail = profileData.email || hostEmail
-            hostPhone = profileData.phone || hostPhone
-          }
+      let hostEmail = hostData.email
+      let hostName = hostData.name
+      let hostPhone = hostData.phone
+
+      if (hostData.profile_id) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("full_name, email, phone")
+          .eq("id", hostData.profile_id)
+          .maybeSingle()
+
+        if (profileData) {
+          hostName = profileData.full_name || hostName
+          hostEmail = profileData.email || hostEmail
+          hostPhone = profileData.phone || hostPhone
         }
       }
-      if (hostEmail || hostPhone) {
-        try {
-          await fetch("/api/notify-host", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              hostEmail,
-              hostName,
-              hostPhone,
-              visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-              visitorCompany: selectedBooking.visitor_company,
-              purpose: selectedBooking.purpose,
-              badgeNumber,
-              locationName: currentLocation?.name,
-              locationId: currentLocation?.id,
-              visitorPhotoUrl: photoUrl,
-            }),
-          })
-        } catch (notifyErr) {
-          console.error("Failed to send host notification:", notifyErr)
-        }
-      }
+
+      if (!hostEmail && !hostPhone) return
+
+      await fetch("/api/notify-host", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostEmail,
+          hostName,
+          hostPhone,
+          visitorName: opts.visitorName,
+          visitorCompany: opts.visitorCompany,
+          purpose: opts.purpose,
+          badgeNumber: opts.badgeNumber,
+          locationName: currentLocation?.name,
+          locationId: currentLocation?.id,
+          notificationType: opts.notificationType,
+          visitorTypeName: opts.visitorTypeName,
+          visitorPhotoUrl: opts.visitorPhotoUrl,
+        }),
+      })
+    } catch (err) {
+      // Reset the guard so a genuine retry is possible if the request failed.
+      hostNotifiedRef.current = null
+      console.error("Failed to send host notification:", err)
     }
-
-    // Badge printing is handled manually via the "Print Badge" button on the success screen
-
-    setSuccessData({
-      name: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-      badge: badgeNumber,
-      type: "in",
-      email: selectedBooking.visitor_email || undefined,
-      company: selectedBooking.visitor_company || undefined,
-      locationName: currentLocation?.name || undefined,
-      photoUrl: photoUrl || capturedPhoto || undefined,
-      signInId: bookingSignInRecord?.id,
-    })
-
-    // Reset booking state
-    setBookingEmail("")
-    setBookingResults([])
-    setSelectedBooking(null)
-    setMode("success")
-    setIsLoading(false)
   }
 
-  // Check if visitor type requires training and redirect if needed
+  // Begin the training video and track watch progress. The training video is an
+  // embedded iframe (e.g. YouTube), so progress is tracked on a timer that
+  // unlocks the acknowledgement step once complete.
+  function startVideoProgress() {
+    if (videoStarted) return
+    setVideoStarted(true)
+    setVideoProgress(0)
+
+    if (videoTimerRef.current) {
+      clearInterval(videoTimerRef.current)
+    }
+
+    const durationSeconds = 30
+    const stepMs = 500
+    const increment = 100 / ((durationSeconds * 1000) / stepMs)
+
+    videoTimerRef.current = setInterval(() => {
+      setVideoProgress((prev) => {
+        const next = prev + increment
+        if (next >= 100) {
+          if (videoTimerRef.current) {
+            clearInterval(videoTimerRef.current)
+            videoTimerRef.current = null
+          }
+          setTrainingWatched(true)
+          return 100
+        }
+        return next
+      })
+    }, stepMs)
+  }
+
+  // Walk-in visitor form submit: validate, then either go to training or photo.
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
+
     if (isOutsideGeofence) {
       setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to sign in.`)
       return
     }
 
-    const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
+    if (!selectedVisitorType) {
+      setError("Please select a visitor type")
+      return
+    }
+    if (selectedVisitorType.requires_host && !form.hostId) {
+      setError("Please select who you are visiting")
+      return
+    }
+    if (selectedVisitorType.requires_company && !form.company.trim()) {
+      setError("Please enter your company")
+      return
+    }
 
-    if (selectedType?.requires_training) {
-      // Check if this visitor has already completed training for this visitor type
-      const supabase = createClient()
+    setError(null)
 
-      // First, find the visitor by email (if they've visited before)
-      const { data: existingVisitor } = await supabase
-        .from("visitors")
-        .select("id")
-        .eq("email", form.email)
-        .single()
-
-      if (existingVisitor) {
-        // Check for existing training completion
-        const { data: trainingCompletion } = await supabase
-          .from("training_completions")
-          .select("*")
-          .eq("visitor_id", existingVisitor.id)
-          .eq("visitor_type_id", selectedType.id)
-          .single()
-
-        if (trainingCompletion) {
-          // Check if training has expired
-          const hasExpired = trainingCompletion.expires_at &&
-            new Date(trainingCompletion.expires_at) < new Date()
-
-          if (!hasExpired) {
-            // Training already completed and not expired, skip training
-            completeSignIn()
-            return
-          }
-        }
-      }
-
-      // No prior training or expired - send pre-training notification and go to training video step
-      if (hostNotificationsEnabled && form.hostId) {
+    // Training required: check for a still-valid prior completion to skip the video.
+    if (selectedVisitorType.requires_training) {
+      setIsLoading(true)
+      try {
         const supabase = createClient()
-        const { data: hostData } = await supabase
-          .from("hosts")
-          .select("id, name, email, phone, profile_id")
-          .eq("id", form.hostId)
-          .single()
 
-        if (hostData) {
-          let hostEmail = hostData.email
-          let hostName = hostData.name
-          let hostPhone = hostData.phone
+        if (form.email) {
+          const { data: existingVisitor } = await supabase
+            .from("visitors")
+            .select("id")
+            .eq("email", form.email)
+            .maybeSingle()
 
-          if (hostData.profile_id) {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("full_name, email, phone")
-              .eq("id", hostData.profile_id)
-              .single()
+          if (existingVisitor) {
+            const { data: trainingCompletion } = await supabase
+              .from("training_completions")
+              .select("*")
+              .eq("visitor_id", existingVisitor.id)
+              .eq("visitor_type_id", selectedVisitorType.id)
+              .maybeSingle()
 
-            if (profileData) {
-              hostName = profileData.full_name || hostName
-              hostEmail = profileData.email || hostEmail
-              hostPhone = profileData.phone || hostPhone
-            }
-          }
+            if (trainingCompletion) {
+              const hasExpired =
+                trainingCompletion.expires_at &&
+                new Date(trainingCompletion.expires_at) < new Date()
 
-          if (hostEmail || hostPhone) {
-            try {
-              await fetch("/api/notify-host", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  hostEmail,
-                  hostName,
-                  hostPhone,
-                  visitorName: `${form.firstName} ${form.lastName}`,
-                  visitorCompany: form.company,
-                  purpose: form.purpose,
-                  locationName: currentLocation?.name,
-                  locationId: currentLocation?.id,
-                  notificationType: "completing_training",
-                  visitorTypeName: selectedType?.name,
-                }),
-              })
-            } catch (notifyErr) {
-              console.error("Failed to send pre-training notification:", notifyErr)
+              if (!hasExpired) {
+                setIsLoading(false)
+                proceedToPhoto()
+                return
+              }
             }
           }
         }
-      }
 
-      setMode("training")
-    } else {
-      // No training required, proceed to photo capture
-      proceedToPhoto()
+        // Notify the host once that the visitor is checking in and completing training.
+        await sendHostNotification({
+          hostId: form.hostId || null,
+          visitorName: `${form.firstName} ${form.lastName}`,
+          visitorCompany: form.company,
+          purpose: form.purpose,
+          notificationType: "completing_training",
+          visitorTypeName: selectedVisitorType.name,
+        })
+
+        setMode("training")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to proceed")
+      } finally {
+        setIsLoading(false)
+      }
+      return
     }
+
+    // No training required, go straight to the photo/sign-in step.
+    proceedToPhoto()
   }
 
-  // Start simulated video progress (since we can't track YouTube progress directly)
-  function startVideoProgress() {
-    if (videoStarted) return
-    setVideoStarted(true)
-
-    // Simulate 47.39 minutes of required watching time
-    const totalDuration = 60 * 3.45
-    let elapsed = 0
-
-    videoTimerRef.current = setInterval(() => {
-      elapsed += 1
-      const progress = Math.min((elapsed / totalDuration) * 100, 100)
-      setVideoProgress(progress)
-
-      if (progress >= 100) {
-        setTrainingWatched(true)
-        if (videoTimerRef.current) {
-          clearInterval(videoTimerRef.current)
-        }
-      }
-    }, 1000)
-  }
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (videoTimerRef.current) {
-        clearInterval(videoTimerRef.current)
-      }
-    }
-  }, [])
-
+  // Finalize a sign-in (walk-in or booking that went through the photo step).
   async function completeSignIn() {
+    if (signInInProgressRef.current) return
+    signInInProgressRef.current = true
     setIsLoading(true)
     setError(null)
-    stopCamera() // Ensure camera is stopped
 
     try {
-      const supabase = createClient()
-
-      // Company is now always the direct input value (search or typed)
-      const resolvedCompany = form.company
-
-      // Create visitor via API to bypass RLS
-      const visitorResponse = await fetch("/api/kiosk/visitor", {
+      // 1. Create the visitor record.
+      const visitorRes = await fetch("/api/kiosk/visitor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1479,196 +1351,151 @@ export default function KioskPage() {
           last_name: form.lastName,
           email: form.email || null,
           phone: form.phone || null,
-          company: resolvedCompany || null,
+          company: form.company || null,
         }),
       })
+      const visitorData = await visitorRes.json()
+      if (!visitorRes.ok) throw new Error(visitorData.error || "Failed to create visitor")
+      const visitorId = visitorData.visitor.id
 
-      if (!visitorResponse.ok) {
-        const errorData = await visitorResponse.json()
-        throw new Error(errorData.error || "Failed to create visitor")
-      }
-
-      const { visitor } = await visitorResponse.json()
-
-      // Upload photo if captured
+      // 2. Upload the captured photo, if any.
       let photoUrl: string | null = null
       if (capturedPhoto) {
-        photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitor.id)
-
-        // Update visitor with photo URL using API route to bypass RLS
+        photoUrl = await uploadPhotoToSupabase(capturedPhoto, visitorId)
         if (photoUrl) {
-          try {
-            const response = await fetch("/api/visitor-photo", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                visitorId: visitor.id,
-                photoUrl: photoUrl,
-              }),
-            })
-
-            if (!response.ok) {
-              const errorData = await response.json()
-              console.error("Error updating visitor photo_url:", errorData.error)
-            }
-          } catch (err) {
-            console.error("Failed to update visitor photo:", err)
-          }
+          await fetch("/api/kiosk/visitor", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: visitorId, photo_url: photoUrl }),
+          })
         }
       }
 
-      // Store for badge printing
-      setVisitorPhotoUrl(photoUrl)
-
-      // If training was required, record the completion via API
-      const selectedType = visitorTypes.find((t) => t.id === form.visitorTypeId)
-      if (selectedType?.requires_training) {
+      // 3. Record training completion when applicable.
+      if (selectedVisitorType?.requires_training) {
         await fetch("/api/kiosk/training", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            visitor_id: visitor.id,
-            visitor_type_id: form.visitorTypeId,
-            expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            visitor_id: visitorId,
+            visitor_type_id: selectedVisitorType.id,
           }),
         })
       }
 
-      // Generate badge number
-      const badgeNumber = `V${String(Date.now()).slice(-6)}`
-
-      // Get location timezone
-      const locationTimezone = currentLocation?.timezone || "UTC"
-
-      // Create sign-in record via API to bypass RLS
-      const signInResponse = await fetch("/api/kiosk/sign-in", {
+      // 4. Create the sign-in record.
+      const badgeNumber = generateBadgeNumber()
+      const visitorName = `${form.firstName} ${form.lastName}`
+      const signInRes = await fetch("/api/kiosk/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          visitor_id: visitor.id,
-          visitor_name: `${form.firstName} ${form.lastName}`,
+          visitor_id: visitorId,
+          visitor_name: visitorName,
           visitor_email: form.email || null,
           location_id: selectedLocation,
-          visitor_type_id: form.visitorTypeId || null,
           host_id: form.hostId || null,
           badge_number: badgeNumber,
           photo_url: photoUrl,
-          timezone: locationTimezone,
+          visitor_type_id: form.visitorTypeId || null,
+          booking_id: selectedBooking?.id || null,
+          timezone: currentTimezone,
         }),
       })
+      const signInData = await signInRes.json()
+      if (!signInRes.ok) throw new Error(signInData.error || "Failed to sign in")
 
-      if (!signInResponse.ok) {
-        const errorData = await signInResponse.json()
-        throw new Error(errorData.error || "Failed to create sign-in record")
-      }
+      // 5. Notify the host that the visitor has arrived (deduped).
+      await sendHostNotification({
+        hostId: form.hostId || null,
+        visitorName,
+        visitorCompany: form.company,
+        purpose: form.purpose,
+        badgeNumber,
+        notificationType: "arrived",
+        visitorTypeName: selectedVisitorType?.name,
+        visitorPhotoUrl: photoUrl,
+      })
 
-      const { signIn: signInRecord } = await signInResponse.json()
-
-      // Send host notification email if enabled and host is selected
-      if (hostNotificationsEnabled && form.hostId) {
-        // Fetch host with profile data
-        const { data: hostData } = await supabase
-          .from("hosts")
-          .select("id, name, email, phone, profile_id")
-          .eq("id", form.hostId)
-          .single()
-
-        let hostEmail: string | null = null
-        let hostName: string | null = null
-        let hostPhone: string | null = null
-
-        if (hostData) {
-          hostName = hostData.name
-          hostEmail = hostData.email
-          hostPhone = hostData.phone
-
-          // If host is linked to a profile, fetch profile data
-          if (hostData.profile_id) {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("full_name, email, phone")
-              .eq("id", hostData.profile_id)
-              .single()
-
-            if (profileData) {
-              hostName = profileData.full_name || hostName
-              hostEmail = profileData.email || hostEmail
-              hostPhone = profileData.phone || hostPhone
-            }
-          }
-        }
-
-        if (hostEmail || hostPhone) {
-          try {
-            await fetch("/api/notify-host", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                hostEmail,
-                hostName,
-                hostPhone,
-                visitorName: `${form.firstName} ${form.lastName}`,
-                visitorCompany: form.company,
-                purpose: form.purpose,
-                badgeNumber,
-                locationName: currentLocation?.name,
-                locationId: currentLocation?.id,
-                visitorPhotoUrl: photoUrl,
-              }),
-            })
-          } catch (notifyErr) {
-            console.error("Failed to send host notification:", notifyErr)
-          }
-        }
-      }
-
-      // Badge printing is handled manually via the "Print Badge" button on the success screen
-
-      // Update booking status if this was a booking check-in after training
-      if (selectedBooking) {
-        await supabase
-          .from("bookings")
-          .update({ status: "checked_in" })
-          .eq("id", selectedBooking.id)
-
-        // Log booking check-in via API
-        await logAuditViaApi({
-          action: "booking.checked_in",
-          entityType: "booking",
-          entityId: selectedBooking.id,
-          description: `Booking checked in: ${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
-          metadata: {
-            booking_id: selectedBooking.id,
-            visitor_email: selectedBooking.visitor_email,
-            host_id: selectedBooking.host_id,
-            location_id: selectedBooking.location_id
-          }
-        })
-
-        // Clear booking state
-        setBookingEmail("")
-        setBookingResults([])
-        setSelectedBooking(null)
-      }
-
+      stopCamera()
       setSuccessData({
-        name: `${form.firstName} ${form.lastName}`,
+        name: visitorName,
         badge: badgeNumber,
         type: "in",
         email: form.email || undefined,
         company: form.company || undefined,
-        visitorType: visitorTypes.find(t => t.id === form.visitorTypeId)?.name || undefined,
-        locationName: currentLocation?.name || undefined,
-        photoUrl: photoUrl || capturedPhoto || undefined,
-        signInId: signInRecord?.id,
+        visitorType: selectedVisitorType?.name,
+        locationName: currentLocation?.name,
+        photoUrl: photoUrl || undefined,
+        signInId: signInData.signIn?.id,
       })
       setMode("success")
-      resetForm()
-      resetTraining()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to sign in")
+      setError(err instanceof Error ? err.message : "Failed to complete sign in")
     } finally {
       setIsLoading(false)
+      signInInProgressRef.current = false
+    }
+  }
+
+  // Complete a booking sign-in directly (used when the booked visitor already
+  // exists and has valid, unexpired training, so no video/photo is required).
+  async function completeBookingSignIn(visitorId: string) {
+    if (!selectedBooking) return
+    if (signInInProgressRef.current) return
+    signInInProgressRef.current = true
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const badgeNumber = generateBadgeNumber()
+      const visitorName = `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`
+
+      const signInRes = await fetch("/api/kiosk/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          visitor_id: visitorId,
+          visitor_name: visitorName,
+          visitor_email: selectedBooking.visitor_email || null,
+          location_id: selectedLocation,
+          host_id: selectedBooking.host_id || null,
+          badge_number: badgeNumber,
+          photo_url: null,
+          visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
+          booking_id: selectedBooking.id,
+          timezone: currentTimezone,
+        }),
+      })
+      const signInData = await signInRes.json()
+      if (!signInRes.ok) throw new Error(signInData.error || "Failed to sign in")
+
+      await sendHostNotification({
+        hostId: selectedBooking.host_id,
+        visitorName,
+        visitorCompany: selectedBooking.visitor_company,
+        purpose: selectedBooking.purpose,
+        badgeNumber,
+        notificationType: "arrived",
+        visitorTypeName: selectedBooking.visitor_type?.name,
+      })
+
+      setSuccessData({
+        name: visitorName,
+        badge: badgeNumber,
+        type: "in",
+        email: selectedBooking.visitor_email || undefined,
+        company: selectedBooking.visitor_company || undefined,
+        visitorType: selectedBooking.visitor_type?.name,
+        locationName: currentLocation?.name,
+        signInId: signInData.signIn?.id,
+      })
+      setMode("success")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to complete sign in")
+    } finally {
+      setIsLoading(false)
+      signInInProgressRef.current = false
     }
   }
 
@@ -1884,6 +1711,9 @@ export default function KioskPage() {
     setBookingEmail("")
     setBookingResults([])
     setSelectedBooking(null)
+    // Clear dedupe guards so the next visitor session can sign in and notify.
+    signInInProgressRef.current = false
+    hostNotifiedRef.current = null
   }
 
   async function handleEmployeeLogin(e: React.FormEvent) {

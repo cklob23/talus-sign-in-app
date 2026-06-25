@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ThemeColorsLoader } from "@/components/theme-colors-loader"
 import { getBrandingSettings } from "@/lib/branding"
+// @ts-ignore - CSS module side-effect import
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
