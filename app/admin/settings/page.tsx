@@ -109,6 +109,14 @@ export default function SettingsPage() {
     use_miles: false,
   })
   const [settingsLoading, setSettingsLoading] = useState(true)
+  // Auto sign-out settings are GLOBAL (apply to all locations, each in its own
+  // timezone) and are read by the /api/auto-signout cron.
+  const [autoSignOut, setAutoSignOut] = useState({
+    visitors_enabled: true,
+    visitors_time: "23:45",
+    employees_enabled: true,
+    employees_time: "18:00",
+  })
   const [branding, setBranding] = useState<BrandingSettings>({
     company_name: "",
     company_logo: "",
@@ -1190,6 +1198,79 @@ export default function SettingsPage() {
     }
   }
 
+  // Load the global auto sign-out settings (visitors + employees, each with a
+  // separate enable toggle and end-of-day time). Falls back to the legacy
+  // `auto_sign_out` key for the visitor toggle.
+  async function loadAutoSignOutSettings() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("settings")
+      .select("key, value")
+      .is("location_id", null)
+      .in("key", [
+        "auto_sign_out_visitors",
+        "auto_sign_out_visitors_time",
+        "auto_sign_out_employees",
+        "auto_sign_out_employees_time",
+        "auto_sign_out",
+      ])
+
+    const map: Record<string, unknown> = {}
+    if (data) for (const row of data) map[row.key] = row.value
+
+    const toBool = (v: unknown, fallback: boolean) =>
+      v === true || v === "true" ? true : v === false || v === "false" ? false : fallback
+    const toTime = (v: unknown, fallback: string) =>
+      typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v) ? v : fallback
+
+    setAutoSignOut({
+      visitors_enabled: toBool(map.auto_sign_out_visitors ?? map.auto_sign_out, true),
+      visitors_time: toTime(map.auto_sign_out_visitors_time, "23:45"),
+      employees_enabled: toBool(map.auto_sign_out_employees, true),
+      employees_time: toTime(map.auto_sign_out_employees_time, "18:00"),
+    })
+  }
+
+  // Upsert a single global auto sign-out setting (location_id IS NULL) so the
+  // cron reads it reliably.
+  async function updateAutoSignOut(key: string, value: boolean | string) {
+    const supabase = createClient()
+    const { data: existing } = await supabase
+      .from("settings")
+      .select("id")
+      .eq("key", key)
+      .is("location_id", null)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase
+        .from("settings")
+        .update({ value, updated_at: new Date().toISOString() })
+        .eq("id", existing.id)
+    } else {
+      await supabase.from("settings").insert({ key, value, location_id: null })
+    }
+  }
+
+  async function setAutoSignOutField(
+    field: "visitors_enabled" | "visitors_time" | "employees_enabled" | "employees_time",
+    value: boolean | string,
+  ) {
+    setAutoSignOut((prev) => ({ ...prev, [field]: value }))
+    const keyMap: Record<typeof field, string> = {
+      visitors_enabled: "auto_sign_out_visitors",
+      visitors_time: "auto_sign_out_visitors_time",
+      employees_enabled: "auto_sign_out_employees",
+      employees_time: "auto_sign_out_employees_time",
+    }
+    await updateAutoSignOut(keyMap[field], value)
+    await logAudit({
+      action: "settings.updated",
+      entityType: "settings",
+      description: `Auto sign-out setting updated: ${keyMap[field]} = ${value}`,
+    })
+  }
+
   async function updateSetting(key: keyof SystemSettings, value: boolean) {
     if (!selectedLocationId) return
 
@@ -1242,6 +1323,7 @@ export default function SettingsPage() {
     loadMicrosoftSsoSettings()
     loadSyncScheduleSettings()
     loadPasswordPolicySettings()
+    loadAutoSignOutSettings()
   }, [])
 
   // Load settings when location changes
@@ -1343,9 +1425,9 @@ export default function SettingsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
         </div>
-        {/* <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
           {getTierName()} plan
-        </span> */}
+        </span>
       </div>
 
       <Card>
@@ -1586,15 +1668,68 @@ export default function SettingsPage() {
             <p className="text-center py-4 text-muted-foreground">Loading settings...</p>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <Label className="text-sm">Auto Sign-Out</Label>
-                  <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out visitors at end of day</p>
+              <div className="rounded-lg border p-3 sm:p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-sm font-medium">Auto Sign-Out</Label>
+                  <span className="text-xs text-muted-foreground">(applies to all locations, each in its local time)</span>
                 </div>
-                <Switch
-                  checked={settings.auto_sign_out}
-                  onCheckedChange={(checked: boolean) => updateSetting("auto_sign_out", checked)}
-                />
+
+                {/* Visitor auto sign-out */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <Label className="text-sm">Visitors</Label>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all visitors at the end of the day</p>
+                    </div>
+                    <Switch
+                      checked={autoSignOut.visitors_enabled}
+                      onCheckedChange={(checked: boolean) => setAutoSignOutField("visitors_enabled", checked)}
+                    />
+                  </div>
+                  {autoSignOut.visitors_enabled && (
+                    <div className="flex items-center justify-between gap-4 pl-1">
+                      <Label htmlFor="visitor-signout-time" className="text-xs sm:text-sm text-muted-foreground">Sign-out time</Label>
+                      <Input
+                        id="visitor-signout-time"
+                        type="time"
+                        value={autoSignOut.visitors_time}
+                        onChange={(e) => setAutoSignOut((prev) => ({ ...prev, visitors_time: e.target.value }))}
+                        onBlur={(e) => setAutoSignOutField("visitors_time", e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t" />
+
+                {/* Employee auto sign-out */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <Label className="text-sm">Employees</Label>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all employees at the end of the day (a 14-hour safety limit always applies)</p>
+                    </div>
+                    <Switch
+                      checked={autoSignOut.employees_enabled}
+                      onCheckedChange={(checked: boolean) => setAutoSignOutField("employees_enabled", checked)}
+                    />
+                  </div>
+                  {autoSignOut.employees_enabled && (
+                    <div className="flex items-center justify-between gap-4 pl-1">
+                      <Label htmlFor="employee-signout-time" className="text-xs sm:text-sm text-muted-foreground">Sign-out time</Label>
+                      <Input
+                        id="employee-signout-time"
+                        type="time"
+                        value={autoSignOut.employees_time}
+                        onChange={(e) => setAutoSignOut((prev) => ({ ...prev, employees_time: e.target.value }))}
+                        onBlur={(e) => setAutoSignOutField("employees_time", e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
