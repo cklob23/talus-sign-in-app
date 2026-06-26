@@ -1142,7 +1142,7 @@ export default function KioskPage() {
 
   // Generate a simple, human-readable visitor badge number
   function generateBadgeNumber(): string {
-    return `V-${Math.floor(1000 + Math.random() * 9000)}`
+    return `V${Math.floor(10000 + Math.random() * 90000)}`
   }
 
   // Send a host notification at most once per visitor session and per type.
@@ -1232,7 +1232,7 @@ export default function KioskPage() {
       clearInterval(videoTimerRef.current)
     }
 
-    const durationSeconds = 30
+    const durationSeconds = 60 * 3.45
     const stepMs = 500
     const increment = 100 / ((durationSeconds * 1000) / stepMs)
 
