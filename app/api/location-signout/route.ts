@@ -227,7 +227,7 @@ async function handleLocationSignout(request: Request) {
                                 </p>
                                 <ul style="font-size:14px;line-height:1.8;padding-left:20px;margin:16px 0;">${visitorList}</ul>
                                 <p style="font-size:13px;color:#888;line-height:1.5;">
-                                This is an automated notification. If any of these visitors are still on-site, please contact [it_support@talusag.com](mailto:it_support@talusag.com) to have their sign-out time updated.
+                                This is an automated notification. If any of these visitors are still on-site, please contact <a href="mailto:it_support@talusag.com">it_support@talusag.com</a> to have their sign-out time updated.
                                 </p>
                                 <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
                                 <p style="font-size:11px;color:#aaa;">${smtp.companyName} Visitor Management</p>
