@@ -219,19 +219,19 @@ async function handleLocationSignout(request: Request) {
                             .map((v) => `<li style="padding:4px 0;color:#333;">${v.name}${v.company ? ` <span style="color:#888;">(${v.company})</span>` : ""}</li>`)
                             .join("")
                         const htmlBody = `
-              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-                ${smtp.companyLogo ? `<img src="${smtp.companyLogo}" alt="${smtp.companyName}" style="height:40px;margin-bottom:24px;" />` : `<h2 style="margin-bottom:24px;color:#333;">${smtp.companyName}</h2>`}
-                <p style="font-size:16px;color:#333;">Hi ${hv.hostName},</p>
-                <p style="font-size:14px;color:#555;line-height:1.6;">
-                  The following visitor${hv.visitors.length > 1 ? "s were" : " was"} automatically signed out at <strong>${location.name}</strong> at end of day:
-                </p>
-                <ul style="font-size:14px;line-height:1.8;padding-left:20px;margin:16px 0;">${visitorList}</ul>
-                <p style="font-size:13px;color:#888;line-height:1.5;">
-                  This is an automated notification. If any of these visitors are still on-site, please have them sign in again.
-                </p>
-                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-                <p style="font-size:11px;color:#aaa;">${smtp.companyName} Visitor Management</p>
-              </div>`
+                            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+                                ${smtp.companyLogo ? `<img src="${smtp.companyLogo}" alt="${smtp.companyName}" style="height:40px;margin-bottom:24px;" />` : `<h2 style="margin-bottom:24px;color:#333;">${smtp.companyName}</h2>`}
+                                <p style="font-size:14px;color:#333;">Hi ${hv.hostName},</p>
+                                <p style="font-size:14px;color:#555;line-height:1.6;">
+                                The following visitor${hv.visitors.length > 1 ? "s were" : " was"} automatically signed out at <strong>${location.name}</strong> at end of day:
+                                </p>
+                                <ul style="font-size:14px;line-height:1.8;padding-left:20px;margin:16px 0;">${visitorList}</ul>
+                                <p style="font-size:13px;color:#888;line-height:1.5;">
+                                This is an automated notification. If any of these visitors are still on-site, please contact [it_support@talusag.com](mailto:it_support@talusag.com) to have their sign-out time updated.
+                                </p>
+                                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+                                <p style="font-size:11px;color:#aaa;">${smtp.companyName} Visitor Management</p>
+                            </div>`
                         await transporter.sendMail({
                             from: `"${smtp.companyName}" <${smtp.fromEmail}>`,
                             to: hv.hostEmail,
