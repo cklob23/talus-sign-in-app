@@ -13,9 +13,11 @@ export type AuditAction =
   | "visitor.sign_out"
   | "visitor.created"
   | "visitor.updated"
+  | "visitor.auto_sign_out"
   // Employee actions
   | "employee.sign_in"
   | "employee.sign_out"
+  | "employee.auto_sign_out"
   // Booking actions
   | "booking.created"
   | "booking.updated"

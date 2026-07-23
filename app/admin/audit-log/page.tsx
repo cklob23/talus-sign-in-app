@@ -29,9 +29,11 @@ const ACTION_LABELS: Record<string, string> = {
   "visitor.sign_out": "Visitor signed out",
   "visitor.created": "Visitor created",
   "visitor.updated": "Visitor updated",
+  "visitor.auto_sign_out": "Visitor auto-sign out completed",
   // Employee actions
   "employee.sign_in": "Employee signed in",
   "employee.sign_out": "Employee signed out",
+  "employee.auto_sign_out": "Employee auto-sign out completed",
   // Booking actions
   "booking.created": "Booking created",
   "booking.updated": "Booking updated",
@@ -86,6 +88,7 @@ const ENTITY_TYPES = [
   { value: "location", label: "Locations" },
   { value: "evacuation", label: "Evacuations" },
   { value: "settings", label: "Settings" },
+  { value: "system", label: "System" },
   { value: "visitor_type", label: "Visitor Types" },
   { value: "role", label: "Roles" },
   { value: "sync", label: "Syncs" },
