@@ -26,6 +26,7 @@ import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
 import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
+import { QrCodeSettings } from "@/components/admin/qr-code-settings"
 import { refreshBranding } from "@/hooks/use-branding"
 import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/lib/tier"
 import Image from "next/image"
@@ -409,7 +410,7 @@ export default function SettingsPage() {
     for (const key of keysToSave) {
       const value = rampConfig[key]
       // Skip masked secrets — don't overwrite the real value with dots
-      if (key === "ramp_client_secret" && value === "••••••••") continue
+      if (key === "ramp_client_secret" && value === "��•••••••") continue
 
       const { data: existing } = await supabase
         .from("settings")
@@ -2990,6 +2991,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Visitor QR Check-In Card */}
+      <QrCodeSettings locations={locations} />
 
       {/* Password Policy Card */}
       <Card>

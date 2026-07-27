@@ -62,6 +62,10 @@ export type AuditAction =
   | "kiosk.receptionist_logout"
   // Vendor actions
   | "vendor.bulk_deleted"
+  // QR check-in actions
+  | "qr_code.generated"
+  | "qr_code.regenerated"
+  | "qr_code.deactivated"
 
 export type EntityType =
   | "user"
@@ -77,6 +81,7 @@ export type EntityType =
   | "role"
   | "sync"
   | "vendor"
+  | "qr_code"
 
 interface LogAuditParams {
   action: AuditAction
