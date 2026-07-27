@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { resolveCheckinToken } from "@/lib/checkin-token"
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
+import { sendHostNotification } from "@/lib/host-notification"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -11,54 +12,6 @@ import { generateUniqueBadgeNumber } from "@/lib/badge-number"
  * themselves in at a site they did not physically scan. No session or cookie is
  * issued, so this route grants no access to the admin app.
  */
-
-/** Notify the selected host, mirroring the kiosk behaviour. Never blocks sign-in. */
-async function notifyHost(
-    request: NextRequest,
-    args: {
-        hostId: string | null
-        visitorName: string
-        visitorCompany: string | null
-        badgeNumber: string
-        locationId: string
-        locationName: string
-        visitorTypeName: string | null
-        visitorPhotoUrl: string | null
-    },
-) {
-    if (!args.hostId) return
-    try {
-        const admin = getAdminClient()
-        const { data: host } = await admin
-            .from("hosts")
-            .select("name, email, phone")
-            .eq("id", args.hostId)
-            .maybeSingle()
-        if (!host?.email) return
-
-        const origin = new URL(request.url).origin
-        await fetch(`${origin}/api/notify-host`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                hostEmail: host.email,
-                hostName: host.name,
-                hostPhone: host.phone,
-                visitorName: args.visitorName,
-                visitorCompany: args.visitorCompany,
-                badgeNumber: args.badgeNumber,
-                locationName: args.locationName,
-                locationId: args.locationId,
-                notificationType: "arrived",
-                visitorTypeName: args.visitorTypeName,
-                visitorPhotoUrl: args.visitorPhotoUrl,
-            }),
-        })
-    } catch (error) {
-        // A failed notification must not prevent the visitor being on site.
-        console.log("[v0] QR check-in host notification failed:", error)
-    }
-}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
     const { token } = await params
@@ -221,14 +174,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
     })
 
-    await notifyHost(request, {
+    // "arrived" is the completion email: the visitor has finished any required
+    // training and is now on site. Mirrors the kiosk's post-training notification.
+    await sendHostNotification({
         hostId,
-        visitorName,
-        visitorCompany: company,
-        badgeNumber,
         locationId: location.id,
         locationName: location.name,
+        notificationType: "arrived",
+        visitorName,
+        visitorCompany: company,
         visitorTypeName: visitorType?.name ?? null,
+        badgeNumber,
         visitorPhotoUrl: photoUrl,
     })
 

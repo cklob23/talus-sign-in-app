@@ -81,6 +81,8 @@ export function CheckinFlow({
     const [result, setResult] = useState<Result | null>(null)
     /** Scanning the poster can mean either arriving or leaving. */
     const [mode, setMode] = useState<"signin" | "signout">("signin")
+    /** Host already told this visitor started training, to avoid duplicate emails. */
+    const trainingNotifiedRef = useRef<string | null>(null)
 
     const selectedType = useMemo(() => visitorTypes.find((t) => t.id === typeId) ?? null, [visitorTypes, typeId])
 
@@ -93,6 +95,8 @@ export function CheckinFlow({
         setError(null)
         setResult(null)
         setMode("signin")
+        // A new visitor session must be able to notify the same host again.
+        trainingNotifiedRef.current = null
         setStep(visitorTypes.length > 0 ? "type" : "details")
     }, [visitorTypes.length])
 
@@ -124,11 +128,40 @@ export function CheckinFlow({
         return list
     }, [visitorTypes.length, selectedType])
 
+    /**
+     * Tells the host the visitor has started training, matching the kiosk.
+     *
+     * Fire-and-forget and deduped per host: a failure here must not block the
+     * visitor from starting training, and going back and forward through the
+     * step must not send the host a second email.
+     */
+    function notifyTrainingStarted() {
+        if (!hostId || trainingNotifiedRef.current === hostId) return
+        // Marked synchronously so a double-tap cannot send twice.
+        trainingNotifiedRef.current = hostId
+        void fetch(`/api/checkin/${token}/notify-training`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                hostId,
+                visitorTypeId: typeId,
+                firstName: details.firstName,
+                lastName: details.lastName,
+                company: details.company,
+            }),
+        }).catch(() => {
+            // Allow a retry if the request never reached the server.
+            trainingNotifiedRef.current = null
+        })
+    }
+
     function goNext() {
         setError(null)
         const index = steps.indexOf(step)
         const next = steps[index + 1]
-        if (next) setStep(next)
+        if (!next) return
+        if (next === "training") notifyTrainingStarted()
+        setStep(next)
     }
 
     function goBack() {
@@ -260,7 +293,7 @@ export function CheckinFlow({
                                 <CompanyAutocomplete
                                     id={id}
                                     value={details.company}
-                                    onChange={(company: any) => setDetails((p) => ({ ...p, company }))}
+                                    onChange={(company) => setDetails((p) => ({ ...p, company }))}
                                     required={selectedType?.requires_company ?? false}
                                 />
                             )}
