@@ -233,7 +233,7 @@ export async function POST(request: Request) {
                   <!-- Header -->
                   <tr>
                     <td style="background-color: ${isTraining ? "#d97706" : "#059669"}; padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                      ${companyLogo ? `<img src="${companyLogo}" alt="${companyName}" style="max-height: 50px; margin-bottom: 15px;" />` : ""}
+                      ${companyLogo ? `<img src="${companyLogo}" alt="${companyName}" style="max-height: 50px; margin-bottom: 15px; border-radius: 8px" />` : ""}
                       <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">${emailTitle}</h1>
                     </td>
                   </tr>
