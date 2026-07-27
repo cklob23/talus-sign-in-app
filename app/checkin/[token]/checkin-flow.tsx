@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
+import { CompanyAutocomplete } from "@/components/company-autocomplete"
 import {
     ArrowLeft,
     ArrowRight,
@@ -13,6 +14,7 @@ import {
     CheckCircle2,
     ChevronRight,
     Loader2,
+    LogOut,
     Search,
     ShieldCheck,
     Trash2,
@@ -77,6 +79,8 @@ export function CheckinFlow({
     const [submitting, setSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [result, setResult] = useState<Result | null>(null)
+    /** Scanning the poster can mean either arriving or leaving. */
+    const [mode, setMode] = useState<"signin" | "signout">("signin")
 
     const selectedType = useMemo(() => visitorTypes.find((t) => t.id === typeId) ?? null, [visitorTypes, typeId])
 
@@ -88,6 +92,7 @@ export function CheckinFlow({
         setTrainingDone(false)
         setError(null)
         setResult(null)
+        setMode("signin")
         setStep(visitorTypes.length > 0 ? "type" : "details")
     }, [visitorTypes.length])
 
@@ -164,6 +169,10 @@ export function CheckinFlow({
 
     if (step === "done" && result) {
         return <SuccessPanel result={result} locationName={locationName} onDone={reset} />
+    }
+
+    if (mode === "signout") {
+        return <SignOutPanel token={token} locationName={locationName} onCancel={reset} />
     }
 
     const stepIndex = steps.indexOf(step)
@@ -248,11 +257,10 @@ export function CheckinFlow({
                         </div>
                         <Field id="company" label="Company" required={selectedType?.requires_company ?? false}>
                             {(id) => (
-                                <Input
+                                <CompanyAutocomplete
                                     id={id}
                                     value={details.company}
-                                    onChange={(e) => setDetails((p) => ({ ...p, company: e.target.value }))}
-                                    autoComplete="organization"
+                                    onChange={(company: any) => setDetails((p) => ({ ...p, company }))}
                                     required={selectedType?.requires_company ?? false}
                                 />
                             )}
@@ -358,6 +366,26 @@ export function CheckinFlow({
                         error={error}
                     />
                 </StepPanel>
+            ) : null}
+
+            {/* Visitors who are leaving scan the same poster, so surface sign-out on
+          the entry step — whichever step that happens to be for this location. */}
+            {stepIndex === 0 ? (
+                <div className="mt-auto border-t pt-4 text-center">
+                    <p className="text-sm text-muted-foreground">Already signed in and leaving?</p>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-2 w-full gap-2"
+                        onClick={() => {
+                            setError(null)
+                            setMode("signout")
+                        }}
+                    >
+                        <LogOut className="h-4 w-4" />
+                        {`Sign out of ${locationName}`}
+                    </Button>
+                </div>
             ) : null}
         </div>
     )
@@ -630,5 +658,126 @@ function SuccessPanel({
                 </Button>
             </div>
         </section>
+    )
+}
+
+/**
+ * Sign-out flow for a visitor who scanned the poster on their way out.
+ *
+ * They identify themselves with a badge number or email; the server matches
+ * only against visits still active at this location.
+ */
+function SignOutPanel({
+    token,
+    locationName,
+    onCancel,
+}: {
+    token: string
+    locationName: string
+    onCancel: () => void
+}) {
+    const [identifier, setIdentifier] = useState("")
+    const [submitting, setSubmitting] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const [done, setDone] = useState<{ visitorName: string; badgeNumber: string | null } | null>(null)
+
+    // "V12345" (or a legacy "V-1234") is a badge number; anything else is an email.
+    const looksLikeBadge = /^v[\s-]*\d{4,5}$/i.test(identifier.trim())
+
+    async function submit() {
+        const value = identifier.trim()
+        if (!value) {
+            setError("Enter your badge number or email")
+            return
+        }
+        setSubmitting(true)
+        setError(null)
+        try {
+            const res = await fetch(`/api/checkin/${token}/signout`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(
+                    looksLikeBadge
+                        ? { badgeNumber: value.replace(/\s+/g, "") }
+                        : { email: value },
+                ),
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error ?? "Could not complete sign-out")
+            setDone({ visitorName: json.visitorName, badgeNumber: json.badgeNumber })
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Could not complete sign-out")
+        } finally {
+            setSubmitting(false)
+        }
+    }
+
+    if (done) {
+        return (
+            <section className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+                <CheckCircle2 className="h-16 w-16 text-primary" aria-hidden="true" />
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold text-balance">You&apos;re signed out</h1>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                        Thanks for visiting {locationName}, {done.visitorName}. Travel safely.
+                    </p>
+                </div>
+                {done.badgeNumber ? (
+                    <Card className="w-full">
+                        <CardContent className="space-y-1 p-5">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Badge returned</p>
+                            <p className="font-mono text-2xl font-bold">{done.badgeNumber}</p>
+                        </CardContent>
+                    </Card>
+                ) : null}
+                <Button size="lg" variant="outline" className="w-full" onClick={onCancel}>
+                    Done
+                </Button>
+            </section>
+        )
+    }
+
+    return (
+        <StepPanel title="Sign out" subtitle={`Leaving ${locationName}. Enter your badge number or email.`}>
+            <form
+                className="flex flex-col gap-4"
+                onSubmit={(event) => {
+                    event.preventDefault()
+                    void submit()
+                }}
+            >
+                <Field id="signout-id" label="Badge number or email" hint="For example V04821, or the email you signed in with.">
+                    {(id) => (
+                        <Input
+                            id={id}
+                            value={identifier}
+                            onChange={(e) => setIdentifier(e.target.value)}
+                            // Badge numbers are short and alphanumeric; email needs a normal keyboard.
+                            inputMode={looksLikeBadge ? "text" : "email"}
+                            autoCapitalize="characters"
+                            autoComplete="off"
+                            aria-describedby="signout-id-hint"
+                            placeholder="V04821"
+                        />
+                    )}
+                </Field>
+
+                {error ? (
+                    <p role="alert" className="text-sm text-destructive">
+                        {error}
+                    </p>
+                ) : null}
+
+                <div className="flex flex-col gap-2">
+                    <Button type="submit" size="lg" disabled={submitting} className="gap-2">
+                        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                        Sign out
+                    </Button>
+                    <Button type="button" size="lg" variant="ghost" onClick={onCancel} disabled={submitting}>
+                        Cancel
+                    </Button>
+                </div>
+            </form>
+        </StepPanel>
     )
 }

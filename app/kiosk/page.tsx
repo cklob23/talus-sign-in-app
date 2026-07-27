@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 import { printVisitorBadge } from "@/lib/print-badge"
+import { generateBadgeNumber as makeBadgeNumber } from "@/lib/badge-number"
 import { QRCode } from "@/components/qr-code"
 import { usePreciseGeolocation } from "@/hooks/use-precise-geolocation"
 import { TalusAgLogo } from "@/components/talusag-logo"
@@ -1140,9 +1141,9 @@ export default function KioskPage() {
     }
   }
 
-  // Generate a simple, human-readable visitor badge number
+  // Badge format is shared with the QR self sign-in flow: "V" + five digits.
   function generateBadgeNumber(): string {
-    return `V${Math.floor(10000 + Math.random() * 90000)}`
+    return makeBadgeNumber()
   }
 
   // Send a host notification at most once per visitor session and per type.
@@ -1232,7 +1233,7 @@ export default function KioskPage() {
       clearInterval(videoTimerRef.current)
     }
 
-    const durationSeconds = 60 * 3.45
+    const durationSeconds = 30
     const stepMs = 500
     const increment = 100 / ((durationSeconds * 1000) / stepMs)
 

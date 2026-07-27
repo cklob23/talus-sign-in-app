@@ -1,10 +1,11 @@
 "use client"
 
-import { useRef, useCallback } from "react"
+import { useRef, useCallback, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { MapPin, Clock, Building2, User, Download, Share2 } from "lucide-react"
+import { MapPin, Clock, Building2, User, Download, Share2, LogOut, Loader2 } from "lucide-react"
 
 const TALUS_GREEN = "#4d8b31"
 
@@ -45,9 +46,43 @@ export function DigitalBadgeClient({
     signOutTime,
     purpose,
 }: DigitalBadgeClientProps) {
+    const router = useRouter()
     const badgeRef = useRef<HTMLDivElement>(null)
     const signInDate = new Date(signInTime)
-    const isActive = !signOutTime
+    const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+    const [signingOut, setSigningOut] = useState(false)
+    const [signOutError, setSignOutError] = useState<string | null>(null)
+    /** Optimistic so the badge flips to "Signed Out" without waiting for a refresh. */
+    const [signedOutLocally, setSignedOutLocally] = useState(false)
+    const isActive = !signOutTime && !signedOutLocally
+
+    const signOut = useCallback(async () => {
+        setSigningOut(true)
+        setSignOutError(null)
+        try {
+            const res = await fetch("/api/kiosk/sign-out", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    sign_in_id: signInId,
+                    visitor_id: null,
+                    visitor_name: visitorName,
+                    visitor_email: visitorEmail,
+                    badge_number: badgeNumber,
+                }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(json.error ?? "Could not sign out")
+            setSignedOutLocally(true)
+            setConfirmingSignOut(false)
+            // Pull the server-rendered sign-out time so the badge shows it.
+            router.refresh()
+        } catch (err) {
+            setSignOutError(err instanceof Error ? err.message : "Could not sign out")
+        } finally {
+            setSigningOut(false)
+        }
+    }, [signInId, visitorName, visitorEmail, badgeNumber, router])
 
     const saveBadgeAsImage = useCallback(async () => {
         if (!badgeRef.current) return
@@ -310,11 +345,11 @@ export function DigitalBadgeClient({
                                     </div>
                                 )}
                                 <h1 className="text-xl font-bold text-foreground">{visitorName}</h1>
-                                {visitorEmail && (
-                                    <p className="text-xs text-muted-foreground mt-0.5 break-all">{visitorEmail}</p>
-                                )}
                                 {company && (
                                     <p className="text-sm text-muted-foreground mt-0.5">{company}</p>
+                                )}
+                                {visitorEmail && (
+                                    <p className="text-xs text-muted-foreground mt-0.5 break-all">{visitorEmail}</p>
                                 )}
                                 {/* Visitor type badge uses visitor type color */}
                                 {visitorTypeName && (
@@ -415,8 +450,58 @@ export function DigitalBadgeClient({
                     </Button>
                 </div>
 
+                {/* Self sign-out, so a visitor can leave straight from their phone. */}
+                {isActive ? (
+                    <div className="space-y-2">
+                        {confirmingSignOut ? (
+                            <div className="rounded-lg border bg-card p-3 space-y-3">
+                                <p className="text-sm text-center leading-relaxed">
+                                    Sign out of {locationName ?? "this location"} now? This ends your visit.
+                                </p>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => setConfirmingSignOut(false)}
+                                        disabled={signingOut}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={signOut}
+                                        disabled={signingOut}
+                                        className="gap-2"
+                                    >
+                                        {signingOut ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                            <LogOut className="w-4 h-4" />
+                                        )}
+                                        Confirm
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <Button
+                                onClick={() => setConfirmingSignOut(true)}
+                                variant="outline"
+                                className="w-full gap-2"
+                            >
+                                <LogOut className="w-4 h-4" />
+                                Sign out
+                            </Button>
+                        )}
+                        {signOutError ? (
+                            <p role="alert" className="text-xs text-center text-destructive">
+                                {signOutError}
+                            </p>
+                        ) : null}
+                    </div>
+                ) : null}
+
                 <p className="text-xs text-center text-muted-foreground">
-                    Save your badge or share the link to access it later.
+                    {isActive
+                        ? "Save your badge or share the link to access it later."
+                        : "This visit has ended. Your badge is no longer active."}
                 </p>
             </div>
         </div>

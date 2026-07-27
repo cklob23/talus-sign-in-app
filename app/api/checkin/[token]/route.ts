@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { resolveCheckinToken } from "@/lib/checkin-token"
+import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -10,10 +11,6 @@ import { resolveCheckinToken } from "@/lib/checkin-token"
  * themselves in at a site they did not physically scan. No session or cookie is
  * issued, so this route grants no access to the admin app.
  */
-
-function generateBadgeNumber(): string {
-    return `V-${Math.floor(1000 + Math.random() * 9000)}`
-}
 
 /** Notify the selected host, mirroring the kiosk behaviour. Never blocks sign-in. */
 async function notifyHost(
@@ -175,7 +172,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "Could not complete sign-in" }, { status: 500 })
     }
 
-    const badgeNumber = generateBadgeNumber()
+    // Scope the collision check to visitors still on site at this location, so a
+    // number can be reused freely once its holder has signed out.
+    const badgeNumber = await generateUniqueBadgeNumber(async (candidate) => {
+        const { count } = await admin
+            .from("sign_ins")
+            .select("*", { count: "exact", head: true })
+            .eq("location_id", location.id)
+            .eq("badge_number", candidate)
+            .is("sign_out_time", null)
+        return (count ?? 0) > 0
+    })
+
     const { data: signIn, error: signInError } = await admin
         .from("sign_ins")
         .insert({
