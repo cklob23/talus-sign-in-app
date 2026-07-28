@@ -25,6 +25,7 @@ import {
   PanelLeft,
   ScrollText,
   Warehouse,
+  FileSignature,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { hasFeature, type TierFeatures } from "@/lib/tier"
@@ -66,8 +67,9 @@ const navItems: {
     { href: "/admin/locations", label: "Locations", icon: Building2 },
     { href: "/admin/vendors", label: "Vendors", icon: Warehouse, requiredFeature: "vendorManagement", requiredTierLabel: "Add-on" },
     { href: "/admin/roles", label: "Roles", icon: Shield },
-    { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText, requiredFeature: "advancedAuditLogs", requiredTierLabel: "Add-on" },
+    { href: "/admin/nda", label: "NDA Agreements", icon: FileSignature },
     { href: "/admin/settings", label: "Settings", icon: Settings },
+    { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText, requiredFeature: "advancedAuditLogs", requiredTierLabel: "Add-on" },
   ]
 
 function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
