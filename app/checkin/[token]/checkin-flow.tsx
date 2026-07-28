@@ -6,13 +6,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { CompanyAutocomplete } from "@/components/company-autocomplete"
+import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pad"
 import {
     ArrowLeft,
     ArrowRight,
+    ArrowUpRight,
     Camera,
     Check,
     CheckCircle2,
     ChevronRight,
+    FileText,
     Loader2,
     LogOut,
     Search,
@@ -31,8 +34,17 @@ export interface CheckinVisitorType {
     requires_host: boolean
     requires_company: boolean
     requires_training: boolean
+    requires_nda: boolean
     training_title: string | null
     training_video_url: string | null
+}
+
+/** What the server says about the NDA for this visitor type and person. */
+interface NdaInfo {
+    ndaDocumentId: string
+    title: string
+    version: number
+    documentUrl: string
 }
 
 export interface CheckinHost {
@@ -51,7 +63,7 @@ interface Details {
 
 const emptyDetails: Details = { firstName: "", lastName: "", email: "", phone: "", company: "" }
 
-type Step = "type" | "details" | "host" | "training" | "photo" | "done"
+type Step = "type" | "details" | "host" | "training" | "nda" | "photo" | "done"
 
 interface Result {
     badgeNumber: string
@@ -75,6 +87,14 @@ export function CheckinFlow({
     const [hostId, setHostId] = useState<string | null>(null)
     const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
     const [trainingDone, setTrainingDone] = useState(false)
+    /** Null until the server has been asked; null also means "not required". */
+    const [ndaInfo, setNdaInfo] = useState<NdaInfo | null>(null)
+    const [ndaAgreed, setNdaAgreed] = useState(false)
+    const [ndaHasInk, setNdaHasInk] = useState(false)
+    /** Captured when leaving the NDA step, because the canvas unmounts with it. */
+    const [ndaSignature, setNdaSignature] = useState<string | null>(null)
+    const [checkingNda, setCheckingNda] = useState(false)
+    const signatureRef = useRef<SignaturePadHandle>(null)
     const [step, setStep] = useState<Step>(visitorTypes.length > 0 ? "type" : "details")
     const [submitting, setSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -92,6 +112,10 @@ export function CheckinFlow({
         setHostId(null)
         setPhotoDataUrl(null)
         setTrainingDone(false)
+        setNdaInfo(null)
+        setNdaAgreed(false)
+        setNdaHasInk(false)
+        setNdaSignature(null)
         setError(null)
         setResult(null)
         setMode("signin")
@@ -124,9 +148,13 @@ export function CheckinFlow({
         list.push("details")
         if (selectedType?.requires_host) list.push("host")
         if (selectedType?.requires_training && selectedType.training_video_url) list.push("training")
+        // Only shown once the server has confirmed a signature is actually needed:
+        // enforcement may be off, no NDA uploaded, or this person may have signed
+        // the current version recently.
+        if (ndaInfo) list.push("nda")
         list.push("photo")
         return list
-    }, [visitorTypes.length, selectedType])
+    }, [visitorTypes.length, selectedType, ndaInfo])
 
     /**
      * Tells the host the visitor has started training, matching the kiosk.
@@ -153,6 +181,63 @@ export function CheckinFlow({
             // Allow a retry if the request never reached the server.
             trainingNotifiedRef.current = null
         })
+    }
+
+    /**
+     * Asks the server whether this visitor must sign, then advances.
+     *
+     * Runs when leaving the details step because the email entered there is what
+     * identifies a returning visitor who signed the current NDA recently.
+     */
+    async function continueFromDetails() {
+        setError(null)
+
+        if (!selectedType?.requires_nda) {
+            setNdaInfo(null)
+            advanceFrom("details", false)
+            return
+        }
+
+        setCheckingNda(true)
+        try {
+            const res = await fetch(`/api/checkin/${token}/nda`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ visitorTypeId: typeId, email: details.email }),
+            })
+            const json = await res.json()
+            // A failed lookup must not strand the visitor: the server re-checks and
+            // blocks the final submit if a signature is genuinely required.
+            const info = res.ok && json.required ? (json as NdaInfo) : null
+            setNdaInfo(info)
+            advanceFrom("details", info !== null)
+            return
+        } catch {
+            setNdaInfo(null)
+        } finally {
+            setCheckingNda(false)
+        }
+        advanceFrom("details", false)
+    }
+
+    /**
+     * Advances from an explicit step rather than the `step` state.
+     *
+     * `steps` is recomputed from state that has only just been set, so this
+     * rebuilds the ordering locally with the freshly resolved NDA requirement
+     * instead of reading a stale memo.
+     */
+    function advanceFrom(from: Step, ndaRequired: boolean) {
+        const list: Step[] = []
+        if (visitorTypes.length > 0) list.push("type")
+        list.push("details")
+        if (selectedType?.requires_host) list.push("host")
+        if (selectedType?.requires_training && selectedType.training_video_url) list.push("training")
+        if (ndaRequired) list.push("nda")
+        list.push("photo")
+        const next = list[list.indexOf(from) + 1]
+        if (next === "training") notifyTrainingStarted()
+        if (next) setStep(next)
     }
 
     function goNext() {
@@ -187,6 +272,8 @@ export function CheckinFlow({
                     visitorTypeId: typeId,
                     hostId,
                     photoDataUrl,
+                    ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
+                    ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
                 }),
             })
             const json = await res.json()
@@ -261,7 +348,7 @@ export function CheckinFlow({
                         className="flex flex-col gap-4"
                         onSubmit={(event) => {
                             event.preventDefault()
-                            goNext()
+                            void continueFromDetails()
                         }}
                     >
                         <div className="grid grid-cols-2 gap-3">
@@ -325,8 +412,10 @@ export function CheckinFlow({
                         </Field>
                         <NavRow
                             onBack={stepIndex > 0 ? goBack : undefined}
-                            nextLabel="Continue"
+                            nextLabel={checkingNda ? "Checking..." : "Continue"}
                             nextType="submit"
+                            nextDisabled={checkingNda}
+                            nextIcon={checkingNda ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
                             error={error}
                         />
                     </form>
@@ -379,6 +468,56 @@ export function CheckinFlow({
                         nextLabel="Continue"
                         nextDisabled={!trainingDone}
                         onNext={goNext}
+                        error={error}
+                    />
+                </StepPanel>
+            ) : null}
+
+            {step === "nda" && ndaInfo ? (
+                <StepPanel title={ndaInfo.title} subtitle="Please read the agreement, then sign below to continue.">
+                    <a
+                        href={ndaInfo.documentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
+                    >
+                        <span className="flex items-center gap-3">
+                            <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                            <span>
+                                <span className="block text-sm font-medium">Read the agreement</span>
+                                <span className="block text-xs text-muted-foreground">{`Version ${ndaInfo.version} • Opens the PDF`}</span>
+                            </span>
+                        </span>
+                        <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </a>
+
+                    <label className="flex items-start gap-3 rounded-lg border bg-card p-3 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={ndaAgreed}
+                            onChange={(e) => setNdaAgreed(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                        />
+                        <span className="leading-relaxed">
+                            I have read and agree to the terms of this non-disclosure agreement.
+                        </span>
+                    </label>
+
+                    <SignaturePad ref={signatureRef} onChange={setNdaHasInk} ariaLabel="Your signature" />
+
+                    <NavRow
+                        onBack={goBack}
+                        nextLabel="Continue"
+                        nextDisabled={!ndaAgreed || !ndaHasInk}
+                        onNext={() => {
+                            const drawn = signatureRef.current?.toDataUrl() ?? null
+                            if (!drawn) {
+                                setError("Please sign in the box above.")
+                                return
+                            }
+                            setNdaSignature(drawn)
+                            goNext()
+                        }}
                         error={error}
                     />
                 </StepPanel>

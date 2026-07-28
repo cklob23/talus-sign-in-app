@@ -66,6 +66,10 @@ export type AuditAction =
   | "qr_code.generated"
   | "qr_code.regenerated"
   | "qr_code.deactivated"
+  // NDA actions
+  | "nda.uploaded"
+  | "nda.signed"
+  | "nda.downloaded"
 
 export type EntityType =
   | "user"
@@ -82,6 +86,7 @@ export type EntityType =
   | "sync"
   | "vendor"
   | "qr_code"
+  | "nda"
 
 interface LogAuditParams {
   action: AuditAction

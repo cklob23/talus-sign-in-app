@@ -37,7 +37,9 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
     const [{ data: visitorTypes }, { data: hosts }] = await Promise.all([
         admin
             .from("visitor_types")
-            .select("id, name, badge_color, requires_host, requires_company, requires_training, training_title, training_video_url")
+            .select(
+                "id, name, badge_color, requires_host, requires_company, requires_training, requires_nda, training_title, training_video_url",
+            )
             .eq("location_id", location.id)
             .order("name"),
         admin

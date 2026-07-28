@@ -203,6 +203,7 @@ export default function SettingsPage() {
     requiresHost: true,
     requiresCompany: false,
     requiresTraining: false,
+    requiresNda: false,
     trainingVideoUrl: "",
     trainingTitle: "",
   })
@@ -1342,6 +1343,7 @@ export default function SettingsPage() {
       requiresHost: true,
       requiresCompany: false,
       requiresTraining: false,
+      requiresNda: false,
       trainingVideoUrl: "",
       trainingTitle: "",
     })
@@ -1356,6 +1358,7 @@ export default function SettingsPage() {
       requiresHost: type.requires_host,
       requiresCompany: type.requires_company,
       requiresTraining: type.requires_training,
+      requiresNda: type.requires_nda ?? false,
       trainingVideoUrl: type.training_video_url || "",
       trainingTitle: type.training_title || "",
     })
@@ -1376,6 +1379,7 @@ export default function SettingsPage() {
       requires_host: form.requiresHost,
       requires_company: form.requiresCompany,
       requires_training: form.requiresTraining,
+      requires_nda: form.requiresNda,
       training_video_url: form.trainingVideoUrl || null,
       training_title: form.trainingTitle || null,
       location_id: locations[0].id,
@@ -1507,6 +1511,19 @@ export default function SettingsPage() {
                     id="requiresTraining"
                     checked={form.requiresTraining}
                     onCheckedChange={(checked: boolean) => setForm({ ...form, requiresTraining: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="requiresNda">Requires NDA</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Visitors must sign the current NDA before completing sign-in
+                    </p>
+                  </div>
+                  <Switch
+                    id="requiresNda"
+                    checked={form.requiresNda}
+                    onCheckedChange={(checked: boolean) => setForm({ ...form, requiresNda: checked })}
                   />
                 </div>
                 {form.requiresTraining && (

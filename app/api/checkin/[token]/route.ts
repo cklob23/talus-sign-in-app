@@ -3,6 +3,7 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { resolveCheckinToken } from "@/lib/checkin-token"
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 import { sendHostNotification } from "@/lib/host-notification"
+import { resolveNdaRequirement, signNda } from "@/lib/nda"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -31,6 +32,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorTypeId?: string
         hostId?: string
         photoDataUrl?: string
+        ndaDocumentId?: string
+        ndaSignatureDataUrl?: string
     }
     try {
         body = await request.json()
@@ -48,11 +51,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Re-validate the visitor type against this location so a tampered request
     // cannot select a type belonging to a different site.
-    let visitorType: { id: string; name: string; requires_host: boolean; requires_company: boolean } | null = null
+    let visitorType: {
+        id: string
+        name: string
+        requires_host: boolean
+        requires_company: boolean
+        requires_nda: boolean
+    } | null = null
     if (body.visitorTypeId) {
         const { data } = await admin
             .from("visitor_types")
-            .select("id, name, requires_host, requires_company")
+            .select("id, name, requires_host, requires_company, requires_nda")
             .eq("id", body.visitorTypeId)
             .eq("location_id", location.id)
             .maybeSingle()
@@ -84,6 +93,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     if (visitorType?.requires_host && !hostId) {
         return NextResponse.json({ error: "A host is required for this visitor type" }, { status: 400 })
+    }
+
+    // Resolve the NDA requirement before creating any rows, so a visitor who
+    // needs to sign is rejected cleanly rather than left half checked in.
+    const ndaRequirement = await resolveNdaRequirement({
+        visitorTypeRequiresNda: visitorType?.requires_nda === true,
+        locationId: location.id,
+        visitorId: null,
+        visitorEmail: body.email ?? null,
+    })
+    if (ndaRequirement.required && !body.ndaSignatureDataUrl) {
+        return NextResponse.json({ error: "A signed NDA is required for this visitor type" }, { status: 400 })
+    }
+    // The client must sign the exact version the server considers current,
+    // otherwise the record would not match the text the visitor actually read.
+    if (ndaRequirement.required && body.ndaDocumentId !== ndaRequirement.document.id) {
+        return NextResponse.json({ error: "The NDA has been updated. Please review it again." }, { status: 409 })
     }
 
     // Optional self-taken photo, stored alongside kiosk photos.
@@ -157,6 +183,46 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const visitorName = `${visitor.first_name} ${visitor.last_name}`
+
+    // Record the signature now that we have a sign_in to bind it to. If this
+    // fails the visitor is NOT on site: an unsigned visitor must not be admitted
+    // when the NDA is mandatory, so the sign-in is rolled back.
+    if (ndaRequirement.required && body.ndaSignatureDataUrl) {
+        let hostName: string | null = null
+        if (hostId) {
+            const { data: hostRow } = await admin.from("hosts").select("name").eq("id", hostId).maybeSingle()
+            hostName = hostRow?.name ?? null
+        }
+
+        const signResult = await signNda({
+            ndaDocumentId: ndaRequirement.document.id,
+            signatureDataUrl: body.ndaSignatureDataUrl,
+            visitorId: visitor.id,
+            signInId: signIn.id,
+            visitorTypeId: visitorType?.id ?? null,
+            visitorTypeName: visitorType?.name ?? null,
+            locationId: location.id,
+            locationName: location.name,
+            hostId,
+            hostName,
+            visitorName,
+            visitorCompany: company,
+            visitorEmail: body.email?.trim() || null,
+            ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+            userAgent: request.headers.get("user-agent"),
+        })
+
+        if (!signResult.ok) {
+            await admin.from("sign_ins").delete().eq("id", signIn.id)
+            await admin.from("visitors").delete().eq("id", visitor.id)
+            console.log("[v0] QR check-in blocked, NDA signing failed:", signResult.error)
+            return NextResponse.json(
+                { error: "Could not record your signed NDA. Please see reception." },
+                { status: 500 },
+            )
+        }
+    }
+
     await admin.from("audit_logs").insert({
         user_id: null,
         action: "visitor.sign_in",

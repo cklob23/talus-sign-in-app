@@ -51,10 +51,56 @@ export interface VisitorType {
   requires_host: boolean
   requires_company: boolean
   requires_training: boolean
+  requires_nda: boolean
   training_video_url: string | null
   training_title: string | null
   location_id: string
   created_at: string
+}
+
+/** One immutable uploaded NDA version. Null location_id is the global fallback. */
+export interface NdaDocument {
+  id: string
+  location_id: string | null
+  version: number
+  title: string
+  storage_path: string
+  file_name: string | null
+  byte_size: number | null
+  is_current: boolean
+  uploaded_by: string | null
+  created_at: string
+  // Joined fields
+  locations?: { name: string } | null
+}
+
+/**
+ * The audit record of a visitor signing. Name/company/host are denormalised on
+ * purpose so the record still reads correctly after later renames or deletions.
+ */
+export interface NdaAcknowledgement {
+  id: string
+  nda_document_id: string
+  visitor_id: string | null
+  sign_in_id: string | null
+  visitor_type_id: string | null
+  location_id: string | null
+  host_id: string | null
+  visitor_name: string
+  visitor_company: string | null
+  visitor_email: string | null
+  visitor_type_name: string | null
+  host_name: string | null
+  signed_at: string
+  expires_at: string | null
+  signed_pdf_storage_path: string | null
+  signature_storage_path: string | null
+  signature_ip: string | null
+  user_agent: string | null
+  created_at: string
+  // Joined fields
+  nda_documents?: { version: number; title: string } | null
+  locations?: { name: string } | null
 }
 
 export interface TrainingCompletion {

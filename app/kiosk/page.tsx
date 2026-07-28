@@ -41,8 +41,11 @@ import {
   Lock,
   Shield,
   Printer,
-  Calendar
+  Calendar,
+  FileText,
+  ExternalLink
 } from "lucide-react"
+import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pad"
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -51,7 +54,15 @@ import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
 
-type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
+type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
+
+/** What the server says about the NDA for this visitor type and person. */
+interface KioskNdaInfo {
+  ndaDocumentId: string
+  title: string
+  version: number
+  documentUrl: string
+}
 
 // Storage key for remembered employee (persists across sign-outs for auto sign-in)
 const REMEMBERED_EMPLOYEE_KEY = "talusag_remembered_employee"
@@ -169,6 +180,12 @@ export default function KioskPage() {
   // Training video state
   const [trainingWatched, setTrainingWatched] = useState(false)
   const [trainingAcknowledged, setTrainingAcknowledged] = useState(false)
+  /** Null means no signature is needed (feature off, none uploaded, or still valid). */
+  const [ndaInfo, setNdaInfo] = useState<KioskNdaInfo | null>(null)
+  const [ndaAgreed, setNdaAgreed] = useState(false)
+  const [ndaHasInk, setNdaHasInk] = useState(false)
+  /** Captured when leaving the NDA step, because the canvas unmounts with it. */
+  const [ndaSignature, setNdaSignature] = useState<string | null>(null)
   const [bypassTraining, setBypassTraining] = useState(false)
   const [visitorPhotoUrl, setVisitorPhotoUrl] = useState<string | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null)
@@ -181,6 +198,7 @@ export default function KioskPage() {
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
   // Guards against duplicate sign-ins / duplicate host notifications caused by
   // double/triple taps on the kiosk touchscreen or component re-renders.
+  const ndaSignatureRef = useRef<SignaturePadHandle>(null)
   const signInInProgressRef = useRef(false)
   const hostNotifiedRef = useRef<string | null>(null)
 
@@ -1384,9 +1402,36 @@ export default function KioskPage() {
         })
       }
 
-      // 4. Create the sign-in record.
       const badgeNumber = generateBadgeNumber()
       const visitorName = `${form.firstName} ${form.lastName}`
+
+      // 3b. Record the NDA signature BEFORE the sign-in exists. If this fails the
+      // visitor must not be admitted, and aborting here means there is no
+      // sign-in row to unwind.
+      let acknowledgementId: string | null = null
+      if (ndaInfo && ndaSignature) {
+        const ndaRes = await fetch("/api/kiosk/nda", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent: "sign",
+            ndaDocumentId: ndaInfo.ndaDocumentId,
+            signatureDataUrl: ndaSignature,
+            visitorId,
+            visitorTypeId: selectedVisitorType?.id || null,
+            locationId: selectedLocation,
+            hostId: form.hostId || null,
+            visitorName,
+            visitorCompany: form.company || null,
+            email: form.email || null,
+          }),
+        })
+        const ndaJson = await ndaRes.json()
+        if (!ndaRes.ok) throw new Error(ndaJson.error || "Could not record the signed NDA")
+        acknowledgementId = ndaJson.acknowledgementId ?? null
+      }
+
+      // 4. Create the sign-in record.
       const signInRes = await fetch("/api/kiosk/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1405,6 +1450,20 @@ export default function KioskPage() {
       })
       const signInData = await signInRes.json()
       if (!signInRes.ok) throw new Error(signInData.error || "Failed to sign in")
+
+      // 4b. Bind the acknowledgement to the visit now that it exists. A failure
+      // here is not fatal: the signed NDA is already stored against the visitor.
+      if (acknowledgementId && signInData.signIn?.id) {
+        await fetch("/api/kiosk/nda", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent: "link",
+            acknowledgementId,
+            signInId: signInData.signIn.id,
+          }),
+        }).catch(() => { })
+      }
 
       // 5. Notify the host that the visitor has arrived (deduped).
       await sendHostNotification({
@@ -1503,6 +1562,10 @@ export default function KioskPage() {
   function resetTraining() {
     setTrainingWatched(false)
     setTrainingAcknowledged(false)
+    setNdaInfo(null)
+    setNdaAgreed(false)
+    setNdaHasInk(false)
+    setNdaSignature(null)
     setBypassTraining(false)
     setVideoProgress(0)
     setVideoStarted(false)
@@ -1605,7 +1668,56 @@ export default function KioskPage() {
   }, [])
 
   // Go to photo mode after training (or directly if no training needed)
-  function proceedToPhoto() {
+  /**
+   * Gate the photo step behind the NDA when one is required.
+   *
+   * Every path into photo capture funnels through here (walk-in, post-training,
+   * and booking), so this is the single place the NDA can be enforced without
+   * duplicating the check.
+   */
+  async function proceedToPhoto() {
+    if (ndaSignature) {
+      // Already signed during this visit; do not ask twice.
+      goToPhotoCapture()
+      return
+    }
+
+    if (selectedVisitorType?.requires_nda) {
+      setIsLoading(true)
+      try {
+        const res = await fetch("/api/kiosk/nda", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent: "resolve",
+            visitorTypeId: selectedVisitorType.id,
+            locationId: selectedLocation,
+            email: form.email || null,
+          }),
+        })
+        const json = await res.json()
+        if (res.ok && json.required) {
+          setNdaInfo(json as KioskNdaInfo)
+          setNdaAgreed(false)
+          setNdaHasInk(false)
+          stopCamera()
+          setMode("nda")
+          return
+        }
+        // Not required (or lookup failed): fall through. completeSignIn still
+        // re-checks server-side, so a missed signature cannot slip through.
+        setNdaInfo(null)
+      } catch {
+        setNdaInfo(null)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    goToPhotoCapture()
+  }
+
+  function goToPhotoCapture() {
     // Skip photo capture if not available in current tier
     if (!hasFeature("photoCapture")) {
       completeSignIn()
@@ -3215,6 +3327,80 @@ export default function KioskPage() {
                     </>
                   )}
                 </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {mode === "nda" && ndaInfo && (
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  {ndaInfo.title}
+                </CardTitle>
+                <CardDescription>
+                  Please read the agreement, then sign below to continue your sign-in.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-5">
+                <a
+                  href={ndaInfo.documentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4 transition-colors hover:bg-accent"
+                >
+                  <span className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 shrink-0 text-muted-foreground" />
+                    <span>
+                      <span className="block text-sm font-medium">Read the agreement</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {`Version ${ndaInfo.version} • Opens the PDF`}
+                      </span>
+                    </span>
+                  </span>
+                  <ExternalLink className="w-4 h-4 shrink-0 text-muted-foreground" />
+                </a>
+
+                <div className="flex items-start gap-3 rounded-lg border p-4">
+                  <Checkbox
+                    id="nda-agree"
+                    checked={ndaAgreed}
+                    onCheckedChange={(checked) => setNdaAgreed(checked === true)}
+                    className="mt-1"
+                  />
+                  <label htmlFor="nda-agree" className="text-sm leading-relaxed cursor-pointer">
+                    I have read and agree to the terms of this non-disclosure agreement.
+                  </label>
+                </div>
+
+                <SignaturePad ref={ndaSignatureRef} onChange={setNdaHasInk} ariaLabel="Your signature" />
+
+                {error && <p className="text-sm text-destructive">{error}</p>}
+
+                <div className="flex gap-3">
+                  <Button variant="outline" size="lg" onClick={() => setMode("sign-in")} className="flex-1">
+                    Back
+                  </Button>
+                  <Button
+                    size="lg"
+                    className="flex-1"
+                    disabled={!ndaAgreed || !ndaHasInk || isLoading}
+                    onClick={() => {
+                      const drawn = ndaSignatureRef.current?.toDataUrl() ?? null
+                      if (!drawn) {
+                        setError("Please sign in the box above.")
+                        return
+                      }
+                      setError(null)
+                      setNdaSignature(drawn)
+                      goToPhotoCapture()
+                    }}
+                  >
+                    {!ndaAgreed ? "Please Agree to Continue" : !ndaHasInk ? "Please Sign to Continue" : "Continue"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>
