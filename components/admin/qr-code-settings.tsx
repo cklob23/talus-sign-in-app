@@ -305,6 +305,13 @@ function LocationQrRow({
                                     Print poster
                                 </a>
                             </Button>
+                            {/* Print-ready A4 file to send to the site supervisor. */}
+                            <Button size="sm" variant="outline" asChild>
+                                <a href={`/api/admin/qr-poster/${location.id}`} download>
+                                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                                    Poster PDF
+                                </a>
+                            </Button>
                             <Button size="sm" variant="outline" onClick={downloadSvg}>
                                 <Download className="mr-1.5 h-3.5 w-3.5" />
                                 SVG

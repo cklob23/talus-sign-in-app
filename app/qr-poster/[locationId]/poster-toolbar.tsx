@@ -2,10 +2,18 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Printer, Copy, Check, ArrowLeft } from "lucide-react"
+import { Printer, Copy, Check, ArrowLeft, Download } from "lucide-react"
 
 /** Screen-only controls above the poster sheet; hidden when printing. */
-export function PosterToolbar({ locationName, checkinUrl }: { locationName: string; checkinUrl: string }) {
+export function PosterToolbar({
+    locationId,
+    locationName,
+    checkinUrl,
+}: {
+    locationId: string
+    locationName: string
+    checkinUrl: string
+}) {
     const [copied, setCopied] = useState(false)
 
     async function copy() {
@@ -31,6 +39,14 @@ export function PosterToolbar({ locationName, checkinUrl }: { locationName: stri
                 <Button variant="outline" size="sm" onClick={() => void copy()}>
                     {copied ? <Check className="mr-1.5 h-4 w-4" /> : <Copy className="mr-1.5 h-4 w-4" />}
                     {copied ? "Copied" : "Copy link"}
+                </Button>
+                {/* A plain link, so the browser handles the download and the file can be
+            forwarded to site supervisors to print locally. */}
+                <Button variant="outline" size="sm" asChild>
+                    <a href={`/api/admin/qr-poster/${locationId}`} download>
+                        <Download className="mr-1.5 h-4 w-4" />
+                        Download PDF
+                    </a>
                 </Button>
                 <Button size="sm" onClick={() => window.print()}>
                     <Printer className="mr-1.5 h-4 w-4" />

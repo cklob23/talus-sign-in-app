@@ -58,6 +58,77 @@ export function buildTalusMark({
     ].join("")
 }
 
+/** A run of horizontally adjacent dark modules, in module units. */
+export interface QrRun {
+    x: number
+    y: number
+    w: number
+}
+
+export interface QrGeometry {
+    /** Modules per side, excluding the quiet zone. */
+    count: number
+    /** Quiet zone width in modules. */
+    margin: number
+    /** Full side length in modules, including both quiet zones. */
+    total: number
+    /** Dark modules, merged into horizontal runs. */
+    runs: QrRun[]
+}
+
+/**
+ * Compute the QR module layout in module units.
+ *
+ * Shared by the SVG renderer and the PDF poster builder so both draw byte-for
+ * byte the same code. Adjacent dark modules are merged into horizontal runs:
+ * fewer shapes means smaller output and no hairline seams between neighbouring
+ * rects when printed or scaled.
+ */
+export function buildQrGeometry({ text, margin = 4 }: { text: string; margin?: number }): QrGeometry {
+    const qr = QRCode.create(text, { errorCorrectionLevel: "H" })
+    const count = qr.modules.size
+    const data = qr.modules.data
+
+    const runs: QrRun[] = []
+    for (let row = 0; row < count; row++) {
+        let runStart = -1
+        for (let col = 0; col <= count; col++) {
+            const isDark = col < count && data[row * count + col] === 1
+            if (isDark && runStart === -1) {
+                runStart = col
+            } else if (!isDark && runStart !== -1) {
+                runs.push({ x: runStart + margin, y: row + margin, w: col - runStart })
+                runStart = -1
+            }
+        }
+    }
+
+    return { count, margin, total: count + margin * 2, runs }
+}
+
+/**
+ * Geometry of the centred logo plate, in module units.
+ *
+ * Returned separately from the matrix because the plate is snapped to whole
+ * modules, so it reads as a deliberate element rather than a smudge across
+ * partial modules.
+ */
+export function buildQrLogoPlate({ count, margin }: Pick<QrGeometry, "count" | "margin">, logoRatio = 0.22) {
+    const plate = Math.round(count * logoRatio)
+    const plateSize = plate % 2 === count % 2 ? plate : plate + 1
+    const plateOffset = margin + (count - plateSize) / 2
+
+    // White gutter keeps the mark from touching live modules.
+    const gutter = plateSize * 0.08
+    return {
+        plateSize,
+        plateOffset,
+        plateRadius: plateSize * 0.16,
+        markSize: plateSize - gutter * 2,
+        markOffset: plateOffset + gutter,
+    }
+}
+
 export interface BuildQrSvgOptions {
     /** Data encoded in the QR code (usually the check-in URL). */
     text: string
@@ -94,45 +165,17 @@ export function buildQrSvg({
     light = "#ffffff",
     logoBackground = TALUS_BRAND_GREEN,
 }: BuildQrSvgOptions): string {
-    const qr = QRCode.create(text, { errorCorrectionLevel: "H" })
-    const count = qr.modules.size
-    const data = qr.modules.data
-    const total = count + margin * 2
-
-    // Merge horizontally adjacent dark modules into single rects. Fewer shapes
-    // means a smaller file and, more importantly, no hairline seams between
-    // neighbouring rects when printed or scaled.
-    const rects: string[] = []
-    for (let row = 0; row < count; row++) {
-        let runStart = -1
-        for (let col = 0; col <= count; col++) {
-            const isDark = col < count && data[row * count + col] === 1
-            if (isDark && runStart === -1) {
-                runStart = col
-            } else if (!isDark && runStart !== -1) {
-                rects.push(
-                    `<rect x="${runStart + margin}" y="${row + margin}" width="${col - runStart}" height="1"/>`,
-                )
-                runStart = -1
-            }
-        }
-    }
+    const { count, total, runs } = buildQrGeometry({ text, margin })
+    const rects = runs.map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="1"/>`)
 
     let logoMarkup = ""
     if (logo) {
-        // Snap the plate to whole modules so it reads as a deliberate element
-        // rather than a smudge across partial modules.
-        const plate = Math.round(count * logoRatio)
-        const plateSize = plate % 2 === count % 2 ? plate : plate + 1
-        const plateOffset = margin + (count - plateSize) / 2
-
-        // White gutter keeps the mark from touching live modules.
-        const gutter = plateSize * 0.08
-        const markSize = plateSize - gutter * 2
-        const markOffset = plateOffset + gutter
-
+        const { plateSize, plateOffset, plateRadius, markSize, markOffset } = buildQrLogoPlate(
+            { count, margin },
+            logoRatio,
+        )
         logoMarkup = [
-            `<rect x="${plateOffset}" y="${plateOffset}" width="${plateSize}" height="${plateSize}" rx="${plateSize * 0.16}" fill="${light}"/>`,
+            `<rect x="${plateOffset}" y="${plateOffset}" width="${plateSize}" height="${plateSize}" rx="${plateRadius}" fill="${light}"/>`,
             buildTalusMark({ size: markSize, x: markOffset, y: markOffset, background: logoBackground }),
         ].join("")
     }
