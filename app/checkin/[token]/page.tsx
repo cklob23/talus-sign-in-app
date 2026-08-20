@@ -33,14 +33,17 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
     const { location } = resolved
     const admin = getAdminClient()
 
-    // Only this location's types and hosts are exposed to the public page.
+    // Visitor types are global: the admin UI manages them as one flat list with no
+    // location picker, and the kiosk offers all of them at every site. Their
+    // location_id is only whatever location happened to exist first at creation
+    // time, so filtering on it would arbitrarily hide types from some sites.
+    // Hosts, by contrast, genuinely belong to a location and stay scoped.
     const [{ data: visitorTypes }, { data: hosts }] = await Promise.all([
         admin
             .from("visitor_types")
             .select(
                 "id, name, badge_color, requires_host, requires_company, requires_training, requires_nda, training_title, training_video_url",
             )
-            .eq("location_id", location.id)
             .order("name"),
         admin
             .from("hosts")

@@ -49,8 +49,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const admin = getAdminClient()
 
-    // Re-validate the visitor type against this location so a tampered request
-    // cannot select a type belonging to a different site.
+    // Visitor types are global (the admin UI has no location picker and the kiosk
+    // offers all of them everywhere), so only existence is re-validated here.
+    // Scoping to the token's location would reject types the page legitimately
+    // offers. Hosts below stay location-scoped because they really do belong to one.
     let visitorType: {
         id: string
         name: string
@@ -63,10 +65,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             .from("visitor_types")
             .select("id, name, requires_host, requires_company, requires_nda")
             .eq("id", body.visitorTypeId)
-            .eq("location_id", location.id)
             .maybeSingle()
         if (!data) {
-            return NextResponse.json({ error: "Invalid visitor type for this location" }, { status: 400 })
+            return NextResponse.json({ error: "Invalid visitor type" }, { status: 400 })
         }
         visitorType = data
     }

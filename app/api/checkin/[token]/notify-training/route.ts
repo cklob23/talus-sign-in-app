@@ -43,8 +43,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "Missing visitor or host details" }, { status: 400 })
     }
 
-    // Only notify for a type that actually requires training at this location, so
-    // this endpoint can't be used to generate arbitrary emails to a host.
+    // Only notify for a type that actually requires training, so this endpoint
+    // can't be used to generate arbitrary emails to a host. Visitor types are
+    // global, so the type is not scoped to the location; the host still is.
     const admin = getAdminClient()
     let visitorTypeName: string | null = null
     if (body.visitorTypeId) {
@@ -52,7 +53,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             .from("visitor_types")
             .select("name, requires_training")
             .eq("id", body.visitorTypeId)
-            .eq("location_id", location.id)
             .maybeSingle()
 
         if (!visitorType?.requires_training) {
