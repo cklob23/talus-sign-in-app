@@ -86,6 +86,13 @@ export async function GET(request: Request) {
           .eq("id", data.user.id)
           .single()
 
+        // Block directory-disabled users even via SSO — otherwise Microsoft
+        // login would be an open bypass of the disabled-account gate.
+        if (profile && profile.is_active === false) {
+          await supabase.auth.signOut()
+          return createRedirectWithCookies(getRedirectUrl("/kiosk?error=account_disabled"))
+        }
+
         if (profile && ["employee", "admin", "staff"].includes(profile.role)) {
           // Only create a sign-in record if there isn't already an open one.
           // Inserting unconditionally produced multiple open rows, which then
@@ -162,9 +169,14 @@ export async function GET(request: Request) {
         // Verify the user has a profile
         const { data: profile } = await supabase
           .from("profiles")
-          .select("id, email, full_name, role")
+          .select("id, email, full_name, role, is_active")
           .eq("id", data.user.id)
           .single()
+
+        if (profile && profile.is_active === false) {
+          await supabase.auth.signOut()
+          return createRedirectWithCookies(getRedirectUrl("/kiosk?error=account_disabled"))
+        }
 
         if (profile) {
           await logAuditServer({
@@ -206,6 +218,19 @@ export async function GET(request: Request) {
         return createRedirectWithCookies(
           getRedirectUrl("/kiosk?error=no_profile")
         )
+      }
+
+      // Block directory-disabled admins/staff before granting the session.
+      const { data: adminProfile } = await supabase
+        .from("profiles")
+        .select("is_active, directory_status")
+        .eq("id", data.user.id)
+        .single()
+
+      if (adminProfile && adminProfile.is_active === false) {
+        await supabase.auth.signOut()
+        const reason = adminProfile.directory_status === "removed" ? "account_removed" : "account_disabled"
+        return createRedirectWithCookies(getRedirectUrl(`/auth/login?error=${reason}`))
       }
 
       // Log admin OAuth login

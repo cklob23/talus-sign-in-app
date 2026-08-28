@@ -38,6 +38,7 @@ import { AvatarUpload } from "@/components/admin/avatar-upload"
 import { logAudit } from "@/lib/audit-log"
 import type { Role } from "@/lib/permissions"
 import { Shield } from "lucide-react"
+import { UserDetailBlade, type UserProfileDetail } from "@/components/admin/user-detail-blade"
 
 interface Profile {
   id: string
@@ -48,6 +49,13 @@ interface Profile {
   avatar_url: string | null
   location_id: string | null
   department: string | null
+  phone: string | null
+  job_title: string | null
+  office_location: string | null
+  is_active: boolean | null
+  directory_status: string | null
+  directory_synced_at: string | null
+  azure_object_id: string | null
   created_at: string
   updated_at: string
 }
@@ -66,6 +74,8 @@ export default function UsersPage() {
   const [lastSignInLocations, setLastSignInLocations] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [bladeProfileId, setBladeProfileId] = useState<string | null>(null)
+  const [isBladeOpen, setIsBladeOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [microsoftSsoConfigured, setMicrosoftSsoConfigured] = useState(false)
@@ -162,6 +172,11 @@ export default function UsersPage() {
       isHost: false,
     })
     setIsDialogOpen(true)
+  }
+
+  function openBlade(profile: Profile) {
+    setBladeProfileId(profile.id)
+    setIsBladeOpen(true)
   }
 
   function openEditDialog(profile: Profile) {
@@ -1273,7 +1288,11 @@ export default function UsersPage() {
                       />
                       <div className="flex-1">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openBlade(profile)}
+                            className="flex items-center gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
                             <Avatar className="h-10 w-10">
                               <AvatarImage src={profile.avatar_url || undefined} />
                               <AvatarFallback>
@@ -1288,7 +1307,7 @@ export default function UsersPage() {
                                 <p className="text-xs text-muted-foreground">{profile.email}</p>
                               )}
                             </div>
-                          </div>
+                          </button>
                           <div className="flex flex-wrap gap-1">
                             {getRoleBadge(profile.role, profile.custom_role_id)}
                             {isUserHost(profile) && (
@@ -1319,7 +1338,11 @@ export default function UsersPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => openEditDialog(profile)}>
+                              <DropdownMenuItem onClick={() => openBlade(profile)}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openBlade(profile)}>
                                 <Pencil className="w-4 h-4 mr-2" />
                                 Edit
                               </DropdownMenuItem>
@@ -1369,7 +1392,11 @@ export default function UsersPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openBlade(profile)}
+                            className="flex items-center gap-3 rounded-md text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
                             <Avatar className="h-8 w-8">
                               <AvatarImage src={profile.avatar_url || undefined} />
                               <AvatarFallback className="text-xs">
@@ -1379,7 +1406,7 @@ export default function UsersPage() {
                             <span className="font-medium">
                               {profile.full_name || "No name"}
                             </span>
-                          </div>
+                          </button>
                         </TableCell>
                         <TableCell>{profile.email || "-"}</TableCell>
                         <TableCell>{profile.department || "-"}</TableCell>
@@ -1408,7 +1435,11 @@ export default function UsersPage() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => openEditDialog(profile)}>
+                              <DropdownMenuItem onClick={() => openBlade(profile)}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openBlade(profile)}>
                                 <Pencil className="w-4 h-4 mr-2" />
                                 Edit User
                               </DropdownMenuItem>
@@ -1433,6 +1464,18 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      <UserDetailBlade
+        profile={(profiles.find((p) => p.id === bladeProfileId) as UserProfileDetail | undefined) ?? null}
+        open={isBladeOpen}
+        onOpenChange={setIsBladeOpen}
+        roles={roles.map((r) => ({ id: r.id, name: r.name }))}
+        locations={locations.map((l) => ({ id: l.id, name: l.name }))}
+        hosts={hosts.map((h) => ({ id: h.id, profile_id: h.profile_id ?? null, email: h.email ?? null, location_id: h.location_id ?? null }))}
+        ssoConfigured={microsoftSsoConfigured}
+        onChanged={loadData}
+        onDeleted={loadData}
+      />
     </div>
   )
 }

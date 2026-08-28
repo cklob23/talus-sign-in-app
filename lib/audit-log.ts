@@ -8,6 +8,7 @@ export type AuditAction =
   | "user.updated"
   | "user.deleted"
   | "user.bulk_deleted"
+  | "user.synced"
   // Visitor actions
   | "visitor.sign_in"
   | "visitor.sign_out"

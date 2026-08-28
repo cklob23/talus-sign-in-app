@@ -35,6 +35,19 @@ export default function LoginPage() {
       .catch(() => setMicrosoftSsoEnabled(false))
   }, [])
 
+  // Surface errors passed back from the OAuth callback (e.g. a disabled account
+  // that was blocked during the Microsoft sign-in redirect).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const err = params.get("error")
+    if (!err) return
+    const messages: Record<string, string> = {
+      account_disabled: "This account is disabled. Please contact an administrator.",
+      account_removed: "This account has been removed from the directory. Please contact an administrator.",
+    }
+    setError(messages[err] || decodeURIComponent(err))
+  }, [])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
@@ -51,9 +64,21 @@ export default function LoginPage() {
       // Get user profile to check password policy
       const { data: profile } = await supabase
         .from("profiles")
-        .select("last_password_change, last_auth_time")
+        .select("last_password_change, last_auth_time, is_active, directory_status")
         .eq("id", data.user.id)
         .single()
+
+      // Block accounts disabled/removed in Entra ID. This must run BEFORE the
+      // redirect: without it, a directory-disabled user could still sign in
+      // with a cached password, defeating the whole point of the sync.
+      if (profile && profile.is_active === false) {
+        await supabase.auth.signOut()
+        throw new Error(
+          profile.directory_status === "removed"
+            ? "This account has been removed from the directory. Please contact an administrator."
+            : "This account is disabled. Please contact an administrator.",
+        )
+      }
 
       // Load and enforce password policy
       const policy = await loadPasswordPolicy()
@@ -135,7 +160,7 @@ export default function LoginPage() {
         <TalusAgLogo />
         <div className="flex flex-col items-center gap-3 mt-6">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground animate-pulse">Loading...</p>
+          <p className="text-sm text-muted-foreground animate-pulse">Loading dashboard...</p>
         </div>
       </div>
     )
@@ -164,7 +189,7 @@ export default function LoginPage() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={`admin@${branding.companyName?.toLowerCase().replace(/[\s.-]+/g, "") || "talusag"}.com`}
+                      placeholder={`admin@${branding.companyName.toLowerCase().replace(/\s+/g, "")}.com`}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -214,12 +239,12 @@ export default function LoginPage() {
                     </>
                   )}
                 </div>
-                {/* <div className="mt-4 text-center text-xs sm:text-sm">
+                <div className="mt-4 text-center text-xs sm:text-sm">
                   Don&apos;t have an account?{" "}
                   <Link href="/auth/sign-up" className="underline underline-offset-4 text-primary">
                     Sign up
                   </Link>
-                </div> */}
+                </div>
               </form>
             </CardContent>
           </Card>

@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
+import { SignInDetailBlade, type SignInRecord } from "@/components/admin/sign-in-detail-blade"
 
 // Use Omit to override the profile and location types from the base EmployeeSignIn
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -33,11 +34,18 @@ export function HistoryContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("all")
   const { timezone: userTimezone } = useTimezone()
+  const [bladeRecord, setBladeRecord] = useState<SignInRecord | null>(null)
+  const [isBladeOpen, setIsBladeOpen] = useState(false)
+
+  function openBlade(record: SignInRecord) {
+    setBladeRecord(record)
+    setIsBladeOpen(true)
+  }
 
   async function loadHistory() {
     setIsLoading(true)
     const supabase = createClient()
-    
+
     // Load visitor sign-ins
     const { data: visitorData } = await supabase
       .from("sign_ins")
@@ -209,7 +217,11 @@ export function HistoryContent() {
                   <div className="space-y-3 md:hidden">
                     {filteredSignIns.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start gap-3">
+                        <button
+                          type="button"
+                          onClick={() => openBlade({ kind: "visitor", data: signIn })}
+                          className="flex w-full items-start gap-3 text-left"
+                        >
                           <Avatar className="h-10 w-10 shrink-0">
                             <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
                             <AvatarFallback className="bg-primary/10 text-primary text-xs">
@@ -240,7 +252,7 @@ export function HistoryContent() {
                               )}
                             </div>
                           </div>
-                        </div>
+                        </button>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
@@ -272,7 +284,11 @@ export function HistoryContent() {
                         {filteredSignIns.map((signIn) => (
                           <TableRow key={signIn.id}>
                             <TableCell>
-                              <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => openBlade({ kind: "visitor", data: signIn })}
+                                className="flex items-center gap-3 rounded-md text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
                                 <Avatar className="h-9 w-9">
                                   <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
                                   <AvatarFallback className="bg-primary/10 text-primary text-xs">
@@ -282,7 +298,7 @@ export function HistoryContent() {
                                 <p className="font-medium">
                                   {signIn.visitor?.first_name} {signIn.visitor?.last_name}
                                 </p>
-                              </div>
+                              </button>
                             </TableCell>
                             <TableCell>{signIn.visitor?.company || "-"}</TableCell>
                             <TableCell>
@@ -346,7 +362,11 @@ export function HistoryContent() {
                   <div className="space-y-3 md:hidden">
                     {filteredEmployeeSignIns.map((signIn) => (
                       <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-start gap-3">
+                        <button
+                          type="button"
+                          onClick={() => openBlade({ kind: "employee", data: signIn })}
+                          className="flex w-full items-start gap-3 text-left"
+                        >
                           <Avatar className="h-10 w-10 shrink-0">
                             <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
                             <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
@@ -364,7 +384,7 @@ export function HistoryContent() {
                               </Badge>
                             </div>
                           </div>
-                        </div>
+                        </button>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
                           <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
@@ -400,7 +420,11 @@ export function HistoryContent() {
                         {filteredEmployeeSignIns.map((signIn) => (
                           <TableRow key={signIn.id}>
                             <TableCell>
-                              <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => openBlade({ kind: "employee", data: signIn })}
+                                className="flex items-center gap-3 rounded-md text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
                                 <Avatar className="h-9 w-9">
                                   <AvatarImage src={signIn.profile?.avatar_url || undefined} alt={signIn.profile?.full_name || "Employee"} />
                                   <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
@@ -408,7 +432,7 @@ export function HistoryContent() {
                                   </AvatarFallback>
                                 </Avatar>
                                 <p className="font-medium">{signIn.profile?.full_name || "Unknown"}</p>
-                              </div>
+                              </button>
                             </TableCell>
                             <TableCell>{signIn.profile?.email || "-"}</TableCell>
                             <TableCell>
@@ -440,6 +464,13 @@ export function HistoryContent() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <SignInDetailBlade
+        record={bladeRecord}
+        open={isBladeOpen}
+        onOpenChange={setIsBladeOpen}
+        timezone={userTimezone}
+      />
     </div>
   )
 }
