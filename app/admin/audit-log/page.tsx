@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   "user.updated": "User updated",
   "user.deleted": "User deleted",
   "user.bulk_deleted": "Users bulk deleted",
+  "user.synced": "User synced from Entra ID",
   // Visitor actions
   "visitor.sign_in": "Visitor signed in",
   "visitor.sign_out": "Visitor signed out",
