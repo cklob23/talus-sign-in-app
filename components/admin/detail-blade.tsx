@@ -1,6 +1,6 @@
 "use client"
 
-import type * as React from "react"
+import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
 /**
  * Universal right-hand "blade" for the admin portal.
@@ -67,6 +68,8 @@ export function DetailBlade({
     loading = false,
     className,
 }: DetailBladeProps) {
+    const [photoExpanded, setPhotoExpanded] = React.useState(false)
+    const hasPhoto = Boolean(avatarUrl)
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent
@@ -81,10 +84,23 @@ export function DetailBlade({
                     ) : null}
                     <div className="flex items-start gap-3">
                         {!hideAvatar ? (
-                            <Avatar className="h-12 w-12 shrink-0">
-                                {avatarUrl ? <AvatarImage src={avatarUrl || "/placeholder.svg"} alt="" /> : null}
-                                <AvatarFallback className="text-sm">{avatarFallback || initialsFrom(title)}</AvatarFallback>
-                            </Avatar>
+                            hasPhoto ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setPhotoExpanded(true)}
+                                    className="shrink-0 rounded-full ring-offset-background transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    aria-label="View photo full size"
+                                >
+                                    <Avatar className="h-20 w-20">
+                                        <AvatarImage src={avatarUrl || "/placeholder.svg"} alt="" />
+                                        <AvatarFallback className="text-lg">{avatarFallback || initialsFrom(title)}</AvatarFallback>
+                                    </Avatar>
+                                </button>
+                            ) : (
+                                <Avatar className="h-20 w-20 shrink-0">
+                                    <AvatarFallback className="text-lg">{avatarFallback || initialsFrom(title)}</AvatarFallback>
+                                </Avatar>
+                            )
                         ) : null}
                         <div className="min-w-0 flex-1">
                             <SheetTitle className="text-pretty text-lg font-semibold leading-tight">{title}</SheetTitle>
@@ -120,6 +136,22 @@ export function DetailBlade({
                 {/* Footer */}
                 {footer ? <div className="shrink-0 border-t bg-muted/30 p-4">{footer}</div> : null}
             </SheetContent>
+
+            {hasPhoto ? (
+                <Dialog open={photoExpanded} onOpenChange={setPhotoExpanded}>
+                    <DialogContent className="max-w-lg overflow-hidden p-0">
+                        <DialogTitle className="sr-only">
+                            {typeof title === "string" ? `${title} photo` : "Photo"}
+                        </DialogTitle>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={avatarUrl || "/placeholder.svg"}
+                            alt={typeof title === "string" ? title : "Profile photo"}
+                            className="h-auto max-h-[80vh] w-full object-contain"
+                        />
+                    </DialogContent>
+                </Dialog>
+            ) : null}
         </Sheet>
     )
 }
