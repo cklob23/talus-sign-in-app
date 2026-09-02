@@ -91,6 +91,9 @@ interface Location {
   id: string
   name: string
   address: string | null
+  latitude: number | null
+  longitude: number | null
+  auto_signin_radius_meters: number | null
 }
 
 export default function SettingsPage() {
@@ -210,7 +213,10 @@ export default function SettingsPage() {
 
   async function loadLocations() {
     const supabase = createClient()
-    const { data } = await supabase.from("locations").select("id, name, address").order("name")
+    const { data } = await supabase
+      .from("locations")
+      .select("id, name, address, latitude, longitude, auto_signin_radius_meters")
+      .order("name")
     if (data && data.length > 0) {
       setLocations(data)
       // Set the first location as default if none selected

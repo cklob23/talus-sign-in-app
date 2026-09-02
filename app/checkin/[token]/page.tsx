@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { getAdminClient } from "@/lib/supabase/server"
 import { getBrandingSettings } from "@/lib/branding"
 import { resolveCheckinToken } from "@/lib/checkin-token"
+import { hasGeofence } from "@/lib/checkin-geofence"
 import { CheckinFlow } from "./checkin-flow"
 import { CheckinShell } from "./checkin-shell"
 
@@ -30,8 +31,19 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
         )
     }
 
-    const { location } = resolved
+    const { location, geofenceRequired } = resolved
     const admin = getAdminClient()
+
+    // Only the numbers needed for the on-device pre-check are sent to the browser.
+    // The server makes the real decision when the form is submitted.
+    const geofence =
+        geofenceRequired && hasGeofence(location)
+            ? {
+                latitude: location.latitude,
+                longitude: location.longitude,
+                auto_signin_radius_meters: location.auto_signin_radius_meters,
+            }
+            : null
 
     // Visitor types are global: the admin UI manages them as one flat list with no
     // location picker, and the kiosk offers all of them at every site. Their
@@ -60,6 +72,7 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
                 locationName={location.name}
                 visitorTypes={visitorTypes ?? []}
                 hosts={hosts ?? []}
+                geofence={geofence}
             />
         </CheckinShell>
     )

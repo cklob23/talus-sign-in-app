@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { CompanyAutocomplete } from "@/components/company-autocomplete"
 import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pad"
+import { LocationGatePanel, useLocationGate, type CheckinGeofence } from "./location-gate"
+import type { DeviceCoords } from "@/lib/checkin-geofence"
 import {
     ArrowLeft,
     ArrowRight,
@@ -76,12 +78,20 @@ export function CheckinFlow({
     locationName,
     visitorTypes,
     hosts,
+    geofence,
 }: {
     token: string
     locationName: string
     visitorTypes: CheckinVisitorType[]
     hosts: CheckinHost[]
+    /** Null when the site has no coordinates or the admin turned enforcement off. */
+    geofence: CheckinGeofence | null
 }) {
+    // Runs as soon as the page opens so a visitor who is not on site finds out
+    // before typing anything. The server re-checks the same coordinates.
+    const gate = useLocationGate(geofence)
+    const coords: DeviceCoords | null = gate.status.state === "verified" ? gate.status.coords : null
+
     const [typeId, setTypeId] = useState<string | null>(null)
     const [details, setDetails] = useState<Details>(emptyDetails)
     const [hostId, setHostId] = useState<string | null>(null)
@@ -274,6 +284,7 @@ export function CheckinFlow({
                     photoDataUrl,
                     ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
+                    coords,
                 }),
             })
             const json = await res.json()
@@ -287,12 +298,17 @@ export function CheckinFlow({
         }
     }
 
+    // Nothing else renders until the device is confirmed on site.
+    if (geofence && gate.status.state !== "verified") {
+        return <LocationGatePanel status={gate.status} locationName={locationName} onRetry={gate.retry} />
+    }
+
     if (step === "done" && result) {
         return <SuccessPanel result={result} locationName={locationName} onDone={reset} />
     }
 
     if (mode === "signout") {
-        return <SignOutPanel token={token} locationName={locationName} onCancel={reset} />
+        return <SignOutPanel token={token} locationName={locationName} coords={coords} onCancel={reset} />
     }
 
     const stepIndex = steps.indexOf(step)
@@ -842,10 +858,12 @@ function SuccessPanel({
 function SignOutPanel({
     token,
     locationName,
+    coords,
     onCancel,
 }: {
     token: string
     locationName: string
+    coords: DeviceCoords | null
     onCancel: () => void
 }) {
     const [identifier, setIdentifier] = useState("")
@@ -868,11 +886,10 @@ function SignOutPanel({
             const res = await fetch(`/api/checkin/${token}/signout`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(
-                    looksLikeBadge
-                        ? { badgeNumber: value.replace(/\s+/g, "") }
-                        : { email: value },
-                ),
+                body: JSON.stringify({
+                    ...(looksLikeBadge ? { badgeNumber: value.replace(/\s+/g, "") } : { email: value }),
+                    coords,
+                }),
             })
             const json = await res.json()
             if (!res.ok) throw new Error(json.error ?? "Could not complete sign-out")

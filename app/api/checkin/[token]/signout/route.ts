@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
-import { resolveCheckinToken } from "@/lib/checkin-token"
+import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token"
 import { BADGE_NUMBER_INPUT_RE } from "@/lib/badge-number"
 
 /**
  * Public visitor sign-out from a scanned location QR code.
  *
- * Like the sign-in route, the location comes from the poster token, so a
- * visitor can only ever sign out of the site they physically scanned.
+ * Like the sign-in route, the location comes from the poster token and the
+ * device must be within the site's radius, so a visitor can only ever sign out
+ * of the site they are physically standing at.
  *
  * A visitor identifies themselves with either their badge number or the email
  * they signed in with. Only sign-ins that are still active at this location are
@@ -21,14 +22,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!resolved.ok) {
         return NextResponse.json({ error: resolved.reason }, { status: resolved.status })
     }
-    const { location } = resolved
+    const { location, geofenceRequired } = resolved
 
-    let body: { badgeNumber?: string; email?: string; signInId?: string }
+    let body: { badgeNumber?: string; email?: string; signInId?: string; coords?: unknown }
     try {
         body = await request.json()
     } catch {
         return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
     }
+
+    const geofence = enforceCheckinGeofence(location, geofenceRequired, body.coords)
+    if (geofence.blocked) return geofence.blocked
 
     const admin = getAdminClient()
     const badgeNumber = body.badgeNumber?.trim().toUpperCase()
@@ -122,6 +126,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 location_id: location.id,
                 badge_number: signIn.badge_number,
                 source: "qr_checkin",
+                geofence: geofence.verdict?.ok
+                    ? {
+                        distance_meters: Math.round(geofence.verdict.distance),
+                        radius_meters: geofence.verdict.radius,
+                    }
+                    : null,
             },
         })
     }

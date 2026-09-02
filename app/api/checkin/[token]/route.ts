@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
-import { resolveCheckinToken } from "@/lib/checkin-token"
+import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token"
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 import { sendHostNotification } from "@/lib/host-notification"
 import { resolveNdaRequirement, signNda } from "@/lib/nda"
@@ -8,10 +8,12 @@ import { resolveNdaRequirement, signNda } from "@/lib/nda"
 /**
  * Public visitor sign-in from a scanned location QR code.
  *
- * Security model: the poster token is the only credential. The location is
- * always derived from that token server-side, so a visitor cannot sign
- * themselves in at a site they did not physically scan. No session or cookie is
- * issued, so this route grants no access to the admin app.
+ * Security model: the poster token identifies the location, and the device's
+ * reported position must fall within that location's sign-in radius. Together
+ * these stop someone photographing the poster (or saving its link) and signing
+ * in from elsewhere. The location is always derived from the token
+ * server-side. No session or cookie is issued, so this route grants no access
+ * to the admin app.
  */
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -21,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!resolved.ok) {
         return NextResponse.json({ error: resolved.reason }, { status: resolved.status })
     }
-    const { location } = resolved
+    const { location, geofenceRequired } = resolved
 
     let body: {
         firstName?: string
@@ -34,12 +36,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         photoDataUrl?: string
         ndaDocumentId?: string
         ndaSignatureDataUrl?: string
+        coords?: unknown
     }
     try {
         body = await request.json()
     } catch {
         return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
     }
+
+    // Checked first so a visitor who is not on site is turned away before any
+    // of their details are validated or stored.
+    const geofence = enforceCheckinGeofence(location, geofenceRequired, body.coords)
+    if (geofence.blocked) return geofence.blocked
 
     const firstName = body.firstName?.trim()
     const lastName = body.lastName?.trim()
@@ -238,6 +246,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             host_id: hostId,
             visitor_type_id: visitorType?.id ?? null,
             source: "qr_checkin",
+            geofence: geofence.verdict?.ok
+                ? {
+                    distance_meters: Math.round(geofence.verdict.distance),
+                    radius_meters: geofence.verdict.radius,
+                }
+                : null,
         },
     })
 

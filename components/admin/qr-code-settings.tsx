@@ -18,11 +18,54 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { BrandedQrCode, useQrDownloads } from "@/components/branded-qr-code"
-import { QrCode, Copy, Check, Printer, Download, RefreshCw, Loader2, Ban, Plus, AlertCircle } from "lucide-react"
+import { hasGeofence, effectiveRadius } from "@/lib/checkin-geofence"
+import {
+    QrCode,
+    Copy,
+    Check,
+    Printer,
+    Download,
+    RefreshCw,
+    Loader2,
+    Ban,
+    Plus,
+    AlertCircle,
+    MapPin,
+    MapPinOff,
+} from "lucide-react"
 
 interface LocationOption {
     id: string
     name: string
+    latitude?: number | null
+    longitude?: number | null
+    auto_signin_radius_meters?: number | null
+}
+
+/** Reads a global boolean flag from the settings table (no location). */
+async function readFlag(
+    supabase: ReturnType<typeof createClient>,
+    key: string,
+    fallback: boolean,
+): Promise<boolean> {
+    const { data } = await supabase.from("settings").select("value").eq("key", key).is("location_id", null).maybeSingle()
+    if (!data) return fallback
+    return data.value === true || data.value === "true"
+}
+
+/** Upserts a global boolean flag by key. */
+async function writeFlag(supabase: ReturnType<typeof createClient>, key: string, value: boolean) {
+    const { data: existing } = await supabase
+        .from("settings")
+        .select("id")
+        .eq("key", key)
+        .is("location_id", null)
+        .maybeSingle()
+    if (existing) {
+        await supabase.from("settings").update({ value }).eq("id", existing.id)
+    } else {
+        await supabase.from("settings").insert({ key, value, location_id: null })
+    }
 }
 
 interface QrCodeRecord {
@@ -40,6 +83,8 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
     const supabase = createClient()
     const [enabled, setEnabled] = useState(false)
     const [savingToggle, setSavingToggle] = useState(false)
+    const [geofenceEnabled, setGeofenceEnabled] = useState(true)
+    const [savingGeofence, setSavingGeofence] = useState(false)
     const [codes, setCodes] = useState<Record<string, QrCodeRecord>>({})
     const [loading, setLoading] = useState(true)
     const [busyLocationId, setBusyLocationId] = useState<string | null>(null)
@@ -67,37 +112,34 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
         void loadCodes()
     }, [loadCodes])
 
-    // The enable flag is global, so it lives on the settings row with no location.
+    // Both flags are global, so they live on settings rows with no location.
     useEffect(() => {
-        async function loadToggle() {
-            const { data } = await supabase
-                .from("settings")
-                .select("value")
-                .eq("key", "qr_checkin_enabled")
-                .is("location_id", null)
-                .maybeSingle()
-            setEnabled(data?.value === true || data?.value === "true")
+        async function loadToggles() {
+            const [on, fence] = await Promise.all([
+                readFlag(supabase, "qr_checkin_enabled", false),
+                readFlag(supabase, "qr_checkin_geofence_enabled", true),
+            ])
+            setEnabled(on)
+            setGeofenceEnabled(fence)
         }
-        void loadToggle()
+        void loadToggles()
     }, [supabase])
 
     async function saveToggle(next: boolean) {
         setEnabled(next)
         setSavingToggle(true)
-        const { data: existing } = await supabase
-            .from("settings")
-            .select("id")
-            .eq("key", "qr_checkin_enabled")
-            .is("location_id", null)
-            .maybeSingle()
-
-        if (existing) {
-            await supabase.from("settings").update({ value: next }).eq("id", existing.id)
-        } else {
-            await supabase.from("settings").insert({ key: "qr_checkin_enabled", value: next, location_id: null })
-        }
+        await writeFlag(supabase, "qr_checkin_enabled", next)
         setSavingToggle(false)
     }
+
+    async function saveGeofence(next: boolean) {
+        setGeofenceEnabled(next)
+        setSavingGeofence(true)
+        await writeFlag(supabase, "qr_checkin_geofence_enabled", next)
+        setSavingGeofence(false)
+    }
+
+    const unfencedCount = locations.filter((l) => !hasGeofence({ latitude: l.latitude ?? null, longitude: l.longitude ?? null, auto_signin_radius_meters: null })).length
 
     async function generate(location: LocationOption) {
         setBusyLocationId(location.id)
@@ -182,6 +224,34 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
                     />
                 </div>
 
+                <div className="flex items-center justify-between gap-4 border-t py-3">
+                    <div className="space-y-0.5">
+                        <Label htmlFor="qr_checkin_geofence_enabled" className="flex items-center gap-1.5">
+                            <MapPin className="h-3.5 w-3.5" />
+                            Require visitors to be on site
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                            Uses the phone&apos;s location to confirm the visitor is within each location&apos;s sign-in radius, so a
+                            photo of the poster or a saved link cannot be used from elsewhere.
+                        </p>
+                        {geofenceEnabled && unfencedCount > 0 ? (
+                            <p className="flex items-start gap-1.5 pt-1 text-xs text-amber-600 dark:text-amber-400">
+                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                <span>
+                                    {unfencedCount === 1 ? "1 location has" : `${unfencedCount} locations have`} no map coordinates, so
+                                    the check is skipped there. Set them under Locations.
+                                </span>
+                            </p>
+                        ) : null}
+                    </div>
+                    <Switch
+                        id="qr_checkin_geofence_enabled"
+                        checked={geofenceEnabled}
+                        disabled={savingGeofence}
+                        onCheckedChange={(checked) => void saveGeofence(checked)}
+                    />
+                </div>
+
                 {error ? (
                     <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -203,6 +273,7 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
                                 key={location.id}
                                 location={location}
                                 code={codes[location.id]}
+                                geofenceEnabled={geofenceEnabled}
                                 busy={busyLocationId === location.id}
                                 copied={codes[location.id] ? copiedId === codes[location.id].id : false}
                                 onGenerate={() => void generate(location)}
@@ -242,6 +313,7 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
 function LocationQrRow({
     location,
     code,
+    geofenceEnabled,
     busy,
     copied,
     onGenerate,
@@ -251,6 +323,7 @@ function LocationQrRow({
 }: {
     location: LocationOption
     code?: QrCodeRecord
+    geofenceEnabled: boolean
     busy: boolean
     copied: boolean
     onGenerate: () => void
@@ -260,6 +333,12 @@ function LocationQrRow({
 }) {
     const slug = location.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
     const { downloadSvg, downloadPng } = useQrDownloads(code?.svg ?? "", `talus-checkin-${slug}`)
+    const target = {
+        latitude: location.latitude ?? null,
+        longitude: location.longitude ?? null,
+        auto_signin_radius_meters: location.auto_signin_radius_meters ?? null,
+    }
+    const fenced = hasGeofence(target)
 
     return (
         <div className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-center">
@@ -282,6 +361,23 @@ function LocationQrRow({
                     ) : (
                         <Badge variant="outline">No code</Badge>
                     )}
+                    {geofenceEnabled ? (
+                        fenced ? (
+                            <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
+                                <MapPin className="h-3 w-3" />
+                                {`${effectiveRadius(target)} m radius`}
+                            </Badge>
+                        ) : (
+                            <Badge
+                                variant="outline"
+                                className="gap-1 border-amber-500/40 font-normal text-amber-600 dark:text-amber-400"
+                                title="Add latitude and longitude under Locations to enforce the on-site check here."
+                            >
+                                <MapPinOff className="h-3 w-3" />
+                                No coordinates
+                            </Badge>
+                        )
+                    ) : null}
                 </div>
 
                 {code ? (
