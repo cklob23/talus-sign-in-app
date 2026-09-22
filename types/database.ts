@@ -69,6 +69,7 @@ export interface NdaDocument {
   byte_size: number | null
   is_current: boolean
   uploaded_by: string | null
+  field_positions?: import("@/lib/nda-fields").NdaFieldPosition[]
   created_at: string
   // Joined fields
   locations?: { name: string } | null

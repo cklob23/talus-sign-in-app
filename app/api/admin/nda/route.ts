@@ -25,7 +25,7 @@ export async function GET() {
     const admin = getAdminClient()
     const { data, error } = await admin
         .from("nda_documents")
-        .select("id, location_id, version, title, file_name, byte_size, is_current, created_at, locations(name)")
+        .select("id, location_id, version, title, file_name, byte_size, is_current, field_positions, created_at, locations(name)")
         .order("created_at", { ascending: false })
 
     if (error) {

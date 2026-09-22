@@ -12,18 +12,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
     AlertTriangle,
+    Cloud,
     Download,
     FileSignature,
     FileText,
     Loader2,
+    MapPin,
+    Plus,
     RefreshCw,
     Search,
+    Trash2,
     Upload,
 } from "lucide-react"
 import { logAudit } from "@/lib/audit-log"
 import { formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 import type { Location, NdaAcknowledgement, NdaDocument } from "@/types/database"
+import type { NdaFieldPosition } from "@/lib/nda-fields"
+import { NdaFieldEditor } from "@/components/admin/nda-field-editor"
 
 /** Turns a value into a CSV cell, quoting so commas and quotes cannot break columns. */
 function csvCell(value: unknown): string {
@@ -43,6 +49,27 @@ export default function NdaAdminPage() {
     const [savingSettings, setSavingSettings] = useState(false)
     const [settingsNotice, setSettingsNotice] = useState<string | null>(null)
 
+    // Field placement editor
+    const [editorDoc, setEditorDoc] = useState<NdaDocument | null>(null)
+
+    // Executive countersigning
+    const [countersignEnabled, setCountersignEnabled] = useState(false)
+    const [countersignDays, setCountersignDays] = useState("14")
+    const [recipients, setRecipients] = useState<{ email: string; name: string }[]>([])
+    const [newRecipientEmail, setNewRecipientEmail] = useState("")
+    const [newRecipientName, setNewRecipientName] = useState("")
+    const [savingCountersign, setSavingCountersign] = useState(false)
+    const [countersignNotice, setCountersignNotice] = useState<string | null>(null)
+
+    // SharePoint archive
+    const [sharepointEnabled, setSharepointEnabled] = useState(false)
+    const [sharepointSiteUrl, setSharepointSiteUrl] = useState("")
+    const [sharepointFolder, setSharepointFolder] = useState("Signed NDAs")
+    const [savingSharepoint, setSavingSharepoint] = useState(false)
+    const [sharepointNotice, setSharepointNotice] = useState<string | null>(null)
+    const [testingSharepoint, setTestingSharepoint] = useState(false)
+    const [sharepointTest, setSharepointTest] = useState<{ ok: boolean; message: string } | null>(null)
+
     const [uploadTitle, setUploadTitle] = useState("Non-Disclosure Agreement")
     const [uploadScope, setUploadScope] = useState("all")
     const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -61,7 +88,20 @@ export default function NdaAdminPage() {
         const supabase = createClient()
         const [{ data: locs }, { data: settingRows }, docsRes] = await Promise.all([
             supabase.from("locations").select("*").order("name"),
-            supabase.from("settings").select("key, value").in("key", ["nda_enabled", "nda_validity_months"]).is("location_id", null),
+            supabase
+                .from("settings")
+                .select("key, value")
+                .in("key", [
+                    "nda_enabled",
+                    "nda_validity_months",
+                    "nda_countersign_enabled",
+                    "nda_countersign_validity_days",
+                    "nda_recipient_emails",
+                    "nda_sharepoint_enabled",
+                    "nda_sharepoint_site_url",
+                    "nda_sharepoint_folder_path",
+                ])
+                .is("location_id", null),
             fetch("/api/admin/nda"),
         ])
 
@@ -70,6 +110,26 @@ export default function NdaAdminPage() {
         for (const row of settingRows ?? []) {
             if (row.key === "nda_enabled") setNdaEnabled(row.value === true)
             if (row.key === "nda_validity_months") setValidityMonths(String(row.value ?? 12))
+            if (row.key === "nda_countersign_enabled") setCountersignEnabled(row.value === true)
+            if (row.key === "nda_countersign_validity_days") setCountersignDays(String(row.value ?? 14))
+            if (row.key === "nda_recipient_emails") {
+                const raw = row.value
+                const arr = Array.isArray(raw) ? raw : []
+                setRecipients(
+                    arr
+                        .map((r: unknown) =>
+                            typeof r === "string"
+                                ? { email: r, name: "" }
+                                : r && typeof r === "object"
+                                    ? { email: String((r as { email?: string }).email ?? ""), name: String((r as { name?: string }).name ?? "") }
+                                    : { email: "", name: "" },
+                        )
+                        .filter((r: { email: string }) => r.email),
+                )
+            }
+            if (row.key === "nda_sharepoint_enabled") setSharepointEnabled(row.value === true)
+            if (row.key === "nda_sharepoint_site_url") setSharepointSiteUrl(String(row.value ?? ""))
+            if (row.key === "nda_sharepoint_folder_path") setSharepointFolder(String(row.value ?? "Signed NDAs"))
         }
 
         const docsJson = await docsRes.json()
@@ -144,6 +204,95 @@ export default function NdaAdminPage() {
         setSavingSettings(false)
         setSettingsNotice("NDA settings saved.")
         setTimeout(() => setSettingsNotice(null), 3000)
+    }
+
+    /** Upserts one global (null-location) setting row. */
+    async function upsertSetting(key: string, value: unknown) {
+        const supabase = createClient()
+        const { data: existing } = await supabase
+            .from("settings")
+            .select("id")
+            .eq("key", key)
+            .is("location_id", null)
+            .maybeSingle()
+        if (existing) {
+            await supabase.from("settings").update({ value }).eq("key", key).is("location_id", null)
+        } else {
+            await supabase.from("settings").insert({ key, value, location_id: null })
+        }
+    }
+
+    function addRecipient() {
+        const email = newRecipientEmail.trim().toLowerCase()
+        if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return
+        if (recipients.some((r) => r.email === email)) return
+        setRecipients((prev) => [...prev, { email, name: newRecipientName.trim() }])
+        setNewRecipientEmail("")
+        setNewRecipientName("")
+    }
+
+    function removeRecipient(email: string) {
+        setRecipients((prev) => prev.filter((r) => r.email !== email))
+    }
+
+    async function saveCountersign() {
+        setSavingCountersign(true)
+        setCountersignNotice(null)
+        const days = Number(countersignDays)
+        await upsertSetting("nda_countersign_enabled", countersignEnabled)
+        await upsertSetting("nda_countersign_validity_days", Number.isFinite(days) && days >= 0 ? days : 14)
+        await upsertSetting(
+            "nda_recipient_emails",
+            recipients.map((r) => ({ email: r.email, name: r.name || null })),
+        )
+        await logAudit({
+            action: "settings.updated",
+            entityType: "settings",
+            description: `NDA countersigning ${countersignEnabled ? "enabled" : "disabled"} (${recipients.length} recipient${recipients.length === 1 ? "" : "s"})`,
+            metadata: { nda_countersign_enabled: countersignEnabled, recipients: recipients.length },
+        })
+        setSavingCountersign(false)
+        setCountersignNotice("Countersigning settings saved.")
+        setTimeout(() => setCountersignNotice(null), 3000)
+    }
+
+    async function saveSharepoint() {
+        setSavingSharepoint(true)
+        setSharepointNotice(null)
+        await upsertSetting("nda_sharepoint_enabled", sharepointEnabled)
+        await upsertSetting("nda_sharepoint_site_url", sharepointSiteUrl.trim())
+        await upsertSetting("nda_sharepoint_folder_path", sharepointFolder.trim() || "Signed NDAs")
+        await logAudit({
+            action: "settings.updated",
+            entityType: "settings",
+            description: `NDA SharePoint archive ${sharepointEnabled ? "enabled" : "disabled"}`,
+            metadata: { nda_sharepoint_enabled: sharepointEnabled },
+        })
+        setSavingSharepoint(false)
+        setSharepointNotice("SharePoint settings saved.")
+        setTimeout(() => setSharepointNotice(null), 3000)
+    }
+
+    async function testSharepoint() {
+        setTestingSharepoint(true)
+        setSharepointTest(null)
+        try {
+            const res = await fetch("/api/admin/nda/sharepoint-test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ siteUrl: sharepointSiteUrl.trim(), folderPath: sharepointFolder.trim() }),
+            })
+            const json = await res.json()
+            if (json.ok) {
+                setSharepointTest({ ok: true, message: `Connected to ${json.siteName || "the site"}.` })
+            } else {
+                setSharepointTest({ ok: false, message: json.error || "Connection failed." })
+            }
+        } catch {
+            setSharepointTest({ ok: false, message: "Connection test failed." })
+        } finally {
+            setTestingSharepoint(false)
+        }
     }
 
     async function handleUpload() {
@@ -377,10 +526,21 @@ export default function NdaAdminPage() {
                                                 )}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <Button variant="ghost" size="sm" onClick={() => openDocument(`documentId=${doc.id}`)}>
-                                                    <Download className="mr-2 h-4 w-4" />
-                                                    View
-                                                </Button>
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <Button variant="ghost" size="sm" onClick={() => setEditorDoc(doc)}>
+                                                        <MapPin className="mr-2 h-4 w-4" />
+                                                        Fields
+                                                        {doc.field_positions && doc.field_positions.length > 0 && (
+                                                            <Badge variant="secondary" className="ml-2">
+                                                                {doc.field_positions.length}
+                                                            </Badge>
+                                                        )}
+                                                    </Button>
+                                                    <Button variant="ghost" size="sm" onClick={() => openDocument(`documentId=${doc.id}`)}>
+                                                        <Download className="mr-2 h-4 w-4" />
+                                                        View
+                                                    </Button>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -506,6 +666,183 @@ export default function NdaAdminPage() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Executive countersigning */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Executive countersigning</CardTitle>
+                    <CardDescription>
+                        After a visitor signs, email the visitor-signed NDA to these recipients with a secure link to countersign as
+                        the Talus representative. The first recipient to countersign finalizes the agreement.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-5">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <Label htmlFor="countersign-enabled">Require executive countersignature</Label>
+                            <p className="text-xs text-muted-foreground">Runs automatically each time a visitor signs an NDA</p>
+                        </div>
+                        <Switch id="countersign-enabled" checked={countersignEnabled} onCheckedChange={setCountersignEnabled} />
+                    </div>
+
+                    {countersignEnabled && recipients.length === 0 && (
+                        <div className="flex items-start gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                            <p className="text-sm text-amber-700 dark:text-amber-500">
+                                Countersigning is on but no recipients are configured, so nothing will be sent. Add at least one below.
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="flex flex-col gap-2">
+                        <Label>Recipients</Label>
+                        {recipients.length > 0 && (
+                            <div className="flex flex-col gap-2">
+                                {recipients.map((r) => (
+                                    <div key={r.email} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium">{r.name || r.email}</p>
+                                            {r.name && <p className="truncate text-xs text-muted-foreground">{r.email}</p>}
+                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={() => removeRecipient(r.email)} aria-label={`Remove ${r.email}`}>
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                            <Input
+                                placeholder="Email"
+                                type="email"
+                                value={newRecipientEmail}
+                                onChange={(e) => setNewRecipientEmail(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                                        e.preventDefault()
+                                        addRecipient()
+                                    }
+                                }}
+                                aria-label="Recipient email"
+                            />
+                            <Input
+                                placeholder="Name (optional)"
+                                value={newRecipientName}
+                                onChange={(e) => setNewRecipientName(e.target.value)}
+                                aria-label="Recipient name"
+                            />
+                            <Button variant="outline" onClick={addRecipient} disabled={!newRecipientEmail.trim()}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="countersign-days">Countersign link valid for (days)</Label>
+                        <Input
+                            id="countersign-days"
+                            type="number"
+                            min={0}
+                            max={365}
+                            value={countersignDays}
+                            onChange={(e) => setCountersignDays(e.target.value)}
+                            className="max-w-40"
+                        />
+                        <p className="text-xs text-muted-foreground">Use 0 for links that never expire.</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <Button onClick={saveCountersign} disabled={savingCountersign}>
+                            {savingCountersign ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save countersigning
+                        </Button>
+                        {countersignNotice && <p className="text-sm text-muted-foreground">{countersignNotice}</p>}
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* SharePoint archive */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Cloud className="h-5 w-5" />
+                        SharePoint archive
+                    </CardTitle>
+                    <CardDescription>
+                        When a countersignature finalizes an NDA, upload the fully executed PDF to a SharePoint document library.
+                        Uses the organization&apos;s Microsoft 365 app, which needs the Graph <code>Sites.ReadWrite.All</code>{" "}
+                        application permission.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-5">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <Label htmlFor="sharepoint-enabled">Archive finalized NDAs to SharePoint</Label>
+                            <p className="text-xs text-muted-foreground">Runs when an executive countersignature completes</p>
+                        </div>
+                        <Switch id="sharepoint-enabled" checked={sharepointEnabled} onCheckedChange={setSharepointEnabled} />
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="sharepoint-site">Site URL</Label>
+                        <Input
+                            id="sharepoint-site"
+                            placeholder="https://yourtenant.sharepoint.com/sites/Legal"
+                            value={sharepointSiteUrl}
+                            onChange={(e) => setSharepointSiteUrl(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="sharepoint-folder">Folder path</Label>
+                        <Input
+                            id="sharepoint-folder"
+                            placeholder="Signed NDAs"
+                            value={sharepointFolder}
+                            onChange={(e) => setSharepointFolder(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Path within the site&apos;s default document library. Missing folders are created automatically.
+                        </p>
+                    </div>
+
+                    {sharepointTest && (
+                        <div
+                            className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${sharepointTest.ok
+                                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                    : "border-destructive/50 bg-destructive/10 text-destructive"
+                                }`}
+                        >
+                            {sharepointTest.ok ? null : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                            <p>{sharepointTest.message}</p>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        <Button onClick={saveSharepoint} disabled={savingSharepoint}>
+                            {savingSharepoint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save SharePoint
+                        </Button>
+                        <Button variant="outline" onClick={testSharepoint} disabled={testingSharepoint || !sharepointSiteUrl.trim()}>
+                            {testingSharepoint ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Test connection
+                        </Button>
+                        {sharepointNotice && <p className="text-sm text-muted-foreground">{sharepointNotice}</p>}
+                    </div>
+                </CardContent>
+            </Card>
+
+            <NdaFieldEditor
+                document={editorDoc}
+                open={!!editorDoc}
+                onOpenChange={(o) => {
+                    if (!o) setEditorDoc(null)
+                }}
+                onSaved={(saved: NdaFieldPosition[]) => {
+                    setDocuments((prev) => prev.map((d) => (d.id === editorDoc?.id ? { ...d, field_positions: saved } : d)))
+                }}
+            />
         </div>
     )
 }
