@@ -185,11 +185,12 @@ function formatFieldDate(date: Date): string {
 }
 
 /**
- * Month and day only, e.g. "September 21". The NDA template already prints the
- * year after the Effective Date blank, so stamping it again would overlap.
+ * Abbreviated month and day only, e.g. "Sep 21". The NDA template already
+ * prints the year after the Effective Date blank, and the blank is short, so
+ * the month is abbreviated to fit at a legible size.
  */
 function formatEffectiveDate(date: Date): string {
-    return date.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
 }
 
 /**

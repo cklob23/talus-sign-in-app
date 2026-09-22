@@ -194,11 +194,7 @@ export function CountersignClient({ token }: { token: string }) {
 
                             <div className="flex flex-col gap-2">
                                 <Label>Signature</Label>
-                                <div className="rounded-lg border bg-card p-2">
-                                    <div className="h-40 w-full">
-                                        <SignaturePad ref={padRef} onChange={setHasInk} ariaLabel="Talus representative signature" />
-                                    </div>
-                                </div>
+                                <SignaturePad ref={padRef} onChange={setHasInk} ariaLabel="Talus representative signature" />
                             </div>
 
                             {submitError && (
