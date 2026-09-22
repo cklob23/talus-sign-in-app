@@ -49,6 +49,7 @@ export function NdaFieldEditor({
     const [saving, setSaving] = useState(false)
 
     const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
+    const pagesPanelRef = useRef<HTMLDivElement | null>(null)
 
     // (Re)load whenever the dialog opens for a document. Canvas refs must exist
     // before rendering, so we seed the page count first via a light metadata pass.
@@ -73,10 +74,13 @@ export function NdaFieldEditor({
                     const pdf = await pdfjs.getDocument({ data }).promise
                     if (cancelled) return
                     // Mount canvases for this page count.
-                    setPageSizes(Array.from({ length: pdf.numPages }, () => ({ width: 760, height: 980 })))
+                    // Render as wide as the pages panel allows (minus padding), so the
+                    // document is legible while placing fields.
+                    const panelWidth = pagesPanelRef.current?.clientWidth ?? 0
+                    const targetWidth = Math.max(720, Math.min(1100, panelWidth - 48))
+                    setPageSizes(Array.from({ length: pdf.numPages }, () => ({ width: targetWidth, height: targetWidth * 1.29 })))
 
                     const dpr = Math.min(window.devicePixelRatio || 1, 2)
-                    const targetWidth = 760
                     const sizes: PageSize[] = []
                     for (let i = 1; i <= pdf.numPages; i++) {
                         const page = await pdf.getPage(i)
@@ -163,7 +167,7 @@ export function NdaFieldEditor({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="flex h-[92vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+            <DialogContent className="flex h-[94vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[96vw] xl:max-w-[1400px]">
                 <DialogHeader className="border-b px-6 py-4">
                     <DialogTitle>Place signature fields</DialogTitle>
                     <DialogDescription>
@@ -174,7 +178,7 @@ export function NdaFieldEditor({
 
                 <div className="flex min-h-0 flex-1">
                     {/* Palette */}
-                    <aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r p-4">
+                    <aside className="flex w-52 shrink-0 flex-col gap-4 overflow-y-auto border-r p-3">
                         {(["visitor", "company"] as NdaFieldRole[]).map((role) => (
                             <div key={role} className="flex flex-col gap-2">
                                 <div className="flex items-center gap-2">
@@ -208,7 +212,7 @@ export function NdaFieldEditor({
                     </aside>
 
                     {/* Pages */}
-                    <div className="min-h-0 flex-1 overflow-auto bg-muted/40 p-6">
+                    <div ref={pagesPanelRef} className="min-h-0 flex-1 overflow-auto bg-muted/40 p-6">
                         {loading && (
                             <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin" /> Rendering the document…

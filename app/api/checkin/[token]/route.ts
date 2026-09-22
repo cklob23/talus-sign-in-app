@@ -3,7 +3,7 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token"
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 import { sendHostNotification } from "@/lib/host-notification"
-import { resolveNdaRequirement, signNda } from "@/lib/nda"
+import { resolveAppOrigin, resolveNdaRequirement, signNda } from "@/lib/nda"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -219,6 +219,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             visitorEmail: body.email?.trim() || null,
             ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
             userAgent: request.headers.get("user-agent"),
+            appOrigin: resolveAppOrigin(request),
         })
 
         if (!signResult.ok) {

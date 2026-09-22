@@ -1251,7 +1251,7 @@ export default function KioskPage() {
       clearInterval(videoTimerRef.current)
     }
 
-    const durationSeconds = 30
+    const durationSeconds = 180
     const stepMs = 500
     const increment = 100 / ((durationSeconds * 1000) / stepMs)
 

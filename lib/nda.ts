@@ -179,9 +179,42 @@ function formatUtc(date: Date): string {
     return `${date.toISOString().replace("T", " ").slice(0, 19)} UTC`
 }
 
-/** Short, unambiguous date for an in-page field, e.g. "21 Sep 2026". */
+/** Full date for a signature-block date field, e.g. "Sep 21, 2026". */
 function formatFieldDate(date: Date): string {
-    return date.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+}
+
+/**
+ * Month and day only, e.g. "September 21". The NDA template already prints the
+ * year after the Effective Date blank, so stamping it again would overlap.
+ */
+function formatEffectiveDate(date: Date): string {
+    return date.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+}
+
+/**
+ * Public origin for links in outbound email. Prefers the incoming request's
+ * host so links match the environment they were generated from, then falls
+ * back to configured/Vercel-provided URLs.
+ */
+export function resolveAppOrigin(request?: { headers: Headers; url: string } | null): string {
+    if (request) {
+        const forwardedHost = request.headers.get("x-forwarded-host")
+        const forwardedProto = request.headers.get("x-forwarded-proto")
+        if (forwardedHost) return `${forwardedProto ?? "https"}://${forwardedHost}`
+        try {
+            return new URL(request.url).origin
+        } catch {
+            // fall through to env-based resolution
+        }
+    }
+    const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim()
+    if (configured) return configured.replace(/\/+$/, "")
+    const vercelProd = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
+    if (vercelProd) return `https://${vercelProd}`
+    const vercel = process.env.VERCEL_URL?.trim()
+    if (vercel) return `https://${vercel}`
+    return ""
 }
 
 /** The text/image a given field carries, keyed on its kind. */
@@ -255,8 +288,12 @@ async function stampFields(
 
         const text = fieldText(f.kind, values)
         if (!text) continue
-        const size = f.fontSize ?? Math.min(Math.max(h * 0.62, 8), 14)
-        page.drawText(text, { x: x + 2, y: yBottom + (h - size) / 2 + size * 0.15, size, font, color: ink })
+        // Start from the requested/derived size, then shrink until the text fits
+        // the box width so it never spills over the printed template text.
+        let size = f.fontSize ?? Math.min(Math.max(h * 0.62, 8), 14)
+        const pad = 2
+        while (size > 6 && font.widthOfTextAtSize(text, size) > w - pad * 2) size -= 0.5
+        page.drawText(text, { x: x + pad, y: yBottom + (h - size) / 2 + size * 0.15, size, font, color: ink })
     }
 }
 
@@ -290,7 +327,7 @@ async function buildSignedPdf(args: {
         name: args.visitorName,
         company: args.visitorCompany,
         date: formatFieldDate(args.signedAt),
-        effectiveDate: formatFieldDate(args.signedAt),
+        effectiveDate: formatEffectiveDate(args.signedAt),
     }, helvetica)
 
     // Match the existing page width so the appended page does not look grafted on.
@@ -417,6 +454,8 @@ export async function signNda(args: {
     visitorEmail: string | null
     ip: string | null
     userAgent: string | null
+    /** Public origin used to build the countersign link (see resolveAppOrigin). */
+    appOrigin?: string
 }): Promise<SignNdaResult> {
     const admin = getAdminClient()
 
@@ -542,6 +581,7 @@ export async function signNda(args: {
             visitorCompany: args.visitorCompany,
             visitorEmail: args.visitorEmail,
             locationName: args.locationName,
+            appOrigin: args.appOrigin || resolveAppOrigin(null),
         })
     } catch (error) {
         console.log("[v0] NDA countersign dispatch failed:", error instanceof Error ? error.message : error)
@@ -652,6 +692,7 @@ async function createCountersignRequest(args: {
     visitorCompany: string | null
     visitorEmail: string | null
     locationName: string
+    appOrigin: string
 }): Promise<void> {
     const config = await getCountersignConfig()
     if (!config.enabled || config.recipients.length === 0) return
@@ -680,7 +721,8 @@ async function createCountersignRequest(args: {
         return
     }
 
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "")
+    const appUrl = (args.appOrigin || resolveAppOrigin(null)).replace(/\/+$/, "")
+    if (!appUrl) console.log("[v0] countersign link has no origin; set NEXT_PUBLIC_SITE_URL")
     const link = `${appUrl}/nda/countersign/${token}`
     const companyName = (await getSmtpCompanyName()) || "Talus Ag"
 

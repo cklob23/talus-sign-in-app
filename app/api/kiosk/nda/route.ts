@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
-import { createNdaSignedUrl, resolveNdaRequirement, signNda } from "@/lib/nda"
+import { createNdaSignedUrl, resolveAppOrigin, resolveNdaRequirement, signNda } from "@/lib/nda"
 
 /**
  * NDA resolve + sign for the staffed kiosk.
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
             visitorEmail: body.email ?? null,
             ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
             userAgent: request.headers.get("user-agent"),
+            appOrigin: resolveAppOrigin(request),
         })
 
         if (!result.ok) {
