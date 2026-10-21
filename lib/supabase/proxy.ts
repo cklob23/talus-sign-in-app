@@ -40,7 +40,8 @@ export async function updateSession(request: NextRequest) {
     })
   }
 
-  // Protect admin routes - require a valid session
+  // Protect admin routes. Session existence is a first gate; the admin
+  // layout re-checks the verified user and role with getUser().
   if (request.nextUrl.pathname.startsWith("/admin") && !session) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"

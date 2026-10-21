@@ -97,10 +97,17 @@ function isDue(schedule: string, lastSyncIso: string | null, startDateIso: strin
  */
 async function runScheduledSync(request: Request) {
   try {
-    // Verify cron secret (Vercel sends this as Authorization: Bearer <secret>)
-    const authHeader = request.headers.get("authorization")
+    // Fail closed when CRON_SECRET is unset. vercel.json schedules are not
+    // used on Render; the scheduler must send Authorization: Bearer CRON_SECRET.
     const cronSecret = process.env.CRON_SECRET
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      return NextResponse.json(
+        { error: "Server is not configured: CRON_SECRET is not set." },
+        { status: 500 },
+      )
+    }
+    const authHeader = request.headers.get("authorization")
+    if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -216,8 +223,9 @@ async function runScheduledSync(request: Request) {
 }
 
 /**
- * GET handler -- called by Vercel Cron every hour.
- * Vercel Crons always send GET requests.
+ * GET/POST handler. vercel.json listed this for Vercel Cron, but production
+ * runs on Render and ignores vercel.json. Call with
+ * Authorization: Bearer $CRON_SECRET from a Render cron or other scheduler.
  */
 export async function GET(request: Request) {
   return runScheduledSync(request)

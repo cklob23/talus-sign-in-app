@@ -1,43 +1,46 @@
 import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
-import { createAdminClient } from "@/lib/supabase/server"
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient, createClient } from "@/lib/supabase/server"
+import {
+  KIOSK_SESSION_COOKIE,
+  receptionistCookieOptions,
+  signReceptionistSession,
+  verifyReceptionistSession,
+  type ReceptionistSession,
+} from "@/lib/kiosk-session"
 
-const COOKIE_NAME = "kiosk-receptionist-session"
-const COOKIE_MAX_AGE = 60 * 60 * 24 // 24 hours
-
-interface ReceptionistSession {
+function sessionFromProfile(profile: {
   id: string
-  email: string
-  name: string
-  role: string
-  loginAt: string
+  email: string | null
+  full_name: string | null
+  role: string | null
+}, fallbackEmail = ""): ReceptionistSession {
+  return {
+    id: profile.id,
+    email: profile.email || fallbackEmail,
+    name: profile.full_name || profile.email || fallbackEmail,
+    role: profile.role || "staff",
+    loginAt: new Date().toISOString(),
+  }
 }
 
-// GET - Check if there's an active receptionist session
+function withSessionCookie(response: NextResponse, session: ReceptionistSession): NextResponse {
+  response.cookies.set(KIOSK_SESSION_COOKIE, signReceptionistSession(session), receptionistCookieOptions())
+  return response
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies()
-    const sessionCookie = cookieStore.get(COOKIE_NAME)
+    const sessionCookie = cookieStore.get(KIOSK_SESSION_COOKIE)
+    const session = verifyReceptionistSession(sessionCookie?.value)
 
-    if (!sessionCookie?.value) {
-      return NextResponse.json({ authenticated: false })
-    }
-
-    // Decode and validate session
-    let session: ReceptionistSession
-    try {
-      session = JSON.parse(
-        Buffer.from(sessionCookie.value, "base64").toString("utf-8")
-      )
-    } catch {
-      // Invalid cookie, clear it
+    if (!session) {
       const response = NextResponse.json({ authenticated: false })
-      response.cookies.delete(COOKIE_NAME)
+      if (sessionCookie?.value) response.cookies.delete(KIOSK_SESSION_COOKIE)
       return response
     }
 
-    // Verify the profile still exists in the database
     const adminClient = createAdminClient()
     const { data: profile } = await adminClient
       .from("profiles")
@@ -47,7 +50,7 @@ export async function GET() {
 
     if (!profile) {
       const response = NextResponse.json({ authenticated: false })
-      response.cookies.delete(COOKIE_NAME)
+      response.cookies.delete(KIOSK_SESSION_COOKIE)
       return response
     }
 
@@ -66,22 +69,23 @@ export async function GET() {
   }
 }
 
-// POST - Create a new receptionist session (login)
 export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { method, email, password } = body
 
     if (method === "password") {
-      // Authenticate via Supabase Auth (just to verify credentials)
+      if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password) {
+        return NextResponse.json({ error: "Email and password are required" }, { status: 400 })
+      }
+
       const supabase = await createClient()
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       })
 
       if (error) {
-        // Immediately sign out to not leave a Supabase session
         await supabase.auth.signOut()
         return NextResponse.json({ error: error.message }, { status: 401 })
       }
@@ -93,29 +97,16 @@ export async function POST(request: Request) {
         .eq("id", data.user.id)
         .single()
 
-      // Sign out of Supabase auth immediately - we only needed to verify credentials
       await supabase.auth.signOut()
 
       if (!profile) {
         return NextResponse.json(
           { error: "No profile found for this account." },
-          { status: 404 }
+          { status: 404 },
         )
       }
 
-      // Create the session cookie
-      const session: ReceptionistSession = {
-        id: profile.id,
-        email: profile.email || email,
-        name: profile.full_name || profile.email || email,
-        role: profile.role || "staff",
-        loginAt: new Date().toISOString(),
-      }
-
-      const encodedSession = Buffer.from(JSON.stringify(session)).toString(
-        "base64"
-      )
-
+      const session = sessionFromProfile(profile, email)
       const response = NextResponse.json({
         success: true,
         user: {
@@ -125,49 +116,31 @@ export async function POST(request: Request) {
           role: profile.role,
         },
       })
-
-      response.cookies.set(COOKIE_NAME, encodedSession, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: COOKIE_MAX_AGE,
-      })
-
-      return response
+      return withSessionCookie(response, session)
     }
 
     if (method === "oauth_callback") {
-      // Called after Microsoft OAuth - user is already authenticated via Supabase
-      // We just need to read the current user and create our own cookie
-      const { userId } = body
+      const supabase = await createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        return NextResponse.json({ error: "Not signed in" }, { status: 401 })
+      }
 
       const adminClient = createAdminClient()
       const { data: profile } = await adminClient
         .from("profiles")
         .select("id, email, full_name, role")
-        .eq("id", userId)
+        .eq("id", user.id)
         .single()
 
       if (!profile) {
-        return NextResponse.json(
-          { error: "No profile found." },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: "No profile found." }, { status: 404 })
       }
 
-      const session: ReceptionistSession = {
-        id: profile.id,
-        email: profile.email || "",
-        name: profile.full_name || profile.email || "",
-        role: profile.role || "staff",
-        loginAt: new Date().toISOString(),
-      }
-
-      const encodedSession = Buffer.from(JSON.stringify(session)).toString(
-        "base64"
-      )
-
+      const session = sessionFromProfile(profile, user.email || "")
       const response = NextResponse.json({
         success: true,
         user: {
@@ -177,39 +150,26 @@ export async function POST(request: Request) {
           role: profile.role,
         },
       })
-
-      response.cookies.set(COOKIE_NAME, encodedSession, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: COOKIE_MAX_AGE,
-      })
-
-      return response
+      return withSessionCookie(response, session)
     }
 
     return NextResponse.json({ error: "Invalid method" }, { status: 400 })
   } catch (error) {
     console.error("Error creating receptionist session:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    const message = error instanceof Error && error.message.includes("KIOSK_SESSION_SECRET")
+      ? "Server is not configured: KIOSK_SESSION_SECRET is not set."
+      : "Internal server error"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
-// DELETE - End receptionist session (lock kiosk / logout)
 export async function DELETE() {
   try {
     const response = NextResponse.json({ success: true })
-    response.cookies.delete(COOKIE_NAME)
+    response.cookies.delete(KIOSK_SESSION_COOKIE)
     return response
   } catch (error) {
     console.error("Error deleting receptionist session:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -162,7 +162,6 @@ export async function logAuditViaApi({
         entityId,
         description,
         metadata,
-        userId,
       }),
     })
 

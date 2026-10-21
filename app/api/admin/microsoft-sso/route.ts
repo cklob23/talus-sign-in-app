@@ -10,6 +10,41 @@ function getProjectRef(): string {
   return match[1]
 }
 
+/**
+ * Admin-only auto-heal: strip a trailing /v2.0 from the Azure tenant URL.
+ * Moved off the public GET /api/auth/microsoft-sso-status endpoint.
+ */
+async function healAzureUrl(projectRef: string, accessToken: string): Promise<boolean> {
+  const response = await fetch(
+    `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    },
+  )
+  if (!response.ok) return false
+
+  const authConfig = await response.json()
+  const azureUrl = authConfig.external_azure_url || ""
+  if (!azureUrl.endsWith("/v2.0")) return false
+
+  const correctedUrl = azureUrl.replace(/\/v2\.0$/, "")
+  const patch = await fetch(
+    `https://api.supabase.com/v1/projects/${projectRef}/config/auth`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ external_azure_url: correctedUrl }),
+    },
+  )
+  return patch.ok
+}
+
 // GET: Fetch current Azure auth config from Supabase
 export async function GET() {
   try {
@@ -181,6 +216,12 @@ export async function POST(request: Request) {
 
     const projectRef = getProjectRef()
     const body = await request.json()
+
+    if (body?.action === "heal_azure_url") {
+      const healed = await healAzureUrl(projectRef, accessToken)
+      return NextResponse.json({ success: true, healed })
+    }
+
     const {
       enabled,
       client_id,

@@ -1,24 +1,27 @@
 import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
+import { requireKioskContextOrHide } from "@/lib/kiosk-auth"
+import { asRequiredEmail } from "@/lib/kiosk-input"
 
-// Find an active visitor sign-in by email
-// Uses admin client to bypass RLS since the kiosk has no Supabase auth session
+const HIDDEN = { error: "No active sign-in found" }
+
 export async function POST(request: Request) {
   try {
-    const { email } = await request.json()
+    const body = await request.json().catch(() => null)
+    const qrToken = body && typeof body === "object" ? (body as { qrToken?: string }).qrToken : undefined
+    const auth = await requireKioskContextOrHide(request, { qrToken })
+    if (!auth.ok) return auth.response
 
-    if (!email || typeof email !== "string") {
+    const email = asRequiredEmail(body && typeof body === "object" ? (body as { email?: unknown }).email : null)
+    if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 })
     }
 
     const supabase = getAdminClient()
-    const normalizedEmail = email.toLowerCase().trim()
-
-    // First, find visitor(s) with this email
     const { data: visitors, error: visitorError } = await supabase
       .from("visitors")
       .select("id, first_name, last_name")
-      .eq("email", normalizedEmail)
+      .eq("email", email)
 
     if (visitorError) {
       console.error("Visitor lookup error:", visitorError)
@@ -26,24 +29,27 @@ export async function POST(request: Request) {
     }
 
     if (!visitors || visitors.length === 0) {
-      return NextResponse.json({ error: "No active sign-in found for this email" }, { status: 404 })
+      return NextResponse.json(HIDDEN, { status: 404 })
     }
 
-    // Get all visitor IDs
     const visitorIds = visitors.map((v) => v.id)
-
-    // Find active sign-in for any of these visitors
-    const { data: signIn, error: findError } = await supabase
+    let query = supabase
       .from("sign_ins")
       .select("*, visitor:visitors(*)")
       .in("visitor_id", visitorIds)
       .is("sign_out_time", null)
       .order("sign_in_time", { ascending: false })
       .limit(1)
-      .single()
+
+    if (auth.context.source === "qr") {
+      query = query.eq("location_id", auth.context.locationId)
+    }
+
+    const { data: rows, error: findError } = await query
+    const signIn = rows?.[0]
 
     if (findError || !signIn) {
-      return NextResponse.json({ error: "No active sign-in found for this email" }, { status: 404 })
+      return NextResponse.json(HIDDEN, { status: 404 })
     }
 
     return NextResponse.json({
@@ -59,9 +65,6 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error("Find sign-in error:", err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to find sign-in" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Failed to find sign-in" }, { status: 500 })
   }
 }

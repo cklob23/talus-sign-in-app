@@ -44,6 +44,7 @@ export default function LoginPage() {
     const messages: Record<string, string> = {
       account_disabled: "This account is disabled. Please contact an administrator.",
       account_removed: "This account has been removed from the directory. Please contact an administrator.",
+      not_authorized: "Your account does not have access to the admin portal. Please contact an administrator.",
     }
     setError(messages[err] || decodeURIComponent(err))
   }, [])
