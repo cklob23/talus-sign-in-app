@@ -53,6 +53,7 @@ import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANA
 import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
+import { useNdaEnabled } from "@/hooks/use-features"
 
 type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -100,6 +101,7 @@ export default function KioskPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { branding } = useBranding()
+  const ndaEnabled = useNdaEnabled()
   const [mode, setMode] = useState<KioskMode>("receptionist-login")
   const [receptionistUser, setReceptionistUser] = useState<{ id: string; email: string; name: string } | null>(null)
   const [tenantLoaded, setTenantLoaded] = useState(false)
@@ -1355,7 +1357,7 @@ export default function KioskPage() {
       // visitor must not be admitted, and aborting here means there is no
       // sign-in row to unwind.
       let acknowledgementId: string | null = null
-      if (ndaInfo && ndaSignature) {
+      if (ndaEnabled && ndaInfo && ndaSignature) {
         const ndaRes = await fetch("/api/kiosk/nda", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1628,7 +1630,7 @@ export default function KioskPage() {
       return
     }
 
-    if (selectedVisitorType?.requires_nda) {
+    if (ndaEnabled && selectedVisitorType?.requires_nda) {
       setIsLoading(true)
       try {
         const res = await fetch("/api/kiosk/nda", {

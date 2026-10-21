@@ -1,4 +1,5 @@
 import { getAdminClient } from "@/lib/supabase/server"
+import { isNdaFeatureEnabled } from "@/lib/nda-flag"
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
 import { type NdaFieldPosition, type NdaFieldRole, parseFieldPositions } from "@/lib/nda-fields"
 import { renderEmailShell, sendEmail } from "@/lib/email"
@@ -158,6 +159,7 @@ export async function resolveNdaRequirement(args: {
     | { required: false; reason: "disabled" | "type_exempt" | "no_document" | "already_signed"; document: null }
     | { required: true; document: NdaDocumentRecord }
 > {
+    if (!isNdaFeatureEnabled()) return { required: false, reason: "disabled", document: null }
     if (!args.visitorTypeRequiresNda) return { required: false, reason: "type_exempt", document: null }
     if (!(await isNdaEnabled())) return { required: false, reason: "disabled", document: null }
 

@@ -106,6 +106,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Resolve the NDA requirement before creating any rows, so a visitor who
     // needs to sign is rejected cleanly rather than left half checked in.
+    // When NDA_ENABLED is off, resolveNdaRequirement returns required:false
+    // and this gate cannot block sign-in.
     const ndaRequirement = await resolveNdaRequirement({
         visitorTypeRequiresNda: visitorType?.requires_nda === true,
         locationId: location.id,

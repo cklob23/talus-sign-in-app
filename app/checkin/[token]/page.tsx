@@ -5,6 +5,7 @@ import { resolveCheckinToken } from "@/lib/checkin-token"
 import { hasGeofence } from "@/lib/checkin-geofence"
 import { CheckinFlow } from "./checkin-flow"
 import { CheckinShell } from "./checkin-shell"
+import { isNdaFeatureEnabled } from "@/lib/nda-flag"
 
 export const dynamic = "force-dynamic"
 
@@ -73,6 +74,7 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
                 visitorTypes={visitorTypes ?? []}
                 hosts={hosts ?? []}
                 geofence={geofence}
+                ndaEnabled={isNdaFeatureEnabled()}
             />
         </CheckinShell>
     )

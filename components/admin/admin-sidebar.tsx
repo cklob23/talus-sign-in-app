@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils"
 import { hasFeature, type TierFeatures } from "@/lib/tier"
 import { usePermissions } from "@/contexts/permissions-context"
 import { ROUTE_PERMISSION_MAP, type PermissionKey } from "@/lib/permissions"
+import { useNdaEnabled } from "@/hooks/use-features"
 
 import { UsersRound, Lock, Shield } from "lucide-react"
 
@@ -76,6 +77,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
   const pathname = usePathname()
   const { branding } = useBranding()
   const { permissions, isLoading: permissionsLoading, profileRole } = usePermissions()
+  const ndaEnabled = useNdaEnabled()
 
   // Built-in admins see everything; custom roles see only permitted pages
   const isBuiltInAdmin = profileRole === "admin"
@@ -85,6 +87,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
       <nav className={cn("flex-1 space-y-1", collapsed ? "p-2" : "p-4")}>
         <TooltipProvider delayDuration={0}>
           {navItems.map((item) => {
+            if (item.href === "/admin/nda" && !ndaEnabled) return null
             const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
             const isLocked = item.requiredFeature ? !hasFeature(item.requiredFeature) : false
 
