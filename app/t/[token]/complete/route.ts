@@ -88,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     visitorId: visitor.id,
     visitorTypeId: read.payload.visitorTypeId,
     source: "training_link",
+    locationId: read.payload.locationId,
   })
   if (!recorded.ok) {
     return NextResponse.json({ error: recorded.error }, { status: 500 })

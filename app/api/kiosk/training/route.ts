@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     const adminClient = getAdminClient()
     const { data: visitorType } = await adminClient
       .from("visitor_types")
-      .select("id, requires_training")
+      .select("id, requires_training, location_id")
       .eq("id", visitor_type_id)
       .maybeSingle()
 
@@ -112,10 +112,13 @@ export async function POST(request: Request) {
       }
     }
 
+    const locationId =
+      auth.context.source === "qr" ? auth.context.locationId : visitorType?.location_id || null
     const recorded = await recordTrainingCompletion(adminClient, {
       visitorId: visitor_id,
       visitorTypeId: visitor_type_id,
       source,
+      locationId,
       expiresAt: expires_at,
     })
     if (!recorded.ok) {
