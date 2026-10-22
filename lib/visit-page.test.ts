@@ -1,7 +1,10 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { formatDate, formatDateTimeWithZone } from "./timezone.ts"
+import { formatTrainingDay, formatTrainingMonthYear } from "./training-clearance.ts"
 import {
+  formatHostTrainingLine,
+  hostTrainingCopy,
   visitActionsVisible,
   visitDepartureStamp,
   visitLinkFooter,
@@ -56,5 +59,62 @@ describe("visit page copy and read-only state", () => {
     assert.ok(visitLinkFooter("Maya Chen", afterSignOut.expiresAt, ZONE).includes("expires on"))
     const expired = readVisitToken(token, { now: afterSignOut.expiresAt + 1, secret: SECRET })
     assert.equal(expired.ok, false)
+  })
+})
+
+describe("host visit training copy", () => {
+  const completedAt = "2026-10-22T15:00:00.000Z"
+  const expiresAt = "2027-10-22T15:00:00.000Z"
+  const name = "Carlos Mendoza"
+
+  it("uses third-person cleared copy in English and Spanish", () => {
+    const enDone = formatTrainingDay(completedAt, "en")
+    const enUntil = formatTrainingMonthYear(expiresAt, "en")
+    const esDone = formatTrainingDay(completedAt, "es")
+    const esUntil = formatTrainingMonthYear(expiresAt, "es")
+    assert.equal(
+      formatHostTrainingLine({ state: "cleared", completedAt, expiresAt }, name, "en"),
+      `${name} completed the safety video on ${enDone}. Cleared until ${enUntil}.`,
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "cleared", completedAt, expiresAt }, name, "es"),
+      `${name} completó el video de seguridad el ${esDone}. Autorizado hasta ${esUntil}.`,
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "cleared", completedAt, expiresAt }, name, "en").includes("You did the safety video"),
+      false,
+    )
+  })
+
+  it("uses third-person variants for pending, expired, and not required", () => {
+    assert.equal(
+      formatHostTrainingLine({ state: "not_completed", completedAt: null, expiresAt: null }, name, "en"),
+      "Carlos Mendoza has not completed the safety video.",
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "not_completed", completedAt: null, expiresAt: null }, name, "es"),
+      "Carlos Mendoza aún no ha completado el video de seguridad.",
+    )
+    const enUntil = formatTrainingMonthYear(expiresAt, "en")
+    const esUntil = formatTrainingMonthYear(expiresAt, "es")
+    const enDone = formatTrainingDay(completedAt, "en")
+    const esDone = formatTrainingDay(completedAt, "es")
+    assert.equal(
+      formatHostTrainingLine({ state: "expired", completedAt, expiresAt }, name, "en"),
+      `${name} completed the safety video on ${enDone}. That clearance expired in ${enUntil}.`,
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "expired", completedAt, expiresAt }, name, "es"),
+      `${name} completó el video de seguridad el ${esDone}. Esa autorización venció en ${esUntil}.`,
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "not_required", completedAt: null, expiresAt: null }, name, "en"),
+      "No safety training required for this visit.",
+    )
+    assert.equal(
+      formatHostTrainingLine({ state: "not_required", completedAt: null, expiresAt: null }, name, "es"),
+      "Esta visita no requiere capacitación de seguridad.",
+    )
+    assert.equal(hostTrainingCopy("not_completed", { name, done: "", until: "", locale: "en" }).includes("You"), false)
   })
 })

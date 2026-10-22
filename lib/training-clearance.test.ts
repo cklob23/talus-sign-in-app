@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 import {
   clearanceFromCompletions,
   formatClearanceMessage,
+  hostTrainingFromCompletions,
   normalizeVisitorEmail,
   getTrainingClearance,
 } from "./training-clearance.ts"
@@ -22,6 +23,37 @@ describe("training clearance", () => {
     assert.match(message, /Oct 2/)
     assert.match(message, /Oct 2027/)
     assert.match(message, /You did the safety video/)
+    assert.equal(message.includes("completed the safety video"), false)
+  })
+
+  it("classifies host training rows without changing visitor copy", () => {
+    const cleared = hostTrainingFromCompletions(
+      true,
+      [
+        {
+          completed_at: "2026-10-22T15:00:00.000Z",
+          expires_at: "2027-10-22T15:00:00.000Z",
+          source: "training_link",
+        },
+      ],
+      T0,
+    )
+    assert.equal(cleared.state, "cleared")
+    const expired = hostTrainingFromCompletions(
+      true,
+      [
+        {
+          completed_at: "2024-10-02T15:00:00.000Z",
+          expires_at: "2025-10-02T15:00:00.000Z",
+          source: "training_link",
+        },
+      ],
+      T0,
+    )
+    assert.equal(expired.state, "expired")
+    assert.equal(expired.expiresAt, "2025-10-02T15:00:00.000Z")
+    assert.equal(hostTrainingFromCompletions(true, [], T0).state, "not_completed")
+    assert.equal(hostTrainingFromCompletions(false, [], T0).state, "not_required")
   })
 
   it("treats a training_link completion as skip-without-code", () => {

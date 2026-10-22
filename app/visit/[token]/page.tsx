@@ -2,9 +2,9 @@ import { VisitPageClient } from "./visit-client"
 import { readVisitToken } from "@/lib/visit-token"
 import { getAdminClient } from "@/lib/supabase/server"
 import { getBrandingSettings } from "@/lib/branding"
-import { getTrainingClearance } from "@/lib/training-clearance"
+import { getHostTrainingSnapshot } from "@/lib/training-clearance"
 import { rateLimit } from "@/lib/rate-limit"
-import { visitorFullName } from "@/lib/visit-page"
+import { formatHostTrainingLine, visitorFullName } from "@/lib/visit-page"
 
 export const dynamic = "force-dynamic"
 
@@ -29,7 +29,7 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
   const { data: signIn } = await admin
     .from("sign_ins")
     .select(
-      "id, sign_in_time, sign_out_time, badge_number, purpose, photo_url, visitor_id, host_id, location_id, visitor_type_id, visitor:visitors(first_name, last_name, email, company, photo_url), host:hosts(name, email), visitor_type:visitor_types(name), location:locations(name, timezone)",
+      "id, sign_in_time, sign_out_time, badge_number, purpose, photo_url, visitor_id, host_id, location_id, visitor_type_id, visitor:visitors(first_name, last_name, email, company, photo_url), host:hosts(name, email), visitor_type:visitor_types(name, requires_training), location:locations(name, timezone)",
     )
     .eq("id", read.payload.signInId)
     .maybeSingle()
@@ -43,12 +43,17 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
   const visitorType = unwrap(signIn.visitor_type)
   const location = unwrap(signIn.location)
   const branding = await getBrandingSettings()
-  const clearance = signIn.visitor_type_id && visitor?.email
-    ? await getTrainingClearance(admin, visitor.email, signIn.visitor_type_id)
-    : null
+  const requiresTraining = (visitorType as { requires_training?: boolean } | null)?.requires_training === true
+  const snapshot = await getHostTrainingSnapshot(
+    admin,
+    visitor?.email,
+    signIn.visitor_type_id,
+    requiresTraining,
+  )
 
   const signedOut = Boolean(signIn.sign_out_time)
   const visitorName = visitorFullName(visitor?.first_name, visitor?.last_name)
+  const trainingLine = formatHostTrainingLine(snapshot, visitorName)
 
   return (
     <VisitPageClient
@@ -64,8 +69,7 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
       badgeNumber={signIn.badge_number || ""}
       purpose={signIn.purpose || ""}
       photoUrl={signIn.photo_url || visitor?.photo_url || ""}
-      trainingDone={clearance?.cleared === true}
-      trainingMessage={clearance?.message || null}
+      trainingLine={trainingLine}
       companyName={branding.companyName}
       logoUrl={branding.companyLogo || null}
       signedOut={signedOut}
