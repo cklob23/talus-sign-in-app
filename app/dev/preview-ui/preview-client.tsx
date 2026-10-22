@@ -42,14 +42,14 @@ function KioskChrome({ children }: { children: ReactNode }) {
   )
 }
 
-function PhoneChrome({ children, site }: { children: ReactNode; site?: string }) {
+function PhoneChrome({ children, site, lang = true }: { children: ReactNode; site?: string; lang?: boolean }) {
   return (
     <div className="visitor-touch flex h-full min-h-svh flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
         <TalusAgLogo className="h-8 w-auto" />
         <div className="flex items-center gap-3">
           {site ? <span className="text-sm text-muted-foreground">{site}</span> : null}
-          <LangToggle lang="en" onLang={() => undefined} size="phone" />
+          {lang ? <LangToggle lang="en" onLang={() => undefined} size="phone" /> : null}
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-6">{children}</div>
@@ -93,8 +93,30 @@ function AdminChrome({ title, subtitle, children }: { title: string; subtitle: s
             </span>
           </div>
         </header>
-        <div className="flex-1 overflow-auto p-4 pb-20 sm:p-6 lg:p-9">{children}</div>
+        <div className="flex-1 overflow-auto p-4 pb-24 sm:p-6 lg:p-9">{children}</div>
       </div>
+      <nav className="fixed inset-x-0 bottom-0 flex border-t border-border bg-card px-2 pb-3 pt-2 lg:hidden">
+        {[
+          [title === "Dashboard", Home, "Home"],
+          [title === "On site now", Users, "On site"],
+          [false, Calendar, "Bookings"],
+        ].map(([active, Icon, label]) => (
+          <span
+            key={String(label)}
+            className={cn(
+              "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold",
+              active ? "bg-accent text-primary-text" : "text-muted-foreground",
+            )}
+          >
+            <Icon className="h-[22px] w-[22px]" />
+            {label}
+          </span>
+        ))}
+        <span className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold text-muted-foreground">
+          <MoreHorizontal className="h-[22px] w-[22px]" />
+          More
+        </span>
+      </nav>
     </div>
   )
 }
@@ -219,7 +241,7 @@ function QrHostScreen() {
 
 function VisitScreen() {
   return (
-    <PhoneChrome site="For Maya Chen">
+    <PhoneChrome site="For Maya Chen" lang={false}>
       <StatusPill tone="ok" className="self-start">
         <Check className="h-3.5 w-3.5" strokeWidth={3} /> On site
       </StatusPill>
