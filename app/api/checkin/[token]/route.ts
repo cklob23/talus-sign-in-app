@@ -4,7 +4,8 @@ import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 import { resolveAppOrigin, resolveNdaRequirement, signNda } from "@/lib/nda"
 import { findActiveHost } from "@/lib/active-hosts"
-import { asOptionalEmail } from "@/lib/kiosk-input"
+import { asOptionalEmail, asOptionalUuid } from "@/lib/kiosk-input"
+import { checkInMatchedBooking } from "@/lib/booking-invite"
 import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         coords?: unknown
         idempotencyKey?: string
         training?: unknown
+        bookingId?: string
     }
     try {
         body = await request.json()
@@ -70,6 +72,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const visitorEmail = asOptionalEmail(body.email ?? null)
     if (visitorEmail === undefined) {
         return NextResponse.json({ error: "Invalid email address" }, { status: 400 })
+    }
+
+    const bookingId = asOptionalUuid(body.bookingId)
+    if (bookingId === undefined) {
+        return NextResponse.json({ error: "Invalid booking" }, { status: 400 })
     }
 
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
@@ -328,6 +335,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Record the completion so admins can see it and returning visitors are
     // tracked the same way as kiosk visitors. Failure is logged, not fatal:
     // the visitor did watch the video and is already signed in.
+    let matchedBookingId = bookingId
+    if (!replayed) {
+        const linked = await checkInMatchedBooking(admin, {
+            bookingId,
+            visitorId: visitor.id,
+            email: visitorEmail,
+            locationId: location.id,
+            timezone: location.timezone || "UTC",
+        })
+        if (linked) matchedBookingId = linked.id
+    }
+
     if (!replayed && trainingRequired && visitorType && trainingMethod === "video") {
         const recorded = await recordTrainingCompletion(admin, {
             visitorId: visitor.id,
@@ -355,6 +374,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 host_id: hostId,
                 visitor_type_id: visitorType?.id ?? null,
                 source: "qr_checkin",
+                booking_id: matchedBookingId,
                 idempotency_key: idempotencyKey,
                 photo_missing: photoMissing && !photoUrl,
                 geofence: geofence.verdict?.ok

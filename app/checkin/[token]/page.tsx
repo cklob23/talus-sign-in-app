@@ -17,8 +17,17 @@ export const metadata: Metadata = {
     robots: { index: false, follow: false },
 }
 
-export default async function CheckinPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function CheckinPage({
+    params,
+    searchParams,
+}: {
+    params: Promise<{ token: string }>
+    searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
     const { token } = await params
+    const query = await searchParams
+    const bookingRaw = query.booking
+    const bookingId = typeof bookingRaw === "string" ? bookingRaw : Array.isArray(bookingRaw) ? bookingRaw[0] : undefined
     const [resolved, branding] = await Promise.all([resolveCheckinToken(token), getBrandingSettings()])
 
     if (!resolved.ok) {
@@ -79,6 +88,7 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
             hosts={hostsResult.hosts}
             geofence={geofence}
             ndaEnabled={isNdaFeatureEnabled()}
+            bookingId={bookingId}
         />
     )
 }

@@ -223,6 +223,14 @@ export interface Booking {
   created_by: string | null
   created_at: string
   updated_at: string
+  preferred_language?: "en" | "es"
+  invite_mode?: "now" | "scheduled" | "manual"
+  invite_lead_minutes?: number | null
+  invite_send_at?: string | null
+  invite_status?: "none" | "scheduled" | "sending" | "sent" | "failed"
+  invite_sent_at?: string | null
+  invite_count?: number
+  invite_error?: string | null
   // Joined fields
   host?: Host
   visitor_type?: VisitorType

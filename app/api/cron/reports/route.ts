@@ -129,8 +129,7 @@ async function runDueReports() {
 
 /**
  * Render cron talus-reports (every 15 minutes) calls this with
- * Authorization: Bearer $CRON_SECRET. Another branch will add
- * /api/cron/booking-invites to the same cron.
+ * Authorization: Bearer $CRON_SECRET after /api/cron/booking-invites.
  */
 export async function POST(request: Request) {
   const denied = requireCronSecret(request)

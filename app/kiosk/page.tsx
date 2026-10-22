@@ -48,7 +48,7 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pa
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
+import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, localDayBounds, toIANATimezone } from "@/lib/timezone"
 import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
@@ -1121,7 +1121,13 @@ export default function KioskPage() {
     setSelectedBooking(null)
 
     try {
+      if (!selectedLocation) {
+        setError("Select a site first, then look up your booking for today.")
+        return
+      }
+
       const supabase = createClient()
+      const bounds = localDayBounds(currentTimezone)
 
       const { data: bookings, error: bookingsError } = await supabase
         .from("bookings")
@@ -1142,6 +1148,9 @@ export default function KioskPage() {
         `)
         .ilike("visitor_email", bookingEmail.trim())
         .eq("status", "pending")
+        .eq("location_id", selectedLocation)
+        .gte("expected_arrival", bounds.start.toISOString())
+        .lt("expected_arrival", bounds.end.toISOString())
         .order("expected_arrival")
 
       if (bookingsError) throw bookingsError

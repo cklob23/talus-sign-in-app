@@ -157,6 +157,51 @@ export function startOfDayInTimezone(timezone: string, now: Date = new Date()): 
   }
 }
 
+const LOCAL_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/
+
+/**
+ * Parse a datetime-local value (YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss)
+ * as a wall clock in `timezone` and return the UTC instant.
+ * Do not use `new Date(localDatetime)`: that uses the runtime timezone.
+ */
+export function localDatetimeToUtc(localDatetime: string, timezone: string): Date | null {
+  if (!localDatetime || typeof localDatetime !== "string") return null
+  const match = localDatetime.trim().match(LOCAL_DATETIME_RE)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6] || 0)
+  if (![year, month, day, hour, minute, second].every((n) => Number.isFinite(n))) return null
+  try {
+    return zonedTimeToUtc(year, month, day, hour, minute, second, timezone)
+  } catch {
+    return null
+  }
+}
+
+/** Half-open [start, end) UTC range covering the local calendar day of `now`. */
+export function localDayBounds(timezone: string, now: Date = new Date()): { start: Date; end: Date } {
+  const iana = toIANATimezone(timezone)
+  const parts = timezoneParts(now, iana)
+  const start = zonedTimeToUtc(parts.year, parts.month, parts.day, 0, 0, 0, iana)
+  const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1))
+  const end = zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, 0, iana)
+  return { start, end }
+}
+
+/** True when `utcIso` falls on the same local calendar day as `reference` in `timezone`. */
+export function isSameLocalDay(utcIso: string, timezone: string, reference: Date = new Date()): boolean {
+  const instant = new Date(utcIso)
+  if (Number.isNaN(instant.getTime())) return false
+  const iana = toIANATimezone(timezone)
+  const a = timezoneParts(instant, iana)
+  const b = timezoneParts(reference, iana)
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
 /** Date + time in the site timezone, with a short zone label (CST, EAT, UTC). */
 export function formatDateTimeWithZone(utcDateString: string, timezone = "UTC"): string {
   const stamp = formatInTimezone(utcDateString, timezone, {

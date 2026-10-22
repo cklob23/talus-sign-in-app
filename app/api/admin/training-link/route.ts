@@ -2,12 +2,12 @@ import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { requireAdminApiUser } from "@/lib/admin-auth"
 import { asOptionalUuid, asRequiredEmail, asRequiredUuid, asTrimmedString } from "@/lib/kiosk-input"
-import { issueTrainingLinkToken } from "@/lib/visit-token"
 import { sendTrainingLinkEmail } from "@/lib/training-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { getBrandingSettings } from "@/lib/branding"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
 import { normalizeVisitorEmail } from "@/lib/training-clearance"
+import { createTrainingLink } from "@/lib/training-link-send"
 
 export async function POST(request: Request) {
   const auth = await requireAdminApiUser()
@@ -86,19 +86,22 @@ export async function POST(request: Request) {
     hostName = host?.name || ""
   }
 
-  const token = issueTrainingLinkToken({
-    payload: {
-      email,
-      firstName,
-      lastName,
-      visitorTypeId,
-      locationId,
-      bookingId,
-      hostId,
-    },
-  })
   const origin = resolveAppOrigin(request)
-  const watchUrl = `${origin}/t/${encodeURIComponent(token)}${lang === "es" ? "?lang=es" : ""}`
+  const created = await createTrainingLink({
+    admin,
+    email,
+    firstName,
+    lastName,
+    company,
+    visitorTypeId,
+    locationId,
+    bookingId,
+    hostId,
+    createdBy: auth.user.userId,
+    origin,
+    lang,
+  })
+  const watchUrl = created.watchUrl
 
   const sent = await sendTrainingLinkEmail({
     to: email,
@@ -111,28 +114,6 @@ export async function POST(request: Request) {
     watchUrl,
     appOrigin: origin,
     logoUrl: branding.companyLogo || `${origin}/talusAg_Logo.png`,
-  })
-
-  await admin.from("training_link_sends").insert({
-    visitor_email: email,
-    visitor_first_name: firstName,
-    visitor_last_name: lastName,
-    visitor_company: company || null,
-    visitor_type_id: visitorTypeId,
-    location_id: locationId,
-    booking_id: bookingId,
-    host_id: hostId,
-    created_by: auth.user.userId,
-    expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-  })
-
-  await admin.from("audit_logs").insert({
-    user_id: auth.user.userId,
-    action: "visitor.training_link_sent",
-    entity_type: "visitor",
-    entity_id: bookingId,
-    description: `Training link sent to ${email}`,
-    metadata: { email, visitor_type_id: visitorTypeId, location_id: locationId, booking_id: bookingId },
   })
 
   return NextResponse.json({

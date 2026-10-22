@@ -21,12 +21,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin, Send } from "lucide-react"
+import { Plus, Calendar, CheckCircle, XCircle, Trash2, Send, Mail } from "lucide-react"
 import type { Booking, Host, VisitorType, Location } from "@/types/database"
 import { formatDateTime } from "@/lib/timezone"
+import { DEFAULT_INVITE_LEAD_MINUTES, inviteCooldownActive } from "@/lib/booking-invite"
 import { useTimezone } from "@/contexts/timezone-context"
 import { logAudit } from "@/lib/audit-log"
 import { AdminLoadError } from "@/components/admin/load-error"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -38,10 +40,12 @@ export default function BookingsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [sendingLinkId, setSendingLinkId] = useState<string | null>(null)
+  const [sendingInviteId, setSendingInviteId] = useState<string | null>(null)
   const [isAdhocOpen, setIsAdhocOpen] = useState(false)
   const [adhocSending, setAdhocSending] = useState(false)
+  const [saving, setSaving] = useState(false)
   const { timezone: userTimezone } = useTimezone()
-  const [form, setForm] = useState({
+  const emptyForm = {
     firstName: "",
     lastName: "",
     email: "",
@@ -51,7 +55,12 @@ export default function BookingsPage() {
     locationId: "",
     expectedArrival: "",
     purpose: "",
-  })
+    preferredLanguage: "en" as "en" | "es",
+    inviteMode: "scheduled" as "now" | "scheduled" | "manual",
+    inviteLeadPreset: String(DEFAULT_INVITE_LEAD_MINUTES),
+    customLeadHours: "48",
+  }
+  const [form, setForm] = useState(emptyForm)
 
   async function loadData() {
     setIsLoading(true)
@@ -97,92 +106,67 @@ export default function BookingsPage() {
     loadData()
   }, [])
 
+  function inviteLeadMinutes(): number {
+    if (form.inviteLeadPreset === "custom") {
+      const hours = Number(form.customLeadHours)
+      if (!Number.isFinite(hours) || hours < 1) return DEFAULT_INVITE_LEAD_MINUTES
+      return Math.round(hours * 60)
+    }
+    const preset = Number(form.inviteLeadPreset)
+    return Number.isFinite(preset) && preset > 0 ? preset : DEFAULT_INVITE_LEAD_MINUTES
+  }
+
   async function handleCreateBooking(e: React.FormEvent) {
     e.preventDefault()
-    
-    // Validate host is selected
+
     if (!form.hostId) {
       alert("Please select a host for the booking")
       return
     }
-    
-    // Validate location is selected
+
     if (!form.locationId) {
       alert("Please select a location for the booking")
       return
     }
-    
-    const supabase = createClient()
 
-    // Get selected location's timezone
-    const selectedLocation = locations.find(l => l.id === form.locationId)
-    const timezone = selectedLocation?.timezone || "UTC"
+    if (!form.email.trim()) {
+      alert("Visitor email is required")
+      return
+    }
 
-    // Convert local datetime to UTC based on location timezone
-    // The form input is in the location's local time, so we need to interpret it in that timezone
-    const localDatetime = form.expectedArrival
-    const utcDatetime = convertLocalToUTC(localDatetime, timezone)
-
-    const { data: newBooking } = await supabase.from("bookings").insert({
-      visitor_first_name: form.firstName,
-      visitor_last_name: form.lastName,
-      visitor_email: form.email || null,
-      visitor_company: form.company || null,
-      host_id: form.hostId,
-      visitor_type_id: form.visitorTypeId || null,
-      expected_arrival: utcDatetime,
-      purpose: form.purpose || null,
-      location_id: form.locationId,
-    }).select().single()
-    
-    await logAudit({
-      action: "booking.created",
-      entityType: "booking",
-      entityId: newBooking?.id,
-      description: `Booking created for ${form.firstName} ${form.lastName}`,
-      metadata: { visitor_email: form.email, host_id: form.hostId, location_id: form.locationId }
-    })
-
-    setForm({
-      firstName: "",
-      lastName: "",
-      email: "",
-      company: "",
-      hostId: "",
-      visitorTypeId: "",
-      locationId: locations.length > 0 ? locations[0].id : "",
-      expectedArrival: "",
-      purpose: "",
-    })
-    setIsDialogOpen(false)
-    loadData()
-  }
-  
-  // Convert local datetime string to UTC ISO string based on timezone
-  function convertLocalToUTC(localDatetime: string, timezone: string): string {
-    if (!localDatetime) return new Date().toISOString()
-    
+    setSaving(true)
     try {
-      // Create a date in the local timezone
-      const date = new Date(localDatetime)
-      
-      // Get the offset for the target timezone
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
+      const res = await fetch("/api/admin/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          company: form.company || null,
+          hostId: form.hostId,
+          visitorTypeId: form.visitorTypeId || null,
+          expectedArrival: form.expectedArrival,
+          purpose: form.purpose || null,
+          locationId: form.locationId,
+          preferredLanguage: form.preferredLanguage,
+          inviteMode: form.inviteMode,
+          inviteLeadMinutes: inviteLeadMinutes(),
+        }),
       })
-      
-      // The input is already in the location's local time (from datetime-local input)
-      // So we just need to store it as UTC
-      return date.toISOString()
-    } catch {
-      return new Date(localDatetime).toISOString()
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Could not create the booking.")
+
+      setForm({
+        ...emptyForm,
+        locationId: locations.length > 0 ? locations[0].id : "",
+      })
+      setIsDialogOpen(false)
+      loadData()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not create the booking.")
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -231,20 +215,38 @@ export default function BookingsPage() {
     }
   }
 
+  async function sendBookingInvite(bookingId: string) {
+    setSendingInviteId(bookingId)
+    try {
+      const res = await fetch("/api/admin/bookings/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Could not send the invite.")
+      alert(json.sent ? "Invite sent." : json.reason === "smtp_not_configured" ? "Invite was not sent (check SMTP)." : "Invite failed.")
+      loadData()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not send the invite.")
+    } finally {
+      setSendingInviteId(null)
+    }
+  }
+
   async function updateBookingStatus(id: string, status: "completed" | "cancelled") {
-    const supabase = createClient()
-    await supabase.from("bookings").update({ status }).eq("id", id)
-    
-    const action = status === "completed" ? "booking.checked_in" : "booking.cancelled"
-    await logAudit({
-      action,
-      entityType: "booking",
-      entityId: id,
-      description: `Booking ${status}`,
-      metadata: { status }
-    })
-    
-    loadData()
+    try {
+      const res = await fetch("/api/admin/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Could not update the booking.")
+      loadData()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not update the booking.")
+    }
   }
 
   async function deleteSelectedBookings() {
@@ -285,6 +287,25 @@ export default function BookingsPage() {
       newSet.add(id)
     }
     setSelectedIds(newSet)
+  }
+
+  function locationTimezone(booking: Booking): string {
+    return (booking as Booking & { location?: Location }).location?.timezone || userTimezone
+  }
+
+  function getInviteBadge(booking: Booking) {
+    const status = booking.invite_status
+    if (status === "scheduled" && booking.invite_send_at) {
+      return <Badge variant="outline">Scheduled for {formatDateTime(booking.invite_send_at, locationTimezone(booking))}</Badge>
+    }
+    if (status === "sent") return <Badge className="bg-primary">Sent</Badge>
+    if (status === "failed") return <Badge variant="destructive">Failed</Badge>
+    if (status === "sending") return <Badge variant="outline">Sending</Badge>
+    return null
+  }
+
+  function inviteButtonLabel(booking: Booking): string {
+    return booking.invite_count && booking.invite_count > 0 || booking.invite_status === "sent" ? "Resend invite" : "Send invite now"
   }
 
   function getStatusBadge(status: string) {
@@ -409,13 +430,29 @@ export default function BookingsPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">Email *</Label>
                   <Input
                     id="email"
                     type="email"
+                    required
                     value={form.email}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, email: e.target.value })}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preferredLanguage">Invite language</Label>
+                  <Select
+                    value={form.preferredLanguage}
+                    onValueChange={(value) => setForm({ ...form, preferredLanguage: value === "es" ? "es" : "en" })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="es">Español</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="company">Company</Label>
@@ -498,8 +535,64 @@ export default function BookingsPage() {
   }
   />
                 </div>
+                <div className="space-y-3 rounded-lg border p-3">
+                  <Label>Send invite</Label>
+                  <RadioGroup
+                    value={form.inviteMode}
+                    onValueChange={(value) =>
+                      setForm({ ...form, inviteMode: value === "now" || value === "manual" ? value : "scheduled" })
+                    }
+                    className="gap-2"
+                  >
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="now" id="invite-now" />
+                      Now on save
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="scheduled" id="invite-scheduled" />
+                      Scheduled
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="manual" id="invite-manual" />
+                      Don't send automatically
+                    </label>
+                  </RadioGroup>
+                  {form.inviteMode === "scheduled" && (
+                    <div className="space-y-2 pl-6">
+                      <Label htmlFor="lead">Lead time</Label>
+                      <Select
+                        value={form.inviteLeadPreset}
+                        onValueChange={(value) => setForm({ ...form, inviteLeadPreset: value })}
+                      >
+                        <SelectTrigger id="lead">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1440">1 day before</SelectItem>
+                          <SelectItem value="2880">2 days before</SelectItem>
+                          <SelectItem value="4320">3 days before</SelectItem>
+                          <SelectItem value="10080">7 days before</SelectItem>
+                          <SelectItem value="custom">Custom hours before</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {form.inviteLeadPreset === "custom" && (
+                        <Input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          value={form.customLeadHours}
+                          onChange={(e) => setForm({ ...form, customLeadHours: e.target.value })}
+                          aria-label="Hours before arrival"
+                        />
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        If that time has already passed, the invite is sent now.
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <DialogFooter>
-                  <Button type="submit">Create Booking</Button>
+                  <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Create Booking"}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -549,6 +642,7 @@ export default function BookingsPage() {
                           </div>
                           {getStatusBadge(booking.status)}
                         </div>
+                        <div className="mt-1">{getInviteBadge(booking)}</div>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -572,6 +666,17 @@ export default function BookingsPage() {
                     )}
                     {booking.status === "pending" && (
                       <div className="flex justify-end gap-2 pt-1">
+                        {booking.visitor_email && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={sendingInviteId === booking.id || inviteCooldownActive(booking.invite_sent_at)}
+                            onClick={() => void sendBookingInvite(booking.id)}
+                          >
+                            <Mail className="w-4 h-4 mr-1" />
+                            {inviteButtonLabel(booking)}
+                          </Button>
+                        )}
                         {booking.visitor_email && booking.visitor_type?.requires_training && (
                           <Button variant="outline" size="sm" disabled={sendingLinkId === booking.id} onClick={() => void sendTrainingLink(booking.id)}>
                             <Send className="w-4 h-4 mr-1" />
@@ -609,6 +714,7 @@ export default function BookingsPage() {
                       <TableHead>Type</TableHead>
                       <TableHead>Expected</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Invite</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -647,9 +753,21 @@ export default function BookingsPage() {
                           {formatDateTime(booking.expected_arrival, userTimezone)}
                         </TableCell>
                         <TableCell>{getStatusBadge(booking.status)}</TableCell>
+                        <TableCell>{getInviteBadge(booking)}</TableCell>
                         <TableCell className="text-right">
                           {booking.status === "pending" && (
                             <div className="flex justify-end gap-2">
+                              {booking.visitor_email && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={sendingInviteId === booking.id || inviteCooldownActive(booking.invite_sent_at)}
+                                  onClick={() => void sendBookingInvite(booking.id)}
+                                >
+                                  <Mail className="w-4 h-4 mr-1" />
+                                  {inviteButtonLabel(booking)}
+                                </Button>
+                              )}
                               {booking.visitor_email && booking.visitor_type?.requires_training && (
                                 <Button
                                   variant="outline"

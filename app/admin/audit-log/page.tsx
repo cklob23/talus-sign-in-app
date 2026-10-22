@@ -43,6 +43,8 @@ const ACTION_LABELS: Record<string, string> = {
   "booking.updated": "Booking updated",
   "booking.cancelled": "Booking cancelled",
   "booking.checked_in": "Booking checked in",
+  "booking.invite_sent": "Booking invite sent",
+  "booking.invite_failed": "Booking invite failed",
   // Host actions
   "host.created": "Host created",
   "host.updated": "Host updated",
