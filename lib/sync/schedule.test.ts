@@ -3,6 +3,8 @@ import { describe, it } from "node:test"
 import {
   collectNumberedPages,
   collectPages,
+  formatNextSyncLabel,
+  getNextSyncAt,
   graphPageItems,
   isSyncDue,
   mapPool,
@@ -109,6 +111,31 @@ describe("pagination helpers", () => {
     }
     const users = await collectNumberedPages(async (page) => pages[page] || [], 2)
     assert.deepEqual(users, ["a", "b", "c"])
+  })
+})
+
+describe("getNextSyncAt", () => {
+  const now = Date.parse("2026-10-21T18:00:00.000Z")
+
+  it("is unscheduled when the frequency is off", () => {
+    assert.deepEqual(getNextSyncAt("off", null, null, now), {
+      dueNow: false,
+      at: null,
+      scheduled: false,
+    })
+    assert.equal(formatNextSyncLabel("off", null, null, now), "Not scheduled")
+  })
+
+  it("is due now when the interval has elapsed", () => {
+    const next = getNextSyncAt("1h", "2026-10-21T16:59:00.000Z", null, now)
+    assert.equal(next.dueNow, true)
+    assert.equal(formatNextSyncLabel("1h", "2026-10-21T16:59:00.000Z", null, now), "Due on the next hourly cron")
+  })
+
+  it("returns the next clock time when the interval has not elapsed", () => {
+    const next = getNextSyncAt("1h", "2026-10-21T17:30:00.000Z", null, now)
+    assert.equal(next.dueNow, false)
+    assert.equal(next.at?.toISOString(), "2026-10-21T18:30:00.000Z")
   })
 })
 

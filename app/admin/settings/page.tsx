@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -20,12 +21,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock, RefreshCw, Clock, Users, Store, MessageSquare, Phone } from "lucide-react"
+import { Plus, Pencil, Trash2, Settings, Tag, MapPin, Sun, Moon, Monitor, Upload, Building2, Mail, Eye, EyeOff, ImageIcon, X, Palette, ShieldCheck, Globe, Copy, Check, ExternalLink, Loader2, Lock, Clock, MessageSquare, Phone, RefreshCw } from "lucide-react"
 import { useUserTimezone, COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
 import { useTheme } from "next-themes"
 import type { VisitorType } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
-import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
 import { QrCodeSettings } from "@/components/admin/qr-code-settings"
 import { refreshBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
@@ -71,13 +71,6 @@ interface MicrosoftSsoSettings {
   azure_tenant_id: string
   azure_client_id: string
   azure_client_secret: string
-}
-
-interface RampSettings {
-  ramp_enabled: boolean
-  ramp_client_id: string
-  ramp_client_secret: string
-  ramp_api_base_url: string
 }
 
 interface PasswordPolicySettings {
@@ -165,15 +158,6 @@ export default function SettingsPage() {
     password_reuse_count: 5,
   })
   const [savingPasswordPolicy, setSavingPasswordPolicy] = useState(false)
-  const [rampConfig, setRampConfig] = useState<RampSettings>({
-    ramp_enabled: false,
-    ramp_client_id: "",
-    ramp_client_secret: "",
-    ramp_api_base_url: "https://api.ramp.com/developer/v1",
-  })
-  const [savingRamp, setSavingRamp] = useState(false)
-  const [showRampSecret, setShowRampSecret] = useState(false)
-  const [rampConfigResult, setRampConfigResult] = useState<{ success: boolean; message: string } | null>(null)
   const [microsoftSso, setMicrosoftSso] = useState<MicrosoftSsoSettings>({
     microsoft_sso_enabled: false,
     azure_tenant_id: "",
@@ -185,22 +169,6 @@ export default function SettingsPage() {
   const [supabaseCallbackUrl, setSupabaseCallbackUrl] = useState("")
   const [microsoftSsoError, setMicrosoftSsoError] = useState<string | null>(null)
   const [microsoftSsoSuccess, setMicrosoftSsoSuccess] = useState<string | null>(null)
-
-  // Scheduled sync state
-  const [syncScheduleAzure, setSyncScheduleAzure] = useState("off")
-  const [syncScheduleRamp, setSyncScheduleRamp] = useState("off")
-  const [syncStartAzure, setSyncStartAzure] = useState("")
-  const [syncStartRamp, setSyncStartRamp] = useState("")
-  const [lastAzureSync, setLastAzureSync] = useState<string | null>(null)
-  const [lastRampSync, setLastRampSync] = useState<string | null>(null)
-  const [savingSyncSchedule, setSavingSyncSchedule] = useState(false)
-  const [syncScheduleSuccess, setSyncScheduleSuccess] = useState<string | null>(null)
-  const [syncScheduleError, setSyncScheduleError] = useState<string | null>(null)
-  const [runningSyncAzure, setRunningSyncAzure] = useState(false)
-  const [runningSyncRamp, setRunningSyncRamp] = useState(false)
-  const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: "azure" | "ramp"; status: "started" | "completed" | "failed"; message: string }>>([])
-  const [azureSyncProgress, setAzureSyncProgress] = useState<SyncProgressData | null>(null)
-  const [rampSyncProgress, setRampSyncProgress] = useState<SyncProgressData | null>(null)
 
   const [form, setForm] = useState({
     name: "",
@@ -379,78 +347,6 @@ export default function SettingsPage() {
     setSmsTestResult({ success: true, message: "SMS settings saved successfully." })
     setTimeout(() => setSmsTestResult(null), 3000)
     setSavingSms(false)
-  }
-
-  async function loadRampSettings() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("settings")
-      .select("key, value")
-      .is("location_id", null)
-      .in("key", ["ramp_enabled", "ramp_client_id", "ramp_client_secret", "ramp_api_base_url"])
-
-    if (data && data.length > 0) {
-      const loaded: RampSettings = {
-        ramp_enabled: false,
-        ramp_client_id: "",
-        ramp_client_secret: "",
-        ramp_api_base_url: "https://api.ramp.com/developer/v1",
-      }
-      for (const setting of data) {
-        if (setting.key === "ramp_enabled") loaded.ramp_enabled = setting.value === true || setting.value === "true"
-        if (setting.key === "ramp_client_id") loaded.ramp_client_id = String(setting.value || "")
-        if (setting.key === "ramp_client_secret") loaded.ramp_client_secret = String(setting.value || "")
-        if (setting.key === "ramp_api_base_url") loaded.ramp_api_base_url = String(setting.value || "https://api.ramp.com/developer/v1")
-      }
-      // Mask the secret if it was loaded from DB
-      if (loaded.ramp_client_secret) {
-        loaded.ramp_client_secret = "••••••••"
-      }
-      setRampConfig(loaded)
-    }
-  }
-
-  async function saveRampSettings() {
-    setSavingRamp(true)
-    setRampConfigResult(null)
-    const supabase = createClient()
-
-    const keysToSave: (keyof RampSettings)[] = ["ramp_enabled", "ramp_client_id", "ramp_client_secret", "ramp_api_base_url"]
-    for (const key of keysToSave) {
-      const value = rampConfig[key]
-      // Skip masked secrets — don't overwrite the real value with dots
-      if (key === "ramp_client_secret" && value === "��•••••••") continue
-
-      const { data: existing } = await supabase
-        .from("settings")
-        .select("id")
-        .eq("key", key)
-        .is("location_id", null)
-        .single()
-
-      if (existing) {
-        await supabase
-          .from("settings")
-          .update({ value })
-          .eq("key", key)
-          .is("location_id", null)
-      } else {
-        await supabase
-          .from("settings")
-          .insert({ key, value, location_id: null })
-      }
-    }
-
-    await logAudit({
-      action: "settings.updated",
-      entityType: "settings",
-      description: "Ramp API settings updated",
-      metadata: { ramp_api_base_url: rampConfig.ramp_api_base_url },
-    })
-
-    setRampConfigResult({ success: true, message: "Ramp API settings saved successfully." })
-    setTimeout(() => setRampConfigResult(null), 3000)
-    setSavingRamp(false)
   }
 
   async function loadColorSettings() {
@@ -880,259 +776,6 @@ export default function SettingsPage() {
     setSavingPasswordPolicy(false)
   }
 
-  // --- Scheduled Sync functions ---
-  const SCHEDULE_MS: Record<string, number> = {
-    "1h": 60 * 60 * 1000,
-    "6h": 6 * 60 * 60 * 1000,
-    "12h": 12 * 60 * 60 * 1000,
-    "24h": 24 * 60 * 60 * 1000,
-    "168h": 7 * 24 * 60 * 60 * 1000,
-  }
-
-  function getNextSyncTime(schedule: string, lastSync: string | null, startDate: string | null): string {
-    if (schedule === "off" || !SCHEDULE_MS[schedule]) return ""
-    const now = Date.now()
-
-    // If a start date is in the future, show that as the next sync
-    if (startDate) {
-      const startMs = new Date(startDate).getTime()
-      if (!Number.isNaN(startMs) && startMs > now) {
-        return new Date(startMs).toLocaleString()
-      }
-    }
-
-    // If never synced, it's due now
-    if (!lastSync) return "Due now (next cron run)"
-
-    // Calculate next based on last sync + interval
-    const lastMs = new Date(lastSync).getTime()
-    const interval = SCHEDULE_MS[schedule]
-    const nextMs = lastMs + interval
-
-    if (nextMs <= now) {
-      return "Due now (next cron run)"
-    }
-    return new Date(nextMs).toLocaleString()
-  }
-
-  const SYNC_SCHEDULE_OPTIONS = [
-    { value: "off", label: "Off" },
-    { value: "1h", label: "Every hour" },
-    { value: "6h", label: "Every 6 hours" },
-    { value: "12h", label: "Every 12 hours" },
-    { value: "24h", label: "Daily (every 24 hours)" },
-    { value: "168h", label: "Weekly" },
-  ]
-
-  async function loadSyncScheduleSettings() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("settings")
-      .select("key, value")
-      .is("location_id", null)
-      .in("key", ["sync_schedule_azure", "sync_schedule_ramp", "sync_start_azure", "sync_start_ramp", "last_azure_sync", "last_ramp_sync"])
-
-    if (data) {
-      for (const s of data) {
-        if (s.key === "sync_schedule_azure") setSyncScheduleAzure(typeof s.value === "string" ? s.value : "off")
-        if (s.key === "sync_schedule_ramp") setSyncScheduleRamp(typeof s.value === "string" ? s.value : "off")
-        if (s.key === "sync_start_azure") setSyncStartAzure(typeof s.value === "string" ? s.value : "")
-        if (s.key === "sync_start_ramp") setSyncStartRamp(typeof s.value === "string" ? s.value : "")
-        if (s.key === "last_azure_sync") setLastAzureSync(typeof s.value === "string" ? s.value : null)
-        if (s.key === "last_ramp_sync") setLastRampSync(typeof s.value === "string" ? s.value : null)
-      }
-    }
-  }
-
-  async function saveSyncScheduleSettings() {
-    setSavingSyncSchedule(true)
-    setSyncScheduleSuccess(null)
-    setSyncScheduleError(null)
-
-    try {
-      const supabase = createClient()
-      const settingsToSave = [
-        { key: "sync_schedule_azure", value: syncScheduleAzure },
-        { key: "sync_schedule_ramp", value: syncScheduleRamp },
-        { key: "sync_start_azure", value: syncStartAzure },
-        { key: "sync_start_ramp", value: syncStartRamp },
-      ]
-
-      for (const s of settingsToSave) {
-        const { data: existing } = await supabase
-          .from("settings")
-          .select("id")
-          .eq("key", s.key)
-          .is("location_id", null)
-          .single()
-
-        if (existing) {
-          await supabase.from("settings").update({ value: s.value }).eq("id", existing.id)
-        } else {
-          await supabase.from("settings").insert({ key: s.key, value: s.value, location_id: null })
-        }
-      }
-
-      await logAudit({
-        action: "settings.sync_schedule_updated",
-        entityType: "settings",
-        description: `Sync schedules updated: Azure=${syncScheduleAzure} starting ${syncStartAzure || "immediately"}, Ramp=${syncScheduleRamp} starting ${syncStartRamp || "immediately"}`,
-      })
-
-      setSyncScheduleSuccess("Sync schedules saved successfully.")
-      setTimeout(() => setSyncScheduleSuccess(null), 3000)
-    } catch {
-      setSyncScheduleError("Failed to save sync schedules.")
-    } finally {
-      setSavingSyncSchedule(false)
-    }
-  }
-
-  function addSyncLog(type: "azure" | "ramp", status: "started" | "completed" | "failed", message: string) {
-    setSyncLogs(prev => [{ time: new Date().toISOString(), type, status, message }, ...prev].slice(0, 50))
-  }
-
-  async function handleManualSync(type: "azure" | "ramp") {
-    if (type === "azure") {
-      setRunningSyncAzure(true)
-    } else {
-      setRunningSyncRamp(true)
-    }
-    setSyncScheduleError(null)
-    setSyncScheduleSuccess(null)
-
-    const label = type === "azure" ? "Azure AD" : "Ramp"
-    const setProgress = type === "azure" ? setAzureSyncProgress : setRampSyncProgress
-    addSyncLog(type, "started", `${label} sync started manually`)
-
-    // Audit: sync started
-    await logAudit({
-      action: type === "azure" ? "sync.azure_started" : "sync.ramp_started",
-      entityType: "sync",
-      description: `${label} sync started manually`,
-      metadata: { trigger: "manual" },
-    })
-
-    try {
-      // Step 1: Fetch all items from the source
-      addSyncLog(type, "started", `Fetching ${label} data...`)
-      const res = await fetch(
-        type === "azure" ? "/api/admin/sync-azure-users" : "/api/admin/vendors/sync",
-        { method: "GET" }
-      )
-      const data = await res.json()
-
-      const items = type === "azure" ? data.users : data.vendors
-      if (!items || items.length === 0) {
-        const errMsg = data.error || `No ${type === "azure" ? "users" : "vendors"} found.`
-        setSyncScheduleError(errMsg)
-        addSyncLog(type, "failed", errMsg)
-        setProgress(null)
-        await logAudit({
-          action: type === "azure" ? "sync.azure_failed" : "sync.ramp_failed",
-          entityType: "sync",
-          description: errMsg,
-          metadata: { error: errMsg },
-        })
-        return
-      }
-
-      addSyncLog(type, "started", `Found ${items.length} ${type === "azure" ? "users" : "vendors"}, importing...`)
-
-      // Step 2: Chunk and import with progress
-      const CHUNK_SIZE = type === "azure" ? 10 : 50
-      const endpoint = type === "azure" ? "/api/admin/sync-azure-users" : "/api/admin/vendors/sync"
-      const bodyKey = type === "azure" ? "users" : "vendors"
-
-      const progress: SyncProgressData = {
-        current: 0,
-        total: items.length,
-        created: 0,
-        updated: 0,
-        skipped: 0,
-        errors: [],
-        status: "running",
-        label: `Syncing ${type === "azure" ? "users" : "vendors"}`,
-      }
-      setProgress({ ...progress })
-
-      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-        const chunk = items.slice(i, i + CHUNK_SIZE)
-
-        try {
-          const importRes = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ [bodyKey]: chunk }),
-          })
-          const importData = await importRes.json()
-
-          if (!importRes.ok) {
-            progress.errors.push(importData.error || `Chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed`)
-          } else {
-            progress.created += importData.created || 0
-            progress.updated += importData.updated || 0
-            progress.skipped += importData.skipped || 0
-            if (importData.errors) {
-              progress.errors.push(...importData.errors)
-              for (const err of importData.errors) addSyncLog(type, "failed", err)
-            }
-          }
-        } catch (chunkErr) {
-          progress.errors.push(`Chunk ${Math.floor(i / CHUNK_SIZE) + 1}: ${chunkErr instanceof Error ? chunkErr.message : "Failed"}`)
-        }
-
-        progress.current = Math.min(i + chunk.length, items.length)
-        setProgress({ ...progress })
-      }
-
-      progress.status = progress.errors.length > 0 && progress.created === 0 && progress.updated === 0 ? "failed" : "completed"
-      setProgress({ ...progress })
-
-      if (type === "azure") setLastAzureSync(new Date().toISOString())
-      else setLastRampSync(new Date().toISOString())
-
-      const msg = `${label} sync complete: ${progress.created} created, ${progress.updated} updated${progress.skipped ? `, ${progress.skipped} skipped` : ""}${progress.errors.length ? `, ${progress.errors.length} errors` : ""}.`
-      setSyncScheduleSuccess(msg)
-      addSyncLog(type, progress.status === "failed" ? "failed" : "completed", msg)
-
-      await logAudit({
-        action: progress.status === "failed"
-          ? (type === "azure" ? "sync.azure_failed" : "sync.ramp_failed")
-          : (type === "azure" ? "sync.azure_completed" : "sync.ramp_completed"),
-        entityType: "sync",
-        description: msg,
-        metadata: {
-          created: progress.created,
-          updated: progress.updated,
-          skipped: progress.skipped,
-          errors: progress.errors.length,
-          total: items.length,
-        },
-      })
-
-      // Auto-clear progress after showing completion
-      setTimeout(() => {
-        setProgress(null)
-        setSyncScheduleSuccess(null)
-      }, 5000)
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Sync failed."
-      setSyncScheduleError(errMsg)
-      addSyncLog(type, "failed", errMsg)
-      setProgress({ current: 0, total: 0, created: 0, updated: 0, skipped: 0, errors: [errMsg], status: "failed", label })
-      await logAudit({
-        action: type === "azure" ? "sync.azure_failed" : "sync.ramp_failed",
-        entityType: "sync",
-        description: errMsg,
-        metadata: { error: errMsg },
-      })
-    } finally {
-      if (type === "azure") setRunningSyncAzure(false)
-      else setRunningSyncRamp(false)
-    }
-  }
-
   async function handleLogoUpload(file: File, type: "full" | "small") {
     if (type === "full") setUploadingLogo(true)
     else setUploadingSmallLogo(true)
@@ -1328,10 +971,8 @@ export default function SettingsPage() {
     loadBrandingSettings()
     loadSmtpSettings()
     loadSmsSettings()
-    loadRampSettings()
     loadColorSettings()
     loadMicrosoftSsoSettings()
-    loadSyncScheduleSettings()
     loadPasswordPolicySettings()
     loadAutoSignOutSettings()
   }, [])
@@ -2632,390 +2273,20 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {/* Ramp API Configuration Card */}
-      {hasFeature("vendorManagement") ? (
-        <Card>
-          <CardHeader className="p-4 sm:p-6">
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Store className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              Ramp Integration
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Configure your Ramp API credentials for vendor synchronization.
-              You can use either an OAuth2 client (Client ID + Secret) or set RAMP_API_TOKEN as an environment variable.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
-            {rampConfigResult && (
-              <div className={`rounded-lg border p-3 text-sm ${rampConfigResult.success
-                  ? "border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400"
-                  : "border-destructive/50 bg-destructive/10 text-destructive"
-                }`}>
-                {rampConfigResult.message}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <Label className="text-sm">Enable Ramp Integration</Label>
-                <p className="text-xs sm:text-sm text-muted-foreground">Connect to Ramp to sync vendors automatically</p>
-              </div>
-              <Switch
-                checked={rampConfig.ramp_enabled}
-                onCheckedChange={(checked) => setRampConfig(prev => ({ ...prev, ramp_enabled: checked }))}
-              />
-            </div>
-
-            {rampConfig.ramp_enabled && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="ramp_client_id">Client ID</Label>
-                  <Input
-                    id="ramp_client_id"
-                    value={rampConfig.ramp_client_id}
-                    onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_client_id: e.target.value }))}
-                    placeholder="ramp_client_..."
-                    className="font-mono text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ramp_client_secret">Client Secret</Label>
-                  <div className="relative">
-                    <Input
-                      id="ramp_client_secret"
-                      type={showRampSecret ? "text" : "password"}
-                      value={rampConfig.ramp_client_secret}
-                      onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_client_secret: e.target.value }))}
-                      placeholder="Enter client secret"
-                      className="font-mono text-sm pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                      onClick={() => setShowRampSecret(!showRampSecret)}
-                    >
-                      {showRampSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    The secret is stored encrypted in your database. Leave unchanged to keep the existing value.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ramp_api_base_url">API Base URL</Label>
-                  <Input
-                    id="ramp_api_base_url"
-                    value={rampConfig.ramp_api_base_url}
-                    onChange={(e) => setRampConfig(prev => ({ ...prev, ramp_api_base_url: e.target.value }))}
-                    placeholder="https://api.ramp.com/developer/v1"
-                    className="font-mono text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Use <code className="bg-muted px-1 py-0.5 rounded text-xs">https://demo-api.ramp.com/developer/v1</code> for sandbox/testing.
-                  </p>
-                </div>
-              </>
-            )}
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button onClick={saveRampSettings} disabled={savingRamp}>
-                {savingRamp ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Ramp Settings"
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader className="p-4 sm:p-6">
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Store className="w-5 h-5 text-muted-foreground" />
-              Ramp Integration
-              <span className="ml-auto flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                <Lock className="w-3.5 h-3.5" /> Add-on
-              </span>
-            </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
-              Enable the Vendor Management add-on or upgrade to Enterprise to connect with Ramp for vendor synchronization
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
-
-      {/* Scheduled Syncs Card */}
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
             <RefreshCw className="w-5 h-5" />
-            Scheduled Syncs
+            Sync
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">
-            Automatically sync users from Azure AD and vendors from Ramp on a recurring schedule.
-            The sync runs hourly and checks if enough time has passed based on your configured frequency.
+            Ramp credentials, Entra schedules, and sync logs now live on the Sync page.
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-6">
-          {syncScheduleSuccess && (
-            <div className="rounded-lg border border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-sm text-emerald-700 dark:text-emerald-400">
-              {syncScheduleSuccess}
-            </div>
-          )}
-          {syncScheduleError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-              {syncScheduleError}
-            </div>
-          )}
-
-          {/* Azure AD Sync */}
-          <div className="rounded-lg border p-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-950/30">
-                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-medium">Azure AD User Sync</h4>
-                <p className="text-xs text-muted-foreground">
-                  Sync user profiles from Microsoft Azure AD / Entra ID
-                </p>
-              </div>
-            </div>
-
-            {!microsoftSso.microsoft_sso_enabled ? (
-              <p className="text-xs text-muted-foreground italic">
-                Requires Microsoft SSO to be configured and enabled above.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <Label className="text-sm w-28 shrink-0">Frequency</Label>
-                  <Select value={syncScheduleAzure} onValueChange={setSyncScheduleAzure}>
-                    <SelectTrigger className="w-full sm:w-56">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SYNC_SCHEDULE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {syncScheduleAzure !== "off" && (
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <Label className="text-sm w-28 shrink-0">Start Date</Label>
-                    <Input
-                      type="datetime-local"
-                      value={syncStartAzure}
-                      onChange={(e) => setSyncStartAzure(e.target.value)}
-                      className="w-full sm:w-56"
-                    />
-                    {syncStartAzure && (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground underline"
-                        onClick={() => setSyncStartAzure("")}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {syncScheduleAzure !== "off" && (
-                  <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
-                    Next sync: {getNextSyncTime(syncScheduleAzure, lastAzureSync, syncStartAzure)}
-                  </p>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>
-                      Last synced:{" "}
-                      {lastAzureSync
-                        ? new Date(lastAzureSync).toLocaleString()
-                        : "Never"}
-                    </span>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-transparent"
-                    disabled={runningSyncAzure}
-                    onClick={() => handleManualSync("azure")}
-                  >
-                    {runningSyncAzure ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                        Syncing...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                        Sync Now
-                      </>
-                    )}
-                  </Button>
-                </div>
-                {azureSyncProgress && (
-                  <SyncProgress progress={azureSyncProgress} compact />
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Ramp Vendor Sync - only shown when Vendor Management is available and Ramp is enabled */}
-          {hasFeature("vendorManagement") && rampConfig.ramp_enabled && (
-            <div className="rounded-lg border p-4 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/30">
-                  <Store className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-medium">Ramp Vendor Sync</h4>
-                  <p className="text-xs text-muted-foreground">
-                    Sync vendor list from Ramp for the kiosk company dropdown
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <Label className="text-sm w-28 shrink-0">Frequency</Label>
-                  <Select value={syncScheduleRamp} onValueChange={setSyncScheduleRamp}>
-                    <SelectTrigger className="w-full sm:w-56">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SYNC_SCHEDULE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {syncScheduleRamp !== "off" && (
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <Label className="text-sm w-28 shrink-0">Start Date</Label>
-                    <Input
-                      type="datetime-local"
-                      value={syncStartRamp}
-                      onChange={(e) => setSyncStartRamp(e.target.value)}
-                      className="w-full sm:w-56"
-                    />
-                    {syncStartRamp && (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground underline"
-                        onClick={() => setSyncStartRamp("")}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {syncScheduleRamp !== "off" && (
-                  <p className="text-xs text-muted-foreground pl-0 sm:pl-28">
-                    Next sync: {getNextSyncTime(syncScheduleRamp, lastRampSync, syncStartRamp)}
-                  </p>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>
-                      Last synced:{" "}
-                      {lastRampSync
-                        ? new Date(lastRampSync).toLocaleString()
-                        : "Never"}
-                    </span>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-transparent"
-                    disabled={runningSyncRamp}
-                    onClick={() => handleManualSync("ramp")}
-                  >
-                    {runningSyncRamp ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                        Syncing...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                        Sync Now
-                      </>
-                    )}
-                  </Button>
-                </div>
-                {rampSyncProgress && (
-                  <SyncProgress progress={rampSyncProgress} compact />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sync Logs */}
-          {syncLogs.length > 0 && (
-            <div className="rounded-lg border p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Sync Log</h4>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                  onClick={() => setSyncLogs([])}
-                >
-                  Clear
-                </button>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-1.5 text-xs font-mono">
-                {syncLogs.map((log, i) => (
-                  <div
-                    key={`${log.time}-${i}`}
-                    className={`flex gap-2 items-start px-2 py-1 rounded ${log.status === "failed"
-                        ? "bg-destructive/10 text-destructive"
-                        : log.status === "completed"
-                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                  >
-                    <span className="shrink-0 tabular-nums">
-                      {new Date(log.time).toLocaleTimeString()}
-                    </span>
-                    <span className="shrink-0 uppercase font-semibold w-12">
-                      {log.type === "azure" ? "AD" : "RAMP"}
-                    </span>
-                    <span className="break-all">{log.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end">
-            <Button
-              onClick={saveSyncScheduleSettings}
-              disabled={savingSyncSchedule}
-            >
-              {savingSyncSchedule ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : null}
-              Save Sync Schedules
-            </Button>
-          </div>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+          <Button asChild variant="outline" size="sm" className="bg-transparent">
+            <Link href="/admin/sync">Open Sync</Link>
+          </Button>
         </CardContent>
       </Card>
 

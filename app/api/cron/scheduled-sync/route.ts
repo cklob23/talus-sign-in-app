@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
-import { syncAzureUsers } from "@/lib/sync/azure"
-import { syncRampVendors } from "@/lib/sync/ramp"
+import { executeProviderSync } from "@/lib/sync/execute"
 import { isSyncDue, parseSyncRequest, shouldRunProvider } from "@/lib/sync/schedule"
 
 function createAdminClient() {
@@ -113,7 +112,25 @@ async function runScheduledSync(request: Request) {
         return
       }
       try {
-        const result = await syncAzureUsers(adminClient, { syncPhotos: false, dryRun })
+        const out = await executeProviderSync(adminClient, {
+          provider: "azure",
+          trigger: "cron",
+          dryRun,
+          syncPhotos: false,
+        })
+        if (!out.ok || !out.result) {
+          const message = out.error || "Azure sync failed"
+          results.azure = { ran: true, error: message }
+          if (!dryRun) {
+            await adminClient.from("audit_logs").insert({
+              action: "scheduled_sync.azure_error",
+              entity_type: "system",
+              description: `Scheduled Azure AD sync failed: ${message}`,
+            })
+          }
+          return
+        }
+        const result = out.result
         if (!dryRun) {
           await upsertSetting(adminClient, "last_azure_sync", new Date().toISOString())
           await adminClient.from("audit_logs").insert({
@@ -126,8 +143,8 @@ async function runScheduledSync(request: Request) {
           ran: true,
           synced: result.synced,
           total: result.total,
-          created: result.created,
-          updated: result.updated,
+          created: "created" in result ? result.created : undefined,
+          updated: "updated" in result ? result.updated : undefined,
           deactivated: result.deactivated,
           errors: result.errors.length,
         }
@@ -153,7 +170,24 @@ async function runScheduledSync(request: Request) {
         return
       }
       try {
-        const result = await syncRampVendors(adminClient, { dryRun })
+        const out = await executeProviderSync(adminClient, {
+          provider: "ramp",
+          trigger: "cron",
+          dryRun,
+        })
+        if (!out.ok || !out.result) {
+          const message = out.error || "Ramp sync failed"
+          results.ramp = { ran: true, error: message }
+          if (!dryRun) {
+            await adminClient.from("audit_logs").insert({
+              action: "scheduled_sync.ramp_error",
+              entity_type: "system",
+              description: `Scheduled Ramp sync failed: ${message}`,
+            })
+          }
+          return
+        }
+        const result = out.result
         if (!dryRun) {
           await upsertSetting(adminClient, "last_ramp_sync", new Date().toISOString())
           await adminClient.from("audit_logs").insert({

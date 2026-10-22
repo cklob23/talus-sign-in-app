@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
-import { getAzureCredentials, getAzureAccessToken, type AzureCredentials } from "@/lib/sync/azure"
+import { fetchAzureUsers, getAzureAccessToken, getAzureCredentials, type AzureCredentials } from "@/lib/sync/azure"
 
 // Microsoft Graph API endpoint for users
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
@@ -59,21 +59,13 @@ export async function GET() {
       )
     }
 
-    // Fetch users from Microsoft Graph API
-    const usersResponse = await fetch(
-      `${GRAPH_API_URL}/users?$select=id,displayName,mail,userPrincipalName,jobTitle,department`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      }
-    )
-
-    if (!usersResponse.ok) {
-      const errorData = await usersResponse.json().catch(() => ({}))
-
-      if (usersResponse.status === 401 || usersResponse.status === 403) {
+    // Follow @odata.nextLink so preview/import is not limited to the first page.
+    let azureUsers
+    try {
+      azureUsers = await fetchAzureUsers(accessToken)
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : "Failed to fetch users from Azure AD"
+      if (/denied|401|403/i.test(message)) {
         return NextResponse.json(
           {
             error: "Azure AD access denied. Ensure your app registration has the User.Read.All application permission granted with admin consent.",
@@ -81,18 +73,11 @@ export async function GET() {
           { status: 403 }
         )
       }
-
-      return NextResponse.json(
-        { error: `Failed to fetch users from Azure AD: ${errorData.error?.message || "Unknown error"}` },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: message }, { status: 500 })
     }
 
-    const usersData = await usersResponse.json()
-    const azureUsers = usersData.value || []
-
     // Return simplified user list for preview (no photos yet to speed up response)
-    const users = azureUsers.map((u: { id: string; displayName: string; mail: string; userPrincipalName: string }) => ({
+    const users = azureUsers.map((u) => ({
       id: u.id,
       displayName: u.displayName,
       mail: u.mail,

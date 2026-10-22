@@ -215,6 +215,25 @@ export interface Vendor {
   updated_at: string
 }
 
+export interface SyncRun {
+  id: string
+  provider: "azure" | "ramp"
+  trigger: "cron" | "manual"
+  status: "queued" | "running" | "succeeded" | "failed"
+  phase: string | null
+  progress_current: number | null
+  progress_total: number | null
+  synced: number
+  created: number
+  updated: number
+  deactivated: number
+  error_count: number
+  errors: string[]
+  started_at: string
+  finished_at: string | null
+  heartbeat_at: string
+}
+
 export interface AuditLog {
   id: string
   user_id: string | null

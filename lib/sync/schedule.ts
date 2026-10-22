@@ -63,6 +63,55 @@ export function shouldRunProvider(
   return false
 }
 
+export interface NextSyncAt {
+  dueNow: boolean
+  at: Date | null
+  scheduled: boolean
+}
+
+/**
+ * Next time this provider is eligible. The Render cron is hourly; this
+ * only answers whether the app-level frequency says the provider is due.
+ */
+export function getNextSyncAt(
+  schedule: string,
+  lastSyncIso: string | null,
+  startDateIso: string | null,
+  nowMs = Date.now(),
+): NextSyncAt {
+  if (schedule === "off" || !SCHEDULE_MS[schedule]) {
+    return { dueNow: false, at: null, scheduled: false }
+  }
+
+  if (startDateIso) {
+    const startTime = new Date(startDateIso).getTime()
+    if (!Number.isNaN(startTime) && startTime > nowMs) {
+      return { dueNow: false, at: new Date(startTime), scheduled: true }
+    }
+  }
+
+  if (!lastSyncIso) return { dueNow: true, at: null, scheduled: true }
+
+  const lastSync = new Date(lastSyncIso).getTime()
+  if (Number.isNaN(lastSync)) return { dueNow: true, at: null, scheduled: true }
+  const nextMs = lastSync + SCHEDULE_MS[schedule]
+  if (nextMs <= nowMs) return { dueNow: true, at: null, scheduled: true }
+  return { dueNow: false, at: new Date(nextMs), scheduled: true }
+}
+
+export function formatNextSyncLabel(
+  schedule: string,
+  lastSyncIso: string | null,
+  startDateIso: string | null,
+  nowMs = Date.now(),
+): string {
+  const next = getNextSyncAt(schedule, lastSyncIso, startDateIso, nowMs)
+  if (!next.scheduled) return "Not scheduled"
+  if (next.dueNow) return "Due on the next hourly cron"
+  if (next.at) return next.at.toLocaleString()
+  return "Not scheduled"
+}
+
 export function graphPageItems<T>(data: { value?: T[]; "@odata.nextLink"?: string }): {
   items: T[]
   next: string | null

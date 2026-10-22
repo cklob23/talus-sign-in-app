@@ -26,6 +26,7 @@ import {
   ScrollText,
   Warehouse,
   FileSignature,
+  RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { hasFeature, type TierFeatures } from "@/lib/tier"
@@ -69,6 +70,7 @@ const navItems: {
     { href: "/admin/vendors", label: "Vendors", icon: Warehouse, requiredFeature: "vendorManagement", requiredTierLabel: "Add-on" },
     { href: "/admin/roles", label: "Roles", icon: Shield },
     { href: "/admin/nda", label: "NDA Agreements", icon: FileSignature },
+    { href: "/admin/sync", label: "Sync", icon: RefreshCw },
     { href: "/admin/settings", label: "Settings", icon: Settings },
     { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText, requiredFeature: "advancedAuditLogs", requiredTierLabel: "Add-on" },
   ]
