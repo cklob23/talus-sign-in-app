@@ -80,11 +80,13 @@ export async function POST(request: Request) {
 
     // Build a direct link to the reset-password page with the token as a query param.
     // The page verifies the token CLIENT-SIDE using the Supabase browser client.
-    const appOrigin = process.env.NEXT_PUBLIC_SITE_URL
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL
-        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-        : request.headers.get("origin")
-        || "https://signin.talusag.com")
+    const appOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "")
+    if (!appOrigin) {
+      return NextResponse.json(
+        { error: "Server is not configured: NEXT_PUBLIC_SITE_URL is not set." },
+        { status: 500 },
+      )
+    }
 
     const resetLink = `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
 

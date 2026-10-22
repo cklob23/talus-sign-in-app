@@ -1,12 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { collectPages, rampPageItems } from "@/lib/sync/schedule"
 
 const RAMP_API_BASE =
   process.env.RAMP_API_BASE || "https://api.ramp.com/developer/v1"
+const VENDOR_BATCH = 100
 
 export interface RampSyncResult {
   synced: number
   total: number
+  deactivated: number
   errors: string[]
+}
+
+export interface RampSyncOptions {
+  /** Skip upserts and deactivations. Fetch and count only. */
+  dryRun?: boolean
 }
 
 interface RampVendor {
@@ -19,11 +27,6 @@ interface RampVendor {
   description?: string
   category_name?: string
   [key: string]: unknown
-}
-
-interface RampVendorResponse {
-  data: RampVendor[]
-  page: { next: string | null }
 }
 
 /**
@@ -98,16 +101,15 @@ export async function getRampAccessToken(): Promise<string> {
 }
 
 /**
- * Fetch all vendors from Ramp (handles pagination)
+ * Fetch all vendors from Ramp. Follows page.next until Ramp returns null.
  */
 export async function fetchRampVendors(
   accessToken: string
 ): Promise<RampVendor[]> {
-  const allVendors: RampVendor[] = []
-  let nextUrl: string | null = `${RAMP_API_BASE}/vendors?page_size=100`
+  const firstUrl = `${RAMP_API_BASE}/vendors?page_size=100`
 
-  while (nextUrl) {
-    const response = await fetch(nextUrl, {
+  return collectPages(firstUrl, async (url) => {
+    const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
@@ -119,53 +121,90 @@ export async function fetchRampVendors(
       throw new Error(`Ramp API error: ${response.status} - ${errText}`)
     }
 
-    const data: RampVendorResponse = await response.json()
-    allVendors.push(...data.data)
-    nextUrl = data.page?.next || null
-  }
-
-  return allVendors
+    return rampPageItems<RampVendor>(await response.json())
+  })
 }
 
 /**
- * Full sync: fetch all Ramp vendors, upsert to vendors table.
- * Used by both the cron job and the manual sync route.
+ * Full sync: fetch all Ramp vendors, upsert to vendors table, then
+ * deactivate local Ramp-linked vendors that are no longer upstream.
+ *
+ * Behavior change: previously this was upsert-only, so a vendor removed
+ * in Ramp stayed active locally. After a successful non-empty fetch,
+ * rows with a ramp_vendor_id that is missing from the latest Ramp list
+ * are set is_active=false. Locally created vendors (null ramp_vendor_id)
+ * are not touched. Ramp's own is_active=false is still mirrored on upsert.
  */
 export async function syncRampVendors(
-  adminClient: SupabaseClient
+  adminClient: SupabaseClient,
+  options: RampSyncOptions = {},
 ): Promise<RampSyncResult> {
+  const dryRun = options.dryRun === true
   const rampToken = await getRampAccessToken()
   const allVendors = await fetchRampVendors(rampToken)
 
   const now = new Date().toISOString()
   let synced = 0
   const errors: string[] = []
+  const seenIds = new Set(allVendors.map((v) => v.id))
 
-  const BATCH_SIZE = 100
-  for (let i = 0; i < allVendors.length; i += BATCH_SIZE) {
-    const batch = allVendors.slice(i, i + BATCH_SIZE).map((v) => ({
-      ramp_vendor_id: v.id,
-      name: v.name,
-      name_legal: v.name_legal || null,
-      is_active: v.is_active !== false,
-      country: v.country || null,
-      state: v.state || null,
-      description: v.description || null,
-      category_name: v.category_name || null,
-      synced_at: now,
-    }))
+  if (!dryRun) {
+    for (let i = 0; i < allVendors.length; i += VENDOR_BATCH) {
+      const batch = allVendors.slice(i, i + VENDOR_BATCH).map((v) => ({
+        ramp_vendor_id: v.id,
+        name: v.name,
+        name_legal: v.name_legal || null,
+        is_active: v.is_active !== false,
+        country: v.country || null,
+        state: v.state || null,
+        description: v.description || null,
+        category_name: v.category_name || null,
+        synced_at: now,
+      }))
 
-    const { error, count } = await adminClient
+      const { error, count } = await adminClient
+        .from("vendors")
+        .upsert(batch, { onConflict: "ramp_vendor_id", count: "exact" })
+
+      if (error) {
+        console.error(`Ramp batch ${i / VENDOR_BATCH + 1} error:`, error)
+        errors.push(`Batch ${i / VENDOR_BATCH + 1}: ${error.message}`)
+      } else {
+        synced += count || batch.length
+      }
+    }
+  } else {
+    synced = allVendors.length
+  }
+
+  // Same safety as Entra: never treat a failed or empty fetch as "everyone left".
+  let deactivated = 0
+  if (allVendors.length > 0) {
+    const { data: managed } = await adminClient
       .from("vendors")
-      .upsert(batch, { onConflict: "ramp_vendor_id", count: "exact" })
+      .select("id, ramp_vendor_id, is_active")
+      .not("ramp_vendor_id", "is", null)
+      .eq("is_active", true)
 
-    if (error) {
-      console.error(`Ramp batch ${i / BATCH_SIZE + 1} error:`, error)
-      errors.push(`Batch ${i / BATCH_SIZE + 1}: ${error.message}`)
-    } else {
-      synced += count || batch.length
+    const stale = (managed || []).filter(
+      (v) => v.ramp_vendor_id && !seenIds.has(v.ramp_vendor_id),
+    )
+    deactivated = stale.length
+
+    if (!dryRun && stale.length > 0) {
+      for (let i = 0; i < stale.length; i += VENDOR_BATCH) {
+        const ids = stale.slice(i, i + VENDOR_BATCH).map((v) => v.ramp_vendor_id).filter(Boolean)
+        const { error } = await adminClient
+          .from("vendors")
+          .update({ is_active: false, synced_at: now })
+          .in("ramp_vendor_id", ids)
+        if (error) {
+          deactivated -= ids.length
+          errors.push(`Deactivate chunk ${i / VENDOR_BATCH + 1}: ${error.message}`)
+        }
+      }
     }
   }
 
-  return { synced, total: allVendors.length, errors }
+  return { synced, total: allVendors.length, deactivated, errors }
 }
