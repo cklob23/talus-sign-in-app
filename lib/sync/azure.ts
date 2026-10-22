@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { collectNumberedPages, collectPages, graphPageItems, mapPool } from "@/lib/sync/schedule"
+import type { SyncProgressReporter } from "@/lib/sync/runs"
 
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 const AUTH_USERS_PAGE_SIZE = 1000
@@ -379,6 +380,8 @@ export interface SyncOptions {
   dryRun?: boolean
   /** Preloaded auth.users email -> id map (all pages). */
   authByEmail?: Map<string, string>
+  /** Optional live progress writer for sync_runs. */
+  progress?: SyncProgressReporter
 }
 
 export async function upsertAzureUser(
@@ -521,12 +524,15 @@ export async function syncAzureUsers(
   options: SyncOptions = {},
 ): Promise<AzureSyncResult> {
   const dryRun = options.dryRun === true
+  const progress = options.progress
   const credentials = await getAzureCredentials()
   const accessToken = await getAzureAccessToken(credentials)
 
   // A failure here throws BEFORE the deactivation sweep runs, so a transient
   // Graph outage can never be misread as "everyone left the directory".
+  await progress?.setPhase("Fetching Entra users")
   const azureUsers = await fetchAzureUsers(accessToken)
+  await progress?.setPhase("Listing existing auth users", 0, azureUsers.length)
   const authByEmail = options.authByEmail || (dryRun ? new Map<string, string>() : await listAllAuthUsers(adminClient))
   const upsertOptions: SyncOptions = { ...options, dryRun, authByEmail }
 
@@ -534,6 +540,15 @@ export async function syncAzureUsers(
   const seenOids = new Set<string>()
   for (const azureUser of azureUsers) seenOids.add(azureUser.id)
 
+  const reportEvery = 50
+  const upsertBatches = Math.max(1, Math.ceil(azureUsers.length / reportEvery))
+  await progress?.setPhase(
+    azureUsers.length === 0 ? "No Entra users to upsert" : `Upserting batch 1 of ${upsertBatches}`,
+    0,
+    azureUsers.length,
+  )
+
+  let completed = 0
   const upsertResults = await mapPool(azureUsers, UPSERT_CONCURRENCY, async (azureUser) => {
     try {
       const result = await upsertAzureUser(adminClient, accessToken, azureUser, upsertOptions)
@@ -543,6 +558,12 @@ export async function syncAzureUsers(
       return {
         result: null,
         error: `${email}: ${userError instanceof Error ? userError.message : "Unknown error"}`,
+      }
+    } finally {
+      completed += 1
+      if (completed === azureUsers.length || completed % reportEvery === 0) {
+        const batch = Math.max(1, Math.ceil(completed / reportEvery))
+        await progress?.setPhase(`Upserting batch ${batch} of ${upsertBatches}`, completed, azureUsers.length)
       }
     }
   })
@@ -559,6 +580,14 @@ export async function syncAzureUsers(
     else updated++
   }
 
+  await progress?.setCounts({
+    synced: created + updated,
+    created,
+    updated,
+    deactivated: 0,
+    errors,
+  })
+
   // Deactivation sweep: profiles that were directory-managed but are no longer
   // present are marked removed. We only sweep when the fetch clearly succeeded
   // (non-empty result), and we never touch admins or locally-created accounts.
@@ -574,6 +603,11 @@ export async function syncAzureUsers(
       (p) => p.azure_object_id && !seenOids.has(p.azure_object_id) && p.role !== "admin",
     )
     deactivated = stale.length
+    await progress?.setPhase(
+      stale.length === 0 ? "No stale profiles to deactivate" : "Deactivating stale profiles",
+      0,
+      stale.length,
+    )
 
     if (!dryRun) {
       const syncedAt = new Date().toISOString()
@@ -592,15 +626,30 @@ export async function syncAzureUsers(
         if (error) {
           deactivated -= chunk.length
           errors.push(`Deactivate chunk ${i / DEACTIVATE_CHUNK + 1}: ${error.message}`)
-          continue
+        } else {
+          // Deactivate the linked host too, so they stop being selectable. A user
+          // removed from the directory entirely is always deactivated as a host,
+          // regardless of the disable-time host option.
+          await adminClient.from("hosts").update({ is_active: false }).in("profile_id", ids)
         }
-        // Deactivate the linked host too, so they stop being selectable. A user
-        // removed from the directory entirely is always deactivated as a host,
-        // regardless of the disable-time host option.
-        await adminClient.from("hosts").update({ is_active: false }).in("profile_id", ids)
+        await progress?.setPhase(
+          `Deactivating stale profiles`,
+          Math.min(i + chunk.length, stale.length),
+          stale.length,
+        )
       }
+    } else if (stale.length > 0) {
+      await progress?.setPhase(`Deactivating stale profiles`, stale.length, stale.length)
     }
   }
+
+  await progress?.setCounts({
+    synced: created + updated,
+    created,
+    updated,
+    deactivated,
+    errors,
+  })
 
   return { synced: created + updated, created, updated, deactivated, total: azureUsers.length, errors }
 }

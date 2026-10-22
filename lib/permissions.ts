@@ -59,6 +59,8 @@ export const ROUTE_PERMISSION_MAP: Record<string, PermissionKey> = {
     // NDA management is a settings-level concern, so it reuses that permission
     // rather than introducing a new key no existing role would hold.
     "/admin/nda": "settings",
+    // Sync configuration used to live on Settings, so the same permission applies.
+    "/admin/sync": "settings",
     "/admin/audit-log": "audit_log",
     "/admin/roles": "roles",
 }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { collectPages, rampPageItems } from "@/lib/sync/schedule"
+import type { SyncProgressReporter } from "@/lib/sync/runs"
 
 const RAMP_API_BASE =
   process.env.RAMP_API_BASE || "https://api.ramp.com/developer/v1"
@@ -15,6 +16,8 @@ export interface RampSyncResult {
 export interface RampSyncOptions {
   /** Skip upserts and deactivations. Fetch and count only. */
   dryRun?: boolean
+  /** Optional live progress writer for sync_runs. */
+  progress?: SyncProgressReporter
 }
 
 interface RampVendor {
@@ -140,6 +143,8 @@ export async function syncRampVendors(
   options: RampSyncOptions = {},
 ): Promise<RampSyncResult> {
   const dryRun = options.dryRun === true
+  const progress = options.progress
+  await progress?.setPhase("Fetching Ramp vendors")
   const rampToken = await getRampAccessToken()
   const allVendors = await fetchRampVendors(rampToken)
 
@@ -147,9 +152,12 @@ export async function syncRampVendors(
   let synced = 0
   const errors: string[] = []
   const seenIds = new Set(allVendors.map((v) => v.id))
+  const upsertBatches = Math.max(1, Math.ceil(allVendors.length / VENDOR_BATCH))
 
   if (!dryRun) {
     for (let i = 0; i < allVendors.length; i += VENDOR_BATCH) {
+      const batchNumber = Math.floor(i / VENDOR_BATCH) + 1
+      await progress?.setPhase(`Upserting batch ${batchNumber} of ${upsertBatches}`, i, allVendors.length)
       const batch = allVendors.slice(i, i + VENDOR_BATCH).map((v) => ({
         ramp_vendor_id: v.id,
         name: v.name,
@@ -167,14 +175,16 @@ export async function syncRampVendors(
         .upsert(batch, { onConflict: "ramp_vendor_id", count: "exact" })
 
       if (error) {
-        console.error(`Ramp batch ${i / VENDOR_BATCH + 1} error:`, error)
-        errors.push(`Batch ${i / VENDOR_BATCH + 1}: ${error.message}`)
+        console.error(`Ramp batch ${batchNumber} error:`, error)
+        errors.push(`Batch ${batchNumber}: ${error.message}`)
       } else {
         synced += count || batch.length
       }
+      await progress?.setCounts({ synced, deactivated: 0, errors })
     }
   } else {
     synced = allVendors.length
+    await progress?.setPhase("Dry run: counting Ramp vendors", allVendors.length, allVendors.length)
   }
 
   // Same safety as Entra: never treat a failed or empty fetch as "everyone left".
@@ -190,9 +200,15 @@ export async function syncRampVendors(
       (v) => v.ramp_vendor_id && !seenIds.has(v.ramp_vendor_id),
     )
     deactivated = stale.length
+    await progress?.setPhase(
+      stale.length === 0 ? "No stale vendors to deactivate" : "Deactivating stale vendors",
+      0,
+      stale.length,
+    )
 
     if (!dryRun && stale.length > 0) {
       for (let i = 0; i < stale.length; i += VENDOR_BATCH) {
+        const batchNumber = Math.floor(i / VENDOR_BATCH) + 1
         const ids = stale.slice(i, i + VENDOR_BATCH).map((v) => v.ramp_vendor_id).filter(Boolean)
         const { error } = await adminClient
           .from("vendors")
@@ -200,11 +216,17 @@ export async function syncRampVendors(
           .in("ramp_vendor_id", ids)
         if (error) {
           deactivated -= ids.length
-          errors.push(`Deactivate chunk ${i / VENDOR_BATCH + 1}: ${error.message}`)
+          errors.push(`Deactivate chunk ${batchNumber}: ${error.message}`)
         }
+        await progress?.setPhase(
+          `Deactivating stale vendors`,
+          Math.min(i + ids.length, stale.length),
+          stale.length,
+        )
       }
     }
   }
 
+  await progress?.setCounts({ synced, deactivated, errors })
   return { synced, total: allVendors.length, deactivated, errors }
 }
