@@ -59,6 +59,9 @@ import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-de
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
+import { KioskLocationPicker } from "@/components/kiosk/kiosk-location-picker"
+import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
+import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite, writeStaffSite } from "@/lib/kiosk-site"
 import { fill, hostArrivalMessage, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
@@ -605,21 +608,62 @@ export default function KioskPage() {
     reverseGeocode()
   }, [userCoords])
 
-  // Track whether the user has manually changed the location dropdown
-  const [userManuallySelectedLocation, setUserManuallySelectedLocation] = useState(false)
+  const staffHeldSiteRef = useRef(false)
 
-  // Auto-select nearest location when geolocation finds one
-  // Always update unless the user has explicitly picked a different location
+  // Auto-select the nearest site from a fresh fix. Freeze mid sign-in, and
+  // keep a staff pick until they leave the staff screen.
   useEffect(() => {
-    if (nearestLocation && !userManuallySelectedLocation) {
-      setSelectedLocation(nearestLocation.location.id)
+    if (mode === "home") staffHeldSiteRef.current = false
+    const freeze =
+      isVisitorFlowMode(mode) ||
+      staffHeldSiteRef.current ||
+      (isDetectingLocation && !userCoords)
+    const resolved = resolveKioskSite({
+      locations,
+      nearestId: nearestLocation?.location.id ?? null,
+      persistedId: readStaffSite(),
+      currentId: selectedLocation || null,
+      gpsReady: Boolean(userCoords) && !isDetectingLocation,
+      freeze,
+    })
+    if (resolved.id && resolved.id !== selectedLocation) {
+      setSelectedLocation(resolved.id)
+      setGeofenceOverride(false)
     }
-  }, [nearestLocation, userManuallySelectedLocation])
+  }, [locations, nearestLocation, userCoords, isDetectingLocation, mode, selectedLocation])
 
   // Get the current selected location object
   const currentLocation = locations.find(l => l.id === selectedLocation)
-  const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
   const currentTimezone = currentLocation?.timezone || "UTC"
+
+  const siteKind = headerLocationKind({
+    hasLocations: locations.length > 0,
+    geoError,
+    hasFix: Boolean(userCoords),
+    isDetecting: isDetectingLocation,
+    meters: selectedLocationDistance,
+  })
+  const siteUnavailable = siteKind === "unavailable"
+  const siteMeters = siteKind === "distance" ? selectedLocationDistance : null
+
+  async function handleStaffSiteChange(nextId: string) {
+    if (!nextId || nextId === selectedLocation) return
+    const previousId = selectedLocation
+    const previousName = locations.find((l) => l.id === previousId)?.name
+    const nextName = locations.find((l) => l.id === nextId)?.name
+    staffHeldSiteRef.current = true
+    setSelectedLocation(nextId)
+    setGeofenceOverride(false)
+    writeStaffSite(nextId)
+    await logAuditViaApi({
+      action: "kiosk.location_changed",
+      entityType: "location",
+      entityId: nextId,
+      description: `Kiosk site changed from ${previousName || previousId || "none"} to ${nextName || nextId}`,
+      metadata: { from: previousId || null, to: nextId, portal: "kiosk" },
+      userId: receptionistUser?.id || currentEmployee?.id,
+    })
+  }
 
   // Geofence enforcement (same rules as QR, via lib/checkin-geofence).
   // Visitor unlock is PR #9's geofenceOverride ("Allow sign-in anyway").
@@ -1028,8 +1072,12 @@ export default function KioskPage() {
       setLocations(locData)
       // Only set a default if geolocation hasn't already picked one
       if (!selectedLocation) {
-        setSelectedLocation(locData[0].id)
+        const persisted = readStaffSite()
+        const persistedOk = persisted && locData.some((loc) => loc.id === persisted)
+        setSelectedLocation(persistedOk ? persisted : locData[0].id)
       }
+    } else if (locData) {
+      setLocations([])
     }
     if (typesRes.data) setVisitorTypes(typesRes.data as VisitorType[])
 
@@ -1203,6 +1251,7 @@ export default function KioskPage() {
           visitorCompany: selectedBooking.visitor_company,
           purpose: selectedBooking.purpose,
           visitorTypeName: visitorTypeData?.name,
+          visitorTypeId: visitorTypeData?.id,
         })
 
         // Pre-fill the form with booking data for after training
@@ -1266,6 +1315,7 @@ export default function KioskPage() {
     visitorCompany?: string | null
     purpose?: string | null
     visitorTypeName?: string | null
+    visitorTypeId?: string | null
   }) {
     if (!hostNotificationsEnabled || !opts.hostId) return
 
@@ -1289,6 +1339,7 @@ export default function KioskPage() {
           locationId: currentLocation?.id,
           notificationType: "completing_training",
           visitorTypeName: opts.visitorTypeName,
+          visitorTypeId: opts.visitorTypeId,
           idempotencyKey: trainingIdempotencyKeyRef.current,
         }),
       })
@@ -1443,6 +1494,7 @@ export default function KioskPage() {
           visitorCompany: form.company,
           purpose: form.purpose,
           visitorTypeName: selectedVisitorType.name,
+          visitorTypeId: selectedVisitorType.id,
         })
 
         setMode("training")
@@ -2296,20 +2348,44 @@ export default function KioskPage() {
                 <TalusAgLogo />
               </Link>
             </div>
-            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-              <div className="hidden items-center gap-2 text-sm lg:flex">
-                <MapPin className="h-4 w-4 text-[#00703f]" />
-                <span className="font-medium">{currentLocation?.name || "Select location"}</span>
-              </div>
-              <div className="hidden items-center gap-2 border-r pr-4 text-sm md:flex portrait:hidden">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">
-                  {currentTime.toLocaleTimeString("en-US", {
-                    timeZone: toIANATimezone(currentTimezone),
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+              <div className="hidden min-w-0 items-center gap-3 text-sm md:flex">
+                <span className="flex shrink-0 items-center gap-2 border-r border-[#dce6df] pr-3">
+                  <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <span className="font-medium">
+                    {currentTime.toLocaleTimeString("en-US", {
+                      timeZone: toIANATimezone(currentTimezone),
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
                 </span>
+                {siteKind === "none" ? (
+                  receptionistUser ? (
+                    <span className="truncate text-[#8a4500]">{copy.noSitesStaff}</span>
+                  ) : null
+                ) : currentLocation ? (
+                  <KioskSiteLine
+                    siteName={currentLocation.name}
+                    meters={siteMeters}
+                    unavailable={siteUnavailable}
+                    copy={copy}
+                  />
+                ) : null}
+              </div>
+              <div className="min-w-0 max-w-[46%] md:hidden">
+                {siteKind === "none" ? (
+                  receptionistUser ? (
+                    <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>
+                  ) : null
+                ) : currentLocation ? (
+                  <KioskSiteLine
+                    siteName={currentLocation.name}
+                    meters={siteMeters}
+                    unavailable={siteUnavailable}
+                    copy={copy}
+                  />
+                ) : null}
               </div>
               <LangToggle
                 lang={lang}
@@ -2318,82 +2394,6 @@ export default function KioskPage() {
                   setLang(next)
                 }}
               />
-              <div className="hidden items-center gap-2 text-sm xl:flex portrait:hidden">
-                {isDetectingLocation ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                    <span className="text-muted-foreground">Detecting location...</span>
-                  </>
-                ) : isSelectedDifferentFromNearest && currentLocation ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-amber-500" />
-                    <span className="text-foreground font-medium">{currentLocation.name}</span>
-                    {selectedLocationDistance !== null && (
-                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
-                        {formatDistance(selectedLocationDistance)}
-                      </Badge>
-                    )}
-                    {userCoords && userCoords.accuracy > 100 && (
-                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
-                        Refine
-                      </Button>
-                    )}
-                  </>
-                ) : nearestLocation ? (
-                  <>
-                    <MapPin className="w-4 h-4 text-primary" />
-                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {formatDistance(nearestLocation.distance)}
-                    </Badge>
-                    {userCoords && userCoords.accuracy > 100 && (
-                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
-                        Refine
-                      </Button>
-                    )}
-                  </>
-                ) : geoError ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground">
-                      Retry location
-                    </Button>
-                  </>
-                ) : nearestLocation ? (
-                  <>
-                    <MapPin className="w-4 h-4 text-primary" />
-                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {formatDistance(nearestLocation.distance)}
-                    </Badge>
-                  </>
-                ) : currentLocation ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">{currentLocation.name}</span>
-                  </>
-                ) : (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Select location</span>
-                  </>
-                )}
-              </div>
-
-              {locations.length > 1 && (
-                <Select value={selectedLocation} onValueChange={(val) => { setSelectedLocation(val); setUserManuallySelectedLocation(true) }}>
-                  <SelectTrigger className="hidden w-[140px] sm:flex sm:w-[180px] portrait:hidden">
-                    <SelectValue placeholder="Location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map((loc) => (
-                      <SelectItem key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
 
               {/* Receptionist lock/logout button */}
               {receptionistUser && (
@@ -2476,6 +2476,16 @@ export default function KioskPage() {
                           autoComplete="current-password"
                         />
                       </div>
+                      {locations.length === 0 ? (
+                        <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
+                      ) : (
+                        <KioskLocationPicker
+                          locations={locations}
+                          value={selectedLocation}
+                          onChange={(id) => void handleStaffSiteChange(id)}
+                          label={copy.chooseSite}
+                        />
+                      )}
                       {receptionistError && (
                         <p className="text-sm text-destructive">{receptionistError}</p>
                       )}
@@ -2528,6 +2538,11 @@ export default function KioskPage() {
 
         {mode === "home" && (
           <div className="mx-auto max-w-5xl">
+            {locations.length === 0 ? (
+              <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                <p className="font-medium text-[#8a4500]">{copy.noSitesStaff}</p>
+              </div>
+            ) : null}
             {isOutsideGeofence && !geofenceOverride && (
               <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
                 <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
@@ -2557,7 +2572,7 @@ export default function KioskPage() {
               onBooking={() => setMode("booking")}
               onStaff={() => setMode("employee-login")}
               showBooking={hasFeature("visitorPreRegistration")}
-              visitorBlocked={visitorBlockedByGeofence}
+              visitorBlocked={visitorBlockedByGeofence || locations.length === 0}
             />
             <div className="mt-6">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
@@ -3285,6 +3300,16 @@ export default function KioskPage() {
                       Forgot password?
                     </Link>
                   </div>
+                  {locations.length === 0 ? (
+                    <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
+                  ) : (
+                    <KioskLocationPicker
+                      locations={locations}
+                      value={selectedLocation}
+                      onChange={(id) => void handleStaffSiteChange(id)}
+                      label={copy.chooseSite}
+                    />
+                  )}
                   {currentLocation && (
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2">
                       <div className="flex items-center gap-3">

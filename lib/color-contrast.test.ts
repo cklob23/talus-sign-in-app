@@ -16,6 +16,15 @@ describe("color contrast", () => {
     assert.match(contrastWarning(ACCENT_GREEN) || "", /4\.5:1/)
   })
 
+  it("keeps kiosk outline and helper text AA on white", () => {
+    const outline = contrastRatio("#00703f", "#ffffff")
+    const title = contrastRatio("#0f1a13", "#ffffff")
+    const helper = contrastRatio("#55625a", "#ffffff")
+    assert.ok(outline !== null && outline >= 4.5)
+    assert.ok(title !== null && title >= 4.5)
+    assert.ok(helper !== null && helper >= 4.5)
+  })
+
   it("accepts the recommended primary for button text", () => {
     const ratio = contrastRatio("#ffffff", RECOMMENDED_PRIMARY)
     assert.ok(ratio !== null && ratio >= 4.5)

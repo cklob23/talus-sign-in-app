@@ -1,6 +1,7 @@
 import { after } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { sendHostNotification, type HostNotificationType } from "@/lib/host-notification"
+import type { HostEntrySource } from "@/lib/host-entry"
 import {
   claimNotificationOnce,
   finalizeNotificationClaim,
@@ -112,6 +113,10 @@ export interface ScheduledHostNotification {
   purpose?: string | null
   signInId?: string | null
   idempotencyKey?: string | null
+  entrySource?: HostEntrySource | null
+  kioskName?: string | null
+  visitorTypeId?: string | null
+  trainingDurationSeconds?: number | null
 }
 
 export async function sendHostNotificationOnce(args: ScheduledHostNotification): Promise<{ sent: boolean; replayed: boolean }> {
@@ -154,6 +159,10 @@ export async function sendHostNotificationOnce(args: ScheduledHostNotification):
       visitorPhotoUrl: args.visitorPhotoUrl ?? null,
       purpose: args.purpose ?? null,
       signInId: args.signInId ?? null,
+      entrySource: args.entrySource ?? null,
+      kioskName: args.kioskName ?? null,
+      visitorTypeId: args.visitorTypeId ?? null,
+      trainingDurationSeconds: args.trainingDurationSeconds ?? null,
     })
     sent = result.sent
     if (!sent) errorMessage = result.reason || "notify_failed"

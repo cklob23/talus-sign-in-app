@@ -3,6 +3,21 @@ import { describe, it } from "node:test"
 import { fill, hostArrivalMessage, visitorCopy } from "./visitor-i18n.ts"
 
 describe("visitor copy", () => {
+  it("points bookings at I have a booking, not Sign in", () => {
+    const en = visitorCopy("en")
+    const es = visitorCopy("es")
+    assert.equal(en.haveBooking, "I have a booking")
+    assert.equal(es.haveBooking, "Tengo una reserva")
+    assert.equal(en.bookingHint, "Booked ahead? Tap I have a booking.")
+    assert.equal(es.bookingHint, "¿Reservó de antemano? Toque Tengo una reserva.")
+    assert.equal(/tap sign in/i.test(en.bookingHint), false)
+    assert.equal(/toque entrar/i.test(es.bookingHint), false)
+    assert.equal(en.locationUnavailable, "Location unavailable")
+    assert.equal(es.locationUnavailable, "Ubicación no disponible")
+    assert.equal(en.siteDistanceAway, "{site}, {distance} away")
+    assert.equal(es.siteDistanceAway, "{site}, a {distance}")
+  })
+
   it("keeps English and Spanish sentences short and paired", () => {
     const en = visitorCopy("en")
     const es = visitorCopy("es")

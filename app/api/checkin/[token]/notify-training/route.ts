@@ -81,7 +81,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorName: `${firstName} ${lastName}`,
         visitorCompany: body.company?.trim() || null,
         visitorTypeName,
+        visitorTypeId: body.visitorTypeId?.trim() || null,
         idempotencyKey,
+        entrySource: "qr",
     })
 
     // Queued in after() so a slow SMTP host cannot block the training step.

@@ -397,6 +397,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorPhotoUrl: (signIn.photo_url as string | null) || photoUrl,
         signInId: String(signIn.id),
         idempotencyKey,
+        entrySource: "qr",
+        visitorTypeId: visitorType?.id ?? null,
     })
 
     return NextResponse.json({
@@ -443,6 +445,7 @@ async function replayedCheckinResponse(
         visitorPhotoUrl: existing.photo_url,
         signInId: existing.id,
         idempotencyKey,
+        entrySource: "qr",
     })
 
     return NextResponse.json({

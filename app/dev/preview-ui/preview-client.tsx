@@ -2,6 +2,7 @@
 
 import { CalendarCheck, Check, Clock, LogOut, MoreHorizontal, PlayCircle, Search, UserPlus, Users } from "lucide-react"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
+import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
 import { LangToggle } from "@/components/lang-toggle"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { visitorCopy } from "@/lib/visitor-i18n"
@@ -58,13 +59,33 @@ function Frame({
   )
 }
 
-function KioskChrome({ children }: { children: React.ReactNode }) {
+function KioskChrome({
+  children,
+  siteName = "Houston HQ",
+  meters = 52,
+  unavailable = false,
+  noSites = false,
+}: {
+  children: React.ReactNode
+  siteName?: string
+  meters?: number | null
+  unavailable?: boolean
+  noSites?: boolean
+}) {
   return (
     <div className="flex h-full flex-col bg-[#f5f8f6]">
       <header className="flex items-center justify-between border-b border-[#dce6df] bg-white px-4 py-3">
         <TalusAgLogo />
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Houston HQ</span>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="hidden shrink-0 items-center gap-2 border-r border-[#dce6df] pr-3 text-sm font-medium md:flex">
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            9:13 AM
+          </span>
+          {noSites ? (
+            <span className="truncate text-sm text-[#8a4500]">{copy.noSitesStaff}</span>
+          ) : (
+            <KioskSiteLine siteName={siteName} meters={meters} unavailable={unavailable} copy={copy} />
+          )}
           <LangToggle lang="en" onLang={() => undefined} />
         </div>
       </header>
@@ -342,9 +363,70 @@ function AfterVisitors() {
   )
 }
 
-export function PreviewUiScreens({ screen }: { screen?: string }) {
+function WelcomePreview({
+  siteName = "Houston HQ",
+  meters = 52,
+  unavailable = false,
+  noSites = false,
+  visitorBlocked = false,
+  outside = false,
+}: {
+  siteName?: string
+  meters?: number | null
+  unavailable?: boolean
+  noSites?: boolean
+  visitorBlocked?: boolean
+  outside?: boolean
+}) {
+  return (
+    <KioskChrome siteName={siteName} meters={meters} unavailable={unavailable} noSites={noSites}>
+      {outside ? (
+        <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+          <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+        </div>
+      ) : null}
+      {noSites ? (
+        <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+          <p className="font-medium text-[#8a4500]">{copy.noSitesStaff}</p>
+        </div>
+      ) : null}
+      <KioskWelcome
+        companyName="Talus Ag"
+        copy={copy}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        onBooking={() => undefined}
+        onStaff={() => undefined}
+        showBooking={!noSites}
+        visitorBlocked={visitorBlocked || noSites}
+      />
+      <p className="mt-8 flex items-center justify-center gap-2 text-sm text-[#55625a]">
+        <Clock className="h-4 w-4" />
+        Thursday, Oct 22, 2026
+      </p>
+    </KioskChrome>
+  )
+}
+
+const HEADER_PREVIEWS: Record<string, Parameters<typeof WelcomePreview>[0]> = {
+  "kiosk-welcome-after": {},
+  "kiosk-welcome": {},
+  "kiosk-header-normal": { siteName: "Test Location", meters: 52 },
+  "kiosk-header-noloc": { siteName: "Test Location", meters: null, unavailable: true, visitorBlocked: true, outside: true },
+  "kiosk-header-outside": { siteName: "Test Location", meters: 1200, visitorBlocked: true, outside: true },
+  "kiosk-header-nosites": { noSites: true, visitorBlocked: true },
+}
+
+export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boolean }) {
   const only = screen?.trim() || "all"
   const show = (id: string) => only === "all" || only === id
+  if (full && HEADER_PREVIEWS[only]) {
+    return (
+      <div className="min-h-screen bg-[#f5f8f6]" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
+        <WelcomePreview {...HEADER_PREVIEWS[only]} />
+      </div>
+    )
+  }
   return (
     <div className="space-y-16 bg-[#eef4f0] p-6" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
       {show("kiosk-welcome-before") ? (
@@ -354,22 +436,7 @@ export function PreviewUiScreens({ screen }: { screen?: string }) {
       ) : null}
       {show("kiosk-welcome-after") ? (
         <Frame id="kiosk-welcome-after" title="Kiosk welcome after" width={1024} height={768}>
-          <KioskChrome>
-            <KioskWelcome
-              companyName="Talus Ag"
-              copy={copy}
-              onSignIn={() => undefined}
-              onSignOut={() => undefined}
-              onBooking={() => undefined}
-              onStaff={() => undefined}
-              showBooking
-              visitorBlocked={false}
-            />
-            <p className="mt-8 flex items-center justify-center gap-2 text-sm text-[#55625a]">
-              <Clock className="h-4 w-4" />
-              Thursday, Oct 22, 2026
-            </p>
-          </KioskChrome>
+          <WelcomePreview />
         </Frame>
       ) : null}
       {show("kiosk-details-before") ? (
