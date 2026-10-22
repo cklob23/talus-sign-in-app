@@ -9,6 +9,7 @@ import { CompanyAutocomplete } from "@/components/company-autocomplete"
 import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pad"
 import { LocationGatePanel, useLocationGate, type CheckinGeofence } from "./location-gate"
 import type { DeviceCoords } from "@/lib/checkin-geofence"
+import { resolveFreshDeviceCoords } from "@/lib/fresh-device-coords"
 import {
     IDLE_RESET_NOTICE,
     shouldIdleReset,
@@ -139,6 +140,7 @@ export function CheckinFlow({
     const signatureRef = useRef<SignaturePadHandle>(null)
     const [step, setStep] = useState<Step>(visitorTypes.length > 0 ? "type" : "details")
     const [submitting, setSubmitting] = useState(false)
+    const [checkingLocation, setCheckingLocation] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [result, setResult] = useState<Result | null>(null)
     /** Scanning the poster can mean either arriving or leaving. */
@@ -396,6 +398,17 @@ export function CheckinFlow({
             signInIdempotencyKeyRef.current = crypto.randomUUID()
         }
         try {
+            let postCoords = coords
+            if (geofence) {
+                setCheckingLocation(true)
+                const resolved = await resolveFreshDeviceCoords({ action: "signin", fallback: coords })
+                setCheckingLocation(false)
+                if (!resolved.ok) {
+                    setError(copy.staleLocation)
+                    return
+                }
+                postCoords = resolved.coords
+            }
             const res = await fetch(`/api/checkin/${token}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -410,7 +423,7 @@ export function CheckinFlow({
                     photoDataUrl,
                     ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
-                    coords,
+                    coords: postCoords,
                     idempotencyKey: signInIdempotencyKeyRef.current,
                     training: trainingInFlow
                         ? {
@@ -457,6 +470,7 @@ export function CheckinFlow({
         } finally {
             submittingRef.current = false
             setSubmitting(false)
+            setCheckingLocation(false)
         }
     }
 
@@ -479,7 +493,18 @@ export function CheckinFlow({
     }
 
     if (mode === "signout") {
-        return <SignOutPanel token={token} locationName={locationName} coords={coords} onCancel={reset} />
+        return (
+            <SignOutPanel
+                token={token}
+                locationName={locationName}
+                coords={coords}
+                requireCoords={!!geofence}
+                staleMessage={copy.staleLocation}
+                checkingLabel={copy.checkingLocation}
+                retryLabel={copy.retry}
+                onCancel={reset}
+            />
+        )
     }
 
     const stepIndex = steps.indexOf(step)
@@ -821,9 +846,15 @@ export function CheckinFlow({
                     <PhotoPicker value={photoDataUrl} onChange={setPhotoDataUrl} copy={copy} />
                     <NavRow
                         onBack={goBack}
-                        nextLabel={submitting ? copy.completeSignIn : copy.completeSignIn}
-                        nextDisabled={submitting || (typeRequiresPhoto(selectedType) && !photoDataUrl)}
-                        nextIcon={submitting ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
+                        nextLabel={
+                            checkingLocation
+                                ? copy.checkingLocation
+                                : error === copy.staleLocation
+                                    ? copy.retry
+                                    : copy.completeSignIn
+                        }
+                        nextDisabled={submitting || checkingLocation || (typeRequiresPhoto(selectedType) && !photoDataUrl)}
+                        nextIcon={submitting || checkingLocation ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
                         onNext={() => void submit()}
                         error={error}
                     />
@@ -1138,15 +1169,24 @@ function SignOutPanel({
     token,
     locationName,
     coords,
+    requireCoords,
+    staleMessage,
+    checkingLabel,
+    retryLabel,
     onCancel,
 }: {
     token: string
     locationName: string
     coords: DeviceCoords | null
+    requireCoords: boolean
+    staleMessage: string
+    checkingLabel: string
+    retryLabel: string
     onCancel: () => void
 }) {
     const [identifier, setIdentifier] = useState("")
     const [submitting, setSubmitting] = useState(false)
+    const [checkingLocation, setCheckingLocation] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [done, setDone] = useState<{ visitorName: string; badgeNumber: string | null } | null>(null)
 
@@ -1162,12 +1202,23 @@ function SignOutPanel({
         setSubmitting(true)
         setError(null)
         try {
+            let postCoords = coords
+            if (requireCoords) {
+                setCheckingLocation(true)
+                const resolved = await resolveFreshDeviceCoords({ action: "signout", fallback: coords })
+                setCheckingLocation(false)
+                if (!resolved.ok) {
+                    setError(staleMessage)
+                    return
+                }
+                postCoords = resolved.coords
+            }
             const res = await fetch(`/api/checkin/${token}/signout`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     ...(looksLikeBadge ? { badgeNumber: value.replace(/\s+/g, "") } : { email: value }),
-                    coords,
+                    coords: postCoords,
                 }),
             })
             const json = await res.json()
@@ -1177,6 +1228,7 @@ function SignOutPanel({
             setError(err instanceof Error ? err.message : "Could not complete sign-out")
         } finally {
             setSubmitting(false)
+            setCheckingLocation(false)
         }
     }
 
@@ -1237,11 +1289,11 @@ function SignOutPanel({
                 ) : null}
 
                 <div className="flex flex-col gap-2">
-                    <Button type="submit" size="lg" disabled={submitting} className="gap-2">
-                        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-                        Sign out
+                    <Button type="submit" size="lg" disabled={submitting || checkingLocation} className="gap-2">
+                        {submitting || checkingLocation ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                        {checkingLocation ? checkingLabel : error === staleMessage ? retryLabel : "Sign out"}
                     </Button>
-                    <Button type="button" size="lg" variant="ghost" onClick={onCancel} disabled={submitting}>
+                    <Button type="button" size="lg" variant="ghost" onClick={onCancel} disabled={submitting || checkingLocation}>
                         Cancel
                     </Button>
                 </div>

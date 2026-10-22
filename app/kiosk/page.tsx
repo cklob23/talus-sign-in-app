@@ -54,7 +54,8 @@ import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUn
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
-import { kioskClientGate } from "@/lib/checkin-geofence"
+import { kioskClientGate, shouldEnforceGeofence } from "@/lib/checkin-geofence"
+import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-device-coords"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
@@ -640,9 +641,15 @@ export default function KioskPage() {
   const fenceRadius = clientGate.verdict?.radius ?? geofenceRadius ?? null
   const fenceDistance = clientGate.verdict?.distance ?? selectedLocationDistance
 
-  function kioskCoordsPayload() {
-    if (!deviceCoords) return null
-    return deviceCoords
+  async function kioskCoordsPayload() {
+    if (geofenceOverride) return deviceCoords
+    const required = currentLocation ? shouldEnforceGeofence(currentLocation) : false
+    if (!required) return deviceCoords
+    const resolved = await resolveFreshDeviceCoords({ fallback: deviceCoords })
+    if (!resolved.ok) {
+      throw new Error(STALE_LOCATION_MESSAGE)
+    }
+    return resolved.coords
   }
 
   async function allowSignInAnyway() {
@@ -898,7 +905,7 @@ export default function KioskPage() {
         body: JSON.stringify({
           profile_id: employee.id,
           location_id: selectedLocation,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
         }),
       })
@@ -1575,7 +1582,7 @@ export default function KioskPage() {
           booking_id: selectedBooking?.id || null,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
         }),
       })
@@ -1654,7 +1661,7 @@ export default function KioskPage() {
           booking_id: selectedBooking.id,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
         }),
       })

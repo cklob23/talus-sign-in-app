@@ -37,7 +37,8 @@ const GOOD_ENOUGH_METERS = 25
  * over a few seconds, so we watch for up to SETTLE_MS. We use the most recent
  * reading, not the best-accuracy one ever seen. If the device is clearly inside
  * the fence we resolve immediately; if it is outside we wait for the fix to
- * settle before saying so.
+ * settle before saying so. After a verified fix the watch stays running so a
+ * recent fallback is available if getCurrentPosition fails at submit.
  */
 export function useLocationGate(geofence: CheckinGeofence | null) {
     const [status, setStatus] = useState<GateStatus>(() => (geofence ? { state: "checking" } : { state: "unsupported" }))
@@ -63,9 +64,14 @@ export function useLocationGate(geofence: CheckinGeofence | null) {
         const finish = (result: GateStatus) => {
             if (finished) return
             finished = true
-            if (watchId !== null) navigator.geolocation.clearWatch(watchId)
             window.clearTimeout(timer)
             setStatus(result)
+            // Keep watching after a verified fix so submit/sign-out can fall
+            // back to a reading still under 45 s if getCurrentPosition fails.
+            if (result.state !== "verified" && watchId !== null) {
+                navigator.geolocation.clearWatch(watchId)
+                watchId = null
+            }
         }
 
         const decide = () => {
@@ -93,6 +99,10 @@ export function useLocationGate(geofence: CheckinGeofence | null) {
                 // Always take the newest reading. An early sharp-but-wrong fix
                 // must not stick for the whole page load.
                 latest = reading
+                if (finished) {
+                    setStatus((prev) => (prev.state === "verified" ? { ...prev, coords: reading } : prev))
+                    return
+                }
                 const verdict = evaluateGeofence(geofence, latest)
                 // Inside the fence: no reason to make the visitor wait.
                 if (verdict.ok) {
