@@ -58,6 +58,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "User ID and email are required" }, { status: 400 })
     }
 
+    const appOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "")
+    if (!appOrigin) {
+      return NextResponse.json(
+        { error: "Server is not configured: NEXT_PUBLIC_SITE_URL is not set." },
+        { status: 500 },
+      )
+    }
+
     const adminClient = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -80,14 +88,6 @@ export async function POST(request: Request) {
 
     // Build a direct link to the reset-password page with the token as a query param.
     // The page verifies the token CLIENT-SIDE using the Supabase browser client.
-    const appOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "")
-    if (!appOrigin) {
-      return NextResponse.json(
-        { error: "Server is not configured: NEXT_PUBLIC_SITE_URL is not set." },
-        { status: 500 },
-      )
-    }
-
     const resetLink = `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
 
     // ---------- send email via SMTP ----------

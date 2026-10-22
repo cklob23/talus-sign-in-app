@@ -31,6 +31,14 @@ async function getSmtpSettings() {
 
 export async function POST(request: Request) {
     try {
+        const appOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "")
+        if (!appOrigin) {
+            return NextResponse.json(
+                { error: "Server is not configured: NEXT_PUBLIC_SITE_URL is not set." },
+                { status: 500 },
+            )
+        }
+
         const body = await request.json()
         const { email } = body
 
@@ -64,14 +72,6 @@ export async function POST(request: Request) {
         // The page verifies the token CLIENT-SIDE using the Supabase browser client,
         // which handles session management automatically. This avoids all server-side
         // redirect/PKCE/Supabase-redirect-URL-allowlist complexity.
-        const appOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "")
-        if (!appOrigin) {
-            return NextResponse.json(
-                { error: "Server is not configured: NEXT_PUBLIC_SITE_URL is not set." },
-                { status: 500 },
-            )
-        }
-
         const resetLink = `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
 
         // Send email via SMTP with company branding
