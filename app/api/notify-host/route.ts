@@ -52,6 +52,7 @@ export async function POST(request: Request) {
     const locationName = asOptionalString(raw.locationName, 200)
     const locationId = asOptionalUuid(raw.locationId)
     const visitorTypeName = asOptionalString(raw.visitorTypeName, 120)
+    const visitorTypeId = asOptionalUuid(raw.visitorTypeId)
     const visitorPhotoUrl = asOptionalHttpUrl(raw.visitorPhotoUrl)
     const notificationType: HostNotificationType =
       raw.notificationType === "completing_training" ? "completing_training" : "arrived"
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
       locationName === undefined ||
       locationId === undefined ||
       visitorTypeName === undefined ||
+      visitorTypeId === undefined ||
       visitorPhotoUrl === undefined
     ) {
       return NextResponse.json({ error: "Invalid field value" }, { status: 400 })
@@ -114,11 +116,13 @@ export async function POST(request: Request) {
       visitorName,
       visitorCompany,
       visitorTypeName,
+      visitorTypeId,
       badgeNumber,
       visitorPhotoUrl,
       purpose,
       signInId,
       idempotencyKey,
+      entrySource: auth.context.source === "qr" ? "qr" : "kiosk",
     })
 
     return NextResponse.json({

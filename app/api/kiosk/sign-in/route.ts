@@ -203,6 +203,8 @@ export async function POST(request: Request) {
       purpose: purpose ?? null,
       signInId: String(signInRecord.id),
       idempotencyKey: idempotency_key,
+      entrySource: "kiosk",
+      visitorTypeId: visitor_type_id,
     })
 
     return NextResponse.json({

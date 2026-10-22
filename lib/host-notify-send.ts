@@ -6,6 +6,8 @@ import { visitUrlForSignIn } from "@/lib/visit-token"
 import { resolveAppOrigin } from "@/lib/nda"
 import { renderHostArrivalEmail, renderHostTrainingEmail } from "@/lib/host-mail"
 import { resolveDisplayTimeZone } from "@/lib/timezone"
+import { hostEntryLabel, inferHostEntrySource, type HostEntrySource } from "@/lib/host-entry"
+import { fetchTrainingVideoSeconds, formatReadyAbout, trainingSecondsFromRecord } from "@/lib/training-ready"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -166,6 +168,78 @@ export async function resolveHostContact(
   return { name, email, phone }
 }
 
+async function lookupKioskName(locationId: string | null): Promise<string | null> {
+  if (!locationId) return null
+  try {
+    const admin = getAdminClient()
+    const { data: locationSetting } = await admin
+      .from("settings")
+      .select("value")
+      .eq("key", "kiosk_name")
+      .eq("location_id", locationId)
+      .maybeSingle()
+    const fromLocation = stringifySetting(locationSetting?.value)
+    if (fromLocation) return fromLocation
+
+    const { data: globalSetting } = await admin
+      .from("settings")
+      .select("value")
+      .eq("key", "kiosk_name")
+      .is("location_id", null)
+      .maybeSingle()
+    const fromGlobal = stringifySetting(globalSetting?.value)
+    if (fromGlobal) return fromGlobal
+
+    const { data: location } = await admin
+      .from("locations")
+      .select("*")
+      .eq("id", locationId)
+      .maybeSingle()
+    const fromRow = stringifySetting(
+      location && typeof location === "object"
+        ? (location as Record<string, unknown>).kiosk_name ?? (location as Record<string, unknown>).kioskName
+        : null,
+    )
+    return fromRow
+  } catch {
+    return null
+  }
+}
+
+function stringifySetting(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim()
+  if (value && typeof value === "object" && "name" in value && typeof (value as { name?: unknown }).name === "string") {
+    return (value as { name: string }).name.trim() || null
+  }
+  return null
+}
+
+async function lookupTrainingDurationSeconds(args: {
+  visitorTypeId?: string | null
+  visitorTypeName?: string | null
+  trainingDurationSeconds?: number | null
+}): Promise<number | null> {
+  if (args.trainingDurationSeconds && Number.isFinite(args.trainingDurationSeconds) && args.trainingDurationSeconds > 0) {
+    return args.trainingDurationSeconds
+  }
+  if (!args.visitorTypeId && !args.visitorTypeName) return null
+  try {
+    const admin = getAdminClient()
+    let query = admin.from("visitor_types").select("*")
+    query = args.visitorTypeId
+      ? query.eq("id", args.visitorTypeId)
+      : query.eq("name", args.visitorTypeName as string)
+    const { data } = await query.maybeSingle()
+    const stored = trainingSecondsFromRecord(data as Record<string, unknown> | null)
+    if (stored) return stored
+    const url = data && typeof data.training_video_url === "string" ? data.training_video_url : null
+    if (url) return await fetchTrainingVideoSeconds(url)
+  } catch {
+    return null
+  }
+  return null
+}
+
 export async function sendResolvedHostNotification(args: {
   host: ResolvedHost
   locationId?: string | null
@@ -181,6 +255,11 @@ export async function sendResolvedHostNotification(args: {
   hostId?: string | null
   signedInBy?: string | null
   locationLabel?: string | null
+  entrySource?: HostEntrySource | null
+  kioskName?: string | null
+  visitorTypeId?: string | null
+  trainingDurationSeconds?: number | null
+  readyAbout?: string | null
   trainingLine?: string | null
   arrivedAt?: string | Date | null
   timeZone?: string | null
@@ -274,6 +353,13 @@ export async function sendResolvedHostNotification(args: {
   visitUrl = sanitizeAppUrl(visitUrl, visitOrigin)
 
   const isTraining = args.notificationType === "completing_training"
+  const entrySource = inferHostEntrySource(args)
+  const kioskName = args.kioskName ?? (await lookupKioskName(args.locationId || null))
+  const entryLabel = args.locationLabel || hostEntryLabel(entrySource, kioskName)
+  let readyAbout = args.readyAbout ?? formatReadyAbout(args.trainingDurationSeconds)
+  if (isTraining && !readyAbout) {
+    readyAbout = formatReadyAbout(await lookupTrainingDurationSeconds(args)) ?? null
+  }
   const mailArgs = {
     visitorName,
     visitorCompany,
@@ -282,14 +368,15 @@ export async function sendResolvedHostNotification(args: {
     purpose,
     badgeNumber,
     locationName,
-    locationLabel: args.locationLabel || (args.signedInBy === "QR" ? "QR sign-in" : "Main lobby kiosk"),
-    signedInBy: args.signedInBy || "Kiosk",
+    locationLabel: entryLabel,
+    signedInBy: args.signedInBy || entryLabel,
     trainingLine: args.trainingLine || (isTraining ? "In progress. Not cleared yet." : undefined),
     arrivedAt: args.arrivedAt || new Date(),
     timeZone,
     visitUrl,
     logoUrl: notifSettings.companyLogo,
     appOrigin: visitOrigin,
+    readyAbout,
   }
   const rendered = isTraining ? renderHostTrainingEmail(mailArgs) : renderHostArrivalEmail(mailArgs)
 

@@ -1251,6 +1251,7 @@ export default function KioskPage() {
           visitorCompany: selectedBooking.visitor_company,
           purpose: selectedBooking.purpose,
           visitorTypeName: visitorTypeData?.name,
+          visitorTypeId: visitorTypeData?.id,
         })
 
         // Pre-fill the form with booking data for after training
@@ -1314,6 +1315,7 @@ export default function KioskPage() {
     visitorCompany?: string | null
     purpose?: string | null
     visitorTypeName?: string | null
+    visitorTypeId?: string | null
   }) {
     if (!hostNotificationsEnabled || !opts.hostId) return
 
@@ -1337,6 +1339,7 @@ export default function KioskPage() {
           locationId: currentLocation?.id,
           notificationType: "completing_training",
           visitorTypeName: opts.visitorTypeName,
+          visitorTypeId: opts.visitorTypeId,
           idempotencyKey: trainingIdempotencyKeyRef.current,
         }),
       })
@@ -1491,6 +1494,7 @@ export default function KioskPage() {
           visitorCompany: form.company,
           purpose: form.purpose,
           visitorTypeName: selectedVisitorType.name,
+          visitorTypeId: selectedVisitorType.id,
         })
 
         setMode("training")
