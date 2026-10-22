@@ -13,7 +13,7 @@ export interface PagedRows<T> {
 }
 
 export async function fetchPages<T>(
-  build: (from: number, to: number) => Promise<{ data: T[] | null; error: { code?: string; message?: string } | null }>,
+  build: (from: number, to: number) => Promise<{ data?: unknown; error?: { code?: string; message?: string } | null }>,
   maxRows = REPORT_EXPORT_MAX_ROWS,
 ): Promise<PagedRows<T>> {
   const all: T[] = []
@@ -22,7 +22,7 @@ export async function fetchPages<T>(
     const pageEnd = Math.min(from + REPORT_PAGE_SIZE - 1, cap - 1)
     const { data, error } = await build(from, pageEnd)
     if (error) throw new Error(error.message || "Failed to load report rows")
-    const rows = data || []
+    const rows = (Array.isArray(data) ? data : []) as T[]
     all.push(...rows)
     const requested = pageEnd - from + 1
     if (rows.length < requested) {
