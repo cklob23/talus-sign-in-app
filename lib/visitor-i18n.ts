@@ -1,3 +1,5 @@
+import { formatRadiusMeters } from "@/lib/location-radius"
+
 export type VisitorLang = "en" | "es"
 
 export const VISITOR_LANG_KEY = "talus_visitor_lang"
@@ -88,7 +90,7 @@ const en = {
   done: "Done",
   startingOver: "Starting over in {seconds}s. Tap to keep going.",
   geofenceVisitor: "Sign in is paused. Please ask reception.",
-  geofenceStaff: "This kiosk looks {distance} from {site}. Sign-in is set to stay within {radius}.",
+  geofenceStaff: "This kiosk is about {distance} from {site}. Sign-in only works within {radius}.",
   geofenceOverride: "Allow sign-in anyway",
   photoTitle: "Add a photo",
   photoHelp: "This goes on your visitor badge so your host can recognise you.",
@@ -179,7 +181,7 @@ const es: typeof en = {
   done: "Listo",
   startingOver: "Empezamos de nuevo en {seconds}s. Toque para seguir.",
   geofenceVisitor: "El registro está en pausa. Pregunte en recepción.",
-  geofenceStaff: "Este kiosco parece estar a {distance} de {site}. El registro debe estar dentro de {radius}.",
+  geofenceStaff: "Este kiosco está a unos {distance} de {site}. El registro solo funciona dentro de {radius}.",
   geofenceOverride: "Permitir el registro de todos modos",
   photoTitle: "Agregar una foto",
   photoHelp: "Va en su gafete para que su anfitrión lo reconozca.",
@@ -210,6 +212,20 @@ export function visitorCopy(lang: VisitorLang): VisitorCopy {
 
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? ""))
+}
+
+/** Staff geofence banner: same metre/km formatter as the kiosk header. */
+export function staffGeofenceLine(opts: {
+  copy: Pick<VisitorCopy, "geofenceStaff">
+  distanceMeters: number
+  site: string
+  radiusMeters: number
+}): string {
+  return fill(opts.copy.geofenceStaff, {
+    distance: formatRadiusMeters(opts.distanceMeters),
+    site: opts.site,
+    radius: formatRadiusMeters(opts.radiusMeters),
+  })
 }
 
 /** Host arrival copy is only for the success screen after notify was queued. */

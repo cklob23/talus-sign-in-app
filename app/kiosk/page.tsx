@@ -61,8 +61,10 @@ import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskLocationPicker } from "@/components/kiosk/kiosk-location-picker"
 import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
+import { KioskSessionLoading } from "@/components/kiosk/kiosk-session-loading"
+import { kioskBootScreen } from "@/lib/kiosk-boot"
 import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite, writeStaffSite } from "@/lib/kiosk-site"
-import { fill, hostArrivalMessage, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
+import { fill, hostArrivalMessage, readVisitorLang, staffGeofenceLine, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
 import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
@@ -121,6 +123,7 @@ export default function KioskPage() {
   const [receptionistEmail, setReceptionistEmail] = useState("")
   const [receptionistPassword, setReceptionistPassword] = useState("")
   const [receptionistLoading, setReceptionistLoading] = useState(true)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [receptionistError, setReceptionistError] = useState<string | null>(null)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
@@ -319,6 +322,7 @@ export default function KioskPage() {
       } catch (err) {
         console.error("Failed to check receptionist session:", err)
       } finally {
+        setSessionChecked(true)
         setReceptionistLoading(false)
       }
     }
@@ -2282,6 +2286,15 @@ export default function KioskPage() {
 
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
   const copy = visitorCopy(lang)
+  const staffFenceDetail =
+    fenceDistance != null && fenceRadius != null
+      ? staffGeofenceLine({
+          copy,
+          distanceMeters: fenceDistance,
+          site: currentLocation?.name || "this site",
+          radiusMeters: fenceRadius,
+        })
+      : null
   const visitorBlockedByGeofence =
     (clientGate.blocked && clientGate.reason === "checking") || (isOutsideGeofence && !geofenceOverride)
 
@@ -2329,6 +2342,10 @@ export default function KioskPage() {
       events.forEach((event) => window.removeEventListener(event, bump))
     }
   }, [mode, videoStarted, trainingWatched, isLoading])
+
+  if (kioskBootScreen({ sessionChecked, hasSession: Boolean(receptionistUser) }) === "loading") {
+    return <KioskSessionLoading />
+  }
 
   return (
     <div className="kiosk-touch min-h-screen bg-[#f5f8f6]">
@@ -2548,15 +2565,7 @@ export default function KioskPage() {
                 <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
                 {receptionistUser && (
                   <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-                    {fenceDistance != null && fenceRadius != null ? (
-                      <p>
-                        {fill(copy.geofenceStaff, {
-                          distance: formatDistance(fenceDistance, ""),
-                          site: currentLocation?.name || "this site",
-                          radius: formatDistance(fenceRadius, ""),
-                        })}
-                      </p>
-                    ) : null}
+                    {staffFenceDetail ? <p>{staffFenceDetail}</p> : null}
                     <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                       {copy.geofenceOverride}
                     </Button>
@@ -2717,15 +2726,7 @@ export default function KioskPage() {
                 <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
                 {receptionistUser && (
                   <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-                    {fenceDistance != null && fenceRadius != null ? (
-                      <p>
-                        {fill(copy.geofenceStaff, {
-                          distance: formatDistance(fenceDistance, ""),
-                          site: currentLocation?.name || "this site",
-                          radius: formatDistance(fenceRadius, ""),
-                        })}
-                      </p>
-                    ) : null}
+                    {staffFenceDetail ? <p>{staffFenceDetail}</p> : null}
                     <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                       {copy.geofenceOverride}
                     </Button>
@@ -2980,15 +2981,7 @@ export default function KioskPage() {
                       <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
                       {receptionistUser && (
                         <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-                          {fenceDistance != null && fenceRadius != null ? (
-                            <p>
-                              {fill(copy.geofenceStaff, {
-                                distance: formatDistance(fenceDistance, ""),
-                                site: currentLocation?.name || "this site",
-                                radius: formatDistance(fenceRadius, ""),
-                              })}
-                            </p>
-                          ) : null}
+                          {staffFenceDetail ? <p>{staffFenceDetail}</p> : null}
                           <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                             {copy.geofenceOverride}
                           </Button>
@@ -3148,15 +3141,7 @@ export default function KioskPage() {
                         <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
                         {receptionistUser && (
                           <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-                            {fenceDistance != null && fenceRadius != null ? (
-                              <p>
-                                {fill(copy.geofenceStaff, {
-                                  distance: formatDistance(fenceDistance, ""),
-                                  site: currentLocation?.name || "this site",
-                                  radius: formatDistance(fenceRadius, ""),
-                                })}
-                              </p>
-                            ) : null}
+                            {staffFenceDetail ? <p>{staffFenceDetail}</p> : null}
                             <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                               {copy.geofenceOverride}
                             </Button>
