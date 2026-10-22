@@ -26,9 +26,10 @@ services:
     envVars:
       - fromGroup: talus-cron
 
-  # Dashboard cron talus-reports (crn-dbd2q8avcj2c739frivg). Both endpoints
-  # always run; a failure on one does not skip the other. The job exits
-  # non-zero if either curl fails.
+  # Dashboard cron talus-reports (crn-dbd2q8avcj2c739frivg) only curls
+  # POST /api/cron/reports (the dashboard command cannot be changed).
+  # That endpoint now runs booking invites and scheduled reports in the
+  # same request. curl -f fails if either job fails.
   - type: cron
     name: talus-reports
     runtime: node
@@ -36,7 +37,7 @@ services:
     region: oregon
     schedule: "*/15 * * * *"
     buildCommand: echo skip
-    startCommand: sh -c 'status=0; curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/booking-invites" || status=1; curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/reports" || status=1; exit $status'
+    startCommand: curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/reports"
     envVars:
       - fromGroup: talus-cron
 
