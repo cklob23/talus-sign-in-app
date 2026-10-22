@@ -1,7 +1,7 @@
 export const REPORT_KINDS = ["visitors", "employees", "training"] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
-export const RANGE_TYPES = ["previous_day", "previous_week", "previous_month", "last_n_days"] as const
+export const RANGE_TYPES = ["previous_day", "previous_week", "previous_month", "last_n_days", "today", "all_time"] as const
 export type RangeType = (typeof RANGE_TYPES)[number]
 
 export const FREQUENCIES = ["daily", "weekly", "monthly"] as const
@@ -39,7 +39,22 @@ export const RANGE_TYPE_LABELS: Record<RangeType, string> = {
   previous_week: "Previous week",
   previous_month: "Previous month",
   last_n_days: "Last N days",
+  today: "Today",
+  all_time: "All time",
 }
+
+export const DASHBOARD_PERIODS = [
+  { value: "1", label: "Last 24 hours" },
+  { value: "today", label: "Today" },
+  { value: "7", label: "Last 7 days" },
+  { value: "14", label: "Last 14 days" },
+  { value: "30", label: "Last 30 days" },
+  { value: "90", label: "Last 90 days" },
+  { value: "all", label: "All time" },
+  { value: "custom", label: "Custom range" },
+] as const
+
+export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number]["value"]
 
 export const FREQUENCY_LABELS: Record<ReportFrequency, string> = {
   daily: "Daily",
@@ -138,17 +153,38 @@ export function isTalusRecipient(email: string): boolean {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+export function splitRecipientTokens(raw: string | string[]): string[] {
+  const parts = Array.isArray(raw) ? raw : raw.split(/[,;\s]+/)
+  return parts.map((part) => (typeof part === "string" ? part.trim() : "")).filter(Boolean)
+}
+
 export function normalizeRecipient(email: string): string | null {
   const value = email.trim().toLowerCase()
   if (!value || value.length > 254 || !EMAIL_RE.test(value)) return null
+  if (value.includes("..") || value.startsWith(".") || value.endsWith(".")) return null
+  const at = value.lastIndexOf("@")
+  const domain = at >= 0 ? value.slice(at + 1) : ""
+  if (!domain.includes(".") || domain.startsWith("-") || domain.endsWith("-")) return null
   return value
 }
 
-export function parseRecipientList(raw: string | string[]): string[] {
-  const parts = Array.isArray(raw) ? raw : raw.split(/[,;\s]+/)
+export function invalidRecipientTokens(raw: string | string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-  for (const part of parts) {
+  for (const part of splitRecipientTokens(raw)) {
+    if (normalizeRecipient(part)) continue
+    const key = part.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(part)
+  }
+  return out
+}
+
+export function parseRecipientList(raw: string | string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of splitRecipientTokens(raw)) {
     const email = normalizeRecipient(part)
     if (!email || seen.has(email)) continue
     seen.add(email)

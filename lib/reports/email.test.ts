@@ -25,4 +25,25 @@ describe("report email", () => {
     assert.equal(mail.text.includes("\u2014"), false)
     assert.match(mail.subject, /Nightly visitor log/)
   })
+
+  it("labels an all-time ad-hoc period without a 1970 start date", () => {
+    const mail = renderReportEmail({
+      scheduleName: "Ad-hoc visitor sign-ins",
+      kind: "visitors",
+      periodStart: "1970-01-01T00:00:00.000Z",
+      periodEnd: "2026-10-22T18:00:00.000Z",
+      timezone: "America/New_York",
+      locationNames: [],
+      rowCount: 40,
+      format: "summary",
+      csvAttached: false,
+      badge: "Ad-hoc report",
+      periodLabel: "All time",
+    })
+    assert.match(mail.html, /Ad-hoc report/)
+    assert.match(mail.html, /All time/)
+    assert.equal(mail.html.includes("1970"), false)
+    assert.equal(mail.text.includes("1970"), false)
+    assert.equal(mail.html.includes("\u2014"), false)
+  })
 })

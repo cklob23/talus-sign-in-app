@@ -14,8 +14,6 @@ export function csvWithBom(rows: Array<Array<string | number | boolean | null | 
 }
 
 export function csvFilename(kind: string, fromIso: string, toIso: string): string {
-  const from = fromIso.slice(0, 10)
-  const to = toIso.slice(0, 10)
   const slug =
     kind === "visitors"
       ? "visitor-sign-ins"
@@ -24,5 +22,10 @@ export function csvFilename(kind: string, fromIso: string, toIso: string): strin
         : kind === "training"
           ? "training-completions"
           : "report"
+  if (!fromIso || fromIso.startsWith("1970-01-01") || fromIso.startsWith("1969-")) {
+    return `${slug}-all-time.csv`
+  }
+  const from = fromIso.slice(0, 10)
+  const to = toIso.slice(0, 10)
   return `${slug}-${from}-to-${to}.csv`
 }

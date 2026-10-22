@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { computeNextRunAt, isScheduleDue, resolveReportPeriod, rollingWindow } from "./period.ts"
+import {
+  computeNextRunAt,
+  isScheduleDue,
+  resolveOnDemandWindow,
+  resolveReportPeriod,
+  rollingWindow,
+} from "./period.ts"
 
 describe("resolveReportPeriod", () => {
   it("uses previous calendar day in the site timezone, including across DST spring forward", () => {
@@ -70,6 +76,76 @@ describe("rollingWindow", () => {
     const window = rollingWindow("7", "America/Chicago", now)
     assert.equal(window.start.toISOString(), "2026-10-15T05:00:00.000Z")
     assert.equal(window.end.toISOString(), now.toISOString())
+  })
+})
+
+describe("all time, today, and custom windows", () => {
+  it("resolves scheduled all-time from epoch and keys the run on today midnight", () => {
+    const now = new Date("2026-10-22T18:00:00.000Z")
+    const period = resolveReportPeriod({
+      rangeType: "all_time",
+      timezone: "America/New_York",
+      now,
+    })
+    assert.equal(period.start.toISOString(), "1970-01-01T00:00:00.000Z")
+    assert.equal(period.end.toISOString(), now.toISOString())
+    assert.equal(period.runStart.toISOString(), "2026-10-22T04:00:00.000Z")
+  })
+
+  it("resolves today as local midnight through now, not the last 24 hours", () => {
+    const now = new Date("2026-10-22T18:00:00.000Z")
+    const today = resolveOnDemandWindow({ period: "today", timezone: "America/New_York", now })
+    const lastDay = resolveOnDemandWindow({ period: "1", timezone: "America/New_York", now })
+    assert.equal(today.start.toISOString(), "2026-10-22T04:00:00.000Z")
+    assert.equal(today.end.toISOString(), now.toISOString())
+    assert.equal(lastDay.start.toISOString(), "2026-10-21T18:00:00.000Z")
+    assert.ok(today.start.getTime() > lastDay.start.getTime())
+  })
+
+  it("interprets a custom range in the selected site timezone, inclusive of the end date", () => {
+    const now = new Date("2026-10-22T18:00:00.000Z")
+    const window = resolveOnDemandWindow({
+      period: "custom",
+      timezone: "America/Chicago",
+      customStart: "2026-10-01",
+      customEnd: "2026-10-07",
+      now,
+    })
+    assert.equal(window.start.toISOString(), "2026-10-01T05:00:00.000Z")
+    assert.equal(window.end.toISOString(), "2026-10-08T05:00:00.000Z")
+  })
+
+  it("keeps custom range bounds correct across DST spring forward", () => {
+    const now = new Date("2026-03-09T17:00:00.000Z")
+    const window = resolveOnDemandWindow({
+      period: "custom",
+      timezone: "America/Chicago",
+      customStart: "2026-03-08",
+      customEnd: "2026-03-08",
+      now,
+    })
+    assert.equal(window.start.toISOString(), "2026-03-08T06:00:00.000Z")
+    assert.equal(window.end.toISOString(), "2026-03-09T05:00:00.000Z")
+  })
+
+  it("keeps a 25-hour custom day across DST fall back", () => {
+    const now = new Date("2026-11-02T18:00:00.000Z")
+    const window = resolveOnDemandWindow({
+      period: "custom",
+      timezone: "America/Chicago",
+      customStart: "2026-11-01",
+      customEnd: "2026-11-01",
+      now,
+    })
+    assert.equal(window.start.toISOString(), "2026-11-01T05:00:00.000Z")
+    assert.equal(window.end.toISOString(), "2026-11-02T06:00:00.000Z")
+    assert.equal(window.end.getTime() - window.start.getTime(), 25 * 60 * 60 * 1000)
+  })
+
+  it("uses America/New_York for all-sites today", () => {
+    const now = new Date("2026-10-22T18:00:00.000Z")
+    const window = resolveOnDemandWindow({ period: "today", timezone: "America/New_York", now })
+    assert.equal(window.start.toISOString(), "2026-10-22T04:00:00.000Z")
   })
 })
 

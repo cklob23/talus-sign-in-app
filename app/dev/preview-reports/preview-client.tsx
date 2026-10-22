@@ -1,10 +1,13 @@
 "use client"
 
+import { ReportFilterBar } from "@/components/admin/reports/filter-bar"
 import { ScheduleForm } from "@/components/admin/reports/schedule-form"
 import { ScheduledTab } from "@/components/admin/reports/scheduled-tab"
+import { SendReportDialog } from "@/components/admin/reports/send-dialog"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
+import { Toaster } from "@/components/ui/toaster"
 import { renderReportEmail } from "@/lib/reports/email"
-import type { ReportRun, ReportSchedule } from "@/lib/reports/types"
+import { DASHBOARD_PERIODS, type ReportRun, type ReportSchedule } from "@/lib/reports/types"
 
 const locations = [
   { id: "loc-houston", name: "Houston HQ", timezone: "America/Chicago" },
@@ -124,17 +127,21 @@ const trainingRows = [
 ]
 
 const email = renderReportEmail({
-  scheduleName: "Nightly visitor log",
+  scheduleName: "Ad-hoc visitor sign-ins",
   kind: "visitors",
-  periodStart: "2026-10-21T05:00:00.000Z",
-  periodEnd: "2026-10-22T05:00:00.000Z",
-  timezone: "America/Chicago",
+  periodStart: "1970-01-01T00:00:00.000Z",
+  periodEnd: "2026-10-22T18:00:00.000Z",
+  timezone: "America/New_York",
   locationNames: ["Houston HQ"],
   rowCount: 18,
   format: "both",
   csvAttached: true,
   logoUrl: "",
+  badge: "Ad-hoc report",
+  periodLabel: "All time",
+  extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
 })
+const emailHtml = email.html.replaceAll("Geist,'Segoe UI',Helvetica,Arial,sans-serif", "Liberation Sans,DejaVu Sans,Arial,sans-serif")
 
 export function PreviewReportsScreens({ screen }: { screen?: string }) {
   const only = screen?.trim() || "all"
@@ -142,6 +149,56 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
 
   return (
     <div className="min-h-screen space-y-16 bg-[#eef4f0] p-6">
+      <Toaster />
+      {show("timeframe") ? (
+        <section id="timeframe" className="mx-auto max-w-5xl rounded-xl bg-background p-6 shadow-sm">
+          <h1 className="text-2xl font-bold mb-1">Reports</h1>
+          <p className="text-sm text-muted-foreground mb-4">
+            Sign-in logs, training completions, and scheduled email reports. Times use each site timezone.
+          </p>
+          <div className="flex flex-wrap items-start gap-6">
+            <ReportFilterBar
+              period="all"
+              onPeriodChange={() => {}}
+              locations={locations}
+              selectedLocations={[]}
+              onLocationsChange={() => {}}
+              visitorTypes={visitorTypes}
+              selectedVisitorTypes={[]}
+              onVisitorTypesChange={() => {}}
+              showVisitorTypes
+            />
+            <div className="w-48 rounded-md border bg-popover p-1 shadow-md">
+              {DASHBOARD_PERIODS.map((item) => (
+                <div
+                  key={item.value}
+                  className={`rounded-sm px-2 py-1.5 text-sm ${item.value === "all" ? "bg-accent font-medium" : ""}`}
+                >
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {show("send-dialog") ? (
+        <section id="send-dialog" className="mx-auto max-w-5xl rounded-xl bg-background p-6 shadow-sm min-h-[32rem]">
+          <h1 className="text-2xl font-bold mb-4">Reports</h1>
+          <SendReportDialog
+            open
+            onOpenChange={() => {}}
+            kind="visitors"
+            period="all"
+            timezone="America/New_York"
+            locationIds={[]}
+            visitorTypeIds={[]}
+            previewRecipients="caleb@talusag.com, ops@partner.com"
+            previewInline
+          />
+        </section>
+      ) : null}
+
       {show("scheduled-list") ? (
         <section id="scheduled-list" className="mx-auto max-w-5xl rounded-xl bg-background p-6 shadow-sm">
           <ScheduledTab
@@ -174,8 +231,9 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
         <section id="training" className="mx-auto max-w-5xl rounded-xl bg-background p-6 shadow-sm">
           <h1 className="text-2xl font-bold mb-4">Reports</h1>
           <TrainingTab
-            period="30"
+            period="all"
             onPeriodChange={() => {}}
+            timezone="America/New_York"
             locations={locations}
             selectedLocations={[]}
             onLocationsChange={() => {}}
@@ -185,6 +243,7 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
             fromIso="2026-09-22T05:00:00.000Z"
             toIso="2026-10-22T17:00:00.000Z"
             previewRows={trainingRows}
+            canSend
           />
         </section>
       ) : null}
@@ -194,7 +253,7 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
           <iframe
             title="Report email"
             className="h-[880px] w-full rounded-xl border bg-white"
-            srcDoc={email.html}
+            srcDoc={emailHtml}
           />
         </section>
       ) : null}

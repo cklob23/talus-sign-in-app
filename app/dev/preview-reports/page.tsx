@@ -17,7 +17,7 @@ export default async function PreviewReportsPage({
   const params = await searchParams
   return (
     <>
-      <style>{`nextjs-portal { display: none !important; }`}</style>
+      <style>{`nextjs-portal { display: none !important; } html, body, * { font-family: "Liberation Sans", "DejaVu Sans", Inter, sans-serif !important; letter-spacing: 0 !important; }`}</style>
       <PreviewReportsScreens screen={params.screen} />
     </>
   )

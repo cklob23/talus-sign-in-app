@@ -3,9 +3,11 @@
 import { Building2, Tags } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DASHBOARD_PERIODS } from "@/lib/reports/types"
 
 export interface FilterOption {
   id: string
@@ -75,6 +77,10 @@ function MultiFilter({
 export function ReportFilterBar({
   period,
   onPeriodChange,
+  customStart,
+  customEnd,
+  onCustomStartChange,
+  onCustomEndChange,
   locations,
   selectedLocations,
   onLocationsChange,
@@ -82,9 +88,14 @@ export function ReportFilterBar({
   selectedVisitorTypes,
   onVisitorTypesChange,
   showVisitorTypes = false,
+  previewOpen = false,
 }: {
   period: string
   onPeriodChange: (value: string) => void
+  customStart?: string
+  customEnd?: string
+  onCustomStartChange?: (value: string) => void
+  onCustomEndChange?: (value: string) => void
   locations: FilterOption[]
   selectedLocations: string[]
   onLocationsChange: (next: string[]) => void
@@ -92,21 +103,47 @@ export function ReportFilterBar({
   selectedVisitorTypes?: string[]
   onVisitorTypesChange?: (next: string[]) => void
   showVisitorTypes?: boolean
+  previewOpen?: boolean
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Select value={period} onValueChange={onPeriodChange}>
-        <SelectTrigger className="w-36 sm:w-44">
+      <Select value={period} onValueChange={onPeriodChange} open={previewOpen || undefined}>
+        <SelectTrigger className="w-40 sm:w-48">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="1">Last 24 hours</SelectItem>
-          <SelectItem value="7">Last 7 days</SelectItem>
-          <SelectItem value="14">Last 14 days</SelectItem>
-          <SelectItem value="30">Last 30 days</SelectItem>
-          <SelectItem value="90">Last 90 days</SelectItem>
+          {DASHBOARD_PERIODS.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
+      {period === "custom" && onCustomStartChange && onCustomEndChange && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Label className="sr-only" htmlFor="report-custom-start">
+            Start date
+          </Label>
+          <Input
+            id="report-custom-start"
+            type="date"
+            value={customStart || ""}
+            onChange={(event) => onCustomStartChange(event.target.value)}
+            className="h-9 w-[11.5rem]"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Label className="sr-only" htmlFor="report-custom-end">
+            End date
+          </Label>
+          <Input
+            id="report-custom-end"
+            type="date"
+            value={customEnd || ""}
+            onChange={(event) => onCustomEndChange(event.target.value)}
+            className="h-9 w-[11.5rem]"
+          />
+        </div>
+      )}
       <MultiFilter
         label="Sites"
         icon={Building2}

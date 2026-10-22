@@ -30,7 +30,7 @@ async function runDueReports() {
     try {
       claimed = await claimScheduledRun(admin, {
         scheduleId: schedule.id,
-        periodStart: period.start.toISOString(),
+        periodStart: period.runStart.toISOString(),
         periodEnd: period.end.toISOString(),
         recipients: schedule.recipients,
         now,
