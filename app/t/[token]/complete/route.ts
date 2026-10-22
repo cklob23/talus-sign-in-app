@@ -52,11 +52,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     })
   }
 
+  let company = typeof read.payload.company === "string" ? read.payload.company.trim() : ""
+  if (!company && read.payload.bookingId) {
+    const { data: booking } = await admin
+      .from("bookings")
+      .select("visitor_company")
+      .eq("id", read.payload.bookingId)
+      .maybeSingle()
+    company = booking?.visitor_company?.trim() || ""
+  }
+  if (!company) {
+    const { data: send } = await admin
+      .from("training_link_sends")
+      .select("visitor_company")
+      .eq("visitor_email", read.payload.email)
+      .eq("visitor_type_id", read.payload.visitorTypeId)
+      .eq("location_id", read.payload.locationId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    company = send?.visitor_company?.trim() || ""
+  }
+
   const visitor = await findOrCreateVisitorByEmail(admin, {
     email: read.payload.email,
     firstName: read.payload.firstName,
     lastName: read.payload.lastName,
-    company: read.payload.company,
+    company: company || null,
   })
   if (!visitor) {
     return NextResponse.json({ error: "Could not save your training." }, { status: 500 })

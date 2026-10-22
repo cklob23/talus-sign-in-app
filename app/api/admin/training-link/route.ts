@@ -91,12 +91,10 @@ export async function POST(request: Request) {
       email,
       firstName,
       lastName,
-      company: company || null,
       visitorTypeId,
       locationId,
       bookingId,
       hostId,
-      hostName,
     },
   })
   const origin = resolveAppOrigin(request)
@@ -111,6 +109,7 @@ export async function POST(request: Request) {
     siteName: location.name,
     videoTitle: visitorType.training_title || "Site Safety Orientation",
     watchUrl,
+    appOrigin: origin,
     logoUrl: branding.companyLogo || `${origin}/talusAg_Logo.png`,
   })
 

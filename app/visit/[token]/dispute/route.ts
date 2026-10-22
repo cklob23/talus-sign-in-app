@@ -4,6 +4,7 @@ import { readVisitToken, visitUrlFromRequest } from "@/lib/visit-token"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
 import { sendEmail } from "@/lib/email"
 import { renderDisputeEmail } from "@/lib/training-mail"
+import { resolveAppOrigin } from "@/lib/nda"
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const limited = rateLimit(`visit-dispute:${clientIp(request)}`, 8, 10 * 60 * 1000)
@@ -65,6 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       company: visitor?.company || null,
       badgeNumber: signIn.badge_number,
       visitUrl,
+      appOrigin: resolveAppOrigin(request),
     })
     await sendEmail({ to: recipients, ...mail })
   }
