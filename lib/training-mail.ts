@@ -1,5 +1,4 @@
 import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
-import { sendEmail } from "@/lib/email"
 
 const IT_SUPPORT = "it_support@talusag.com"
 
@@ -207,11 +206,13 @@ export function renderTrainingCodeEmail(args: TrainingCodeMailArgs): { subject: 
 }
 
 export async function sendTrainingLinkEmail(args: TrainingLinkMailArgs & { to: string }) {
+  const { sendEmail } = await import("@/lib/email")
   const rendered = renderTrainingLinkEmail(args)
   return sendEmail({ to: args.to, ...rendered })
 }
 
 export async function sendTrainingCodeEmail(args: TrainingCodeMailArgs & { to: string }) {
+  const { sendEmail } = await import("@/lib/email")
   const rendered = renderTrainingCodeEmail(args)
   return sendEmail({ to: args.to, ...rendered })
 }
