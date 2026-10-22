@@ -4,6 +4,7 @@ import { useState } from "react"
 import { PublicVisitorChrome } from "@/lib/public-visitor-chrome"
 import { Button } from "@/components/ui/button"
 import { formatDateTimeWithZone } from "@/lib/timezone"
+import { visitActionsVisible, visitDepartureStamp, visitLinkFooter } from "@/lib/visit-page"
 
 export function VisitPageClient({
   token,
@@ -23,6 +24,7 @@ export function VisitPageClient({
   companyName,
   logoUrl,
   signedOut,
+  expiresAt,
 }: {
   token: string
   visitorName: string
@@ -41,10 +43,14 @@ export function VisitPageClient({
   companyName: string
   logoUrl: string | null
   signedOut: boolean
+  expiresAt: number
 }) {
   const [status, setStatus] = useState<"on_site" | "signed_out" | "disputed">(signedOut ? "signed_out" : "on_site")
+  const [departedAt, setDepartedAt] = useState<string | null>(signedOutAt)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const readOnly = !visitActionsVisible(status === "signed_out" || Boolean(departedAt))
+  const departure = visitDepartureStamp(departedAt, timezone)
 
   async function signOut() {
     if (busy || status !== "on_site") return
@@ -54,6 +60,7 @@ export function VisitPageClient({
       const res = await fetch(`/visit/${encodeURIComponent(token)}/sign-out`, { method: "POST" })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Could not sign the visitor out.")
+      setDepartedAt(typeof json.signedOutAt === "string" ? json.signedOutAt : new Date().toISOString())
       setStatus("signed_out")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign the visitor out.")
@@ -82,7 +89,7 @@ export function VisitPageClient({
     <PublicVisitorChrome
       companyName={companyName}
       logoUrl={logoUrl}
-      footer={`This link works for ${hostName} and expires when ${visitorName.split(" ")[0]} signs out.`}
+      footer={visitLinkFooter(hostName, expiresAt, timezone)}
     >
       <p className="text-sm text-[#55625a]">For {hostName}</p>
       <div className="mt-2 inline-flex items-center gap-2 self-start rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
@@ -108,6 +115,7 @@ export function VisitPageClient({
       <div className="mt-6 overflow-hidden rounded-2xl border border-[#dce6df] bg-white">
         <Row label="Site" value={siteName} />
         <Row label="Arrived" value={formatDateTimeWithZone(arrivalTime, timezone)} />
+        {departure ? <Row label="Departed" value={departure} /> : null}
         {badgeNumber ? <Row label="Badge" value={badgeNumber} mono /> : null}
         {purpose ? <Row label="Purpose" value={purpose} /> : null}
         <Row
@@ -123,7 +131,7 @@ export function VisitPageClient({
         </p>
       ) : null}
 
-      {status === "signed_out" || signedOutAt ? (
+      {readOnly ? (
         <p className="mt-6 rounded-xl bg-[#e2f4e9] p-4 text-[#00703f]">
           {visitorName} is signed out.
         </p>
@@ -133,7 +141,7 @@ export function VisitPageClient({
         </Button>
       )}
 
-      {status !== "disputed" ? (
+      {!readOnly && status !== "disputed" ? (
         <Button
           variant="outline"
           className="mt-3 h-14 w-full border-[#b3000a] text-[#b3000a] hover:bg-[#fdecec]"

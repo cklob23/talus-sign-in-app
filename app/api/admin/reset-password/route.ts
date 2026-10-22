@@ -5,6 +5,8 @@ import { logAuditServer } from "@/lib/audit-log"
 import nodemailer from "nodemailer"
 import { NextResponse } from "next/server"
 import { smtpTransportOptions } from "@/lib/smtp-transport"
+import { sanitizeAppUrl } from "@/lib/html-escape"
+import { renderPasswordResetEmail } from "@/lib/password-mail"
 
 /** Load SMTP + company branding from the settings table */
 async function getSmtpSettings() {
@@ -89,7 +91,13 @@ export async function POST(request: Request) {
 
     // Build a direct link to the reset-password page with the token as a query param.
     // The page verifies the token CLIENT-SIDE using the Supabase browser client.
-    const resetLink = `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
+    const resetLink = sanitizeAppUrl(
+      `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`,
+      appOrigin,
+    )
+    if (!resetLink) {
+      return NextResponse.json({ error: "Failed to build a valid reset link." }, { status: 500 })
+    }
 
     // ---------- send email via SMTP ----------
     const smtp = await getSmtpSettings()
@@ -108,33 +116,19 @@ export async function POST(request: Request) {
       pass: smtp.pass,
     }))
 
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        ${smtp.companyLogo ? `<img src="${smtp.companyLogo}" alt="${smtp.companyName}" style="height:40px;margin-bottom:24px;" />` : `<h2 style="margin-bottom:24px;color:#333;">${smtp.companyName}</h2>`}
-        <p style="font-size:16px;color:#333;">Hi,</p>
-        <p style="font-size:14px;color:#555;line-height:1.6;">
-          A password reset has been requested for your account. Click the button below to choose a new password.
-        </p>
-        <div style="text-align:center;margin:32px 0;">
-          <a href="${resetLink}"
-             style="display:inline-block;padding:12px 32px;background:#16a34a;color:#fff;
-                    text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">
-            Reset Password
-          </a>
-        </div>
-        <p style="font-size:12px;color:#888;line-height:1.5;">
-          If you did not request this, you can safely ignore this email. This link will expire in 24 hours.
-        </p>
-        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-        <p style="font-size:11px;color:#aaa;">${smtp.companyName} Visitor Management</p>
-      </div>
-    `
+    const rendered = renderPasswordResetEmail({
+      email,
+      resetUrl: resetLink,
+      logoUrl: smtp.companyLogo,
+      appOrigin,
+    })
 
     await transporter.sendMail({
-      from: `"${smtp.companyName} Visitor Management" <${smtp.fromEmail}>`,
+      from: `"Talus Ag Visitor Management" <${smtp.fromEmail}>`,
       to: email,
-      subject: `${smtp.companyName} - Reset Your Password`,
-      html: htmlBody,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
     })
 
     // Audit log

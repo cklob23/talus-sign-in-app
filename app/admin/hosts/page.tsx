@@ -24,6 +24,7 @@ import {
 import { Plus, Pencil, Trash2, UserCog } from "lucide-react"
 import type { Host, Location, Profile } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import { AdminLoadError } from "@/components/admin/load-error"
 
 type ProfileBasic = Pick<Profile, "id" | "full_name" | "email" | "phone" | "department" | "avatar_url">
 
@@ -34,6 +35,7 @@ export default function HostsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingHost, setEditingHost] = useState<Host | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -46,13 +48,20 @@ export default function HostsPage() {
 
   async function loadData() {
     setIsLoading(true)
+    setLoadError(null)
     const supabase = createClient()
 
-    const [{ data: hostsData }, { data: locationsData }, { data: profilesData }] = await Promise.all([
+    const [{ data: hostsData, error: hostsErr }, { data: locationsData }, { data: profilesData }] = await Promise.all([
       supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department, avatar_url)").order("name"),
       supabase.from("locations").select("*").order("name"),
       supabase.from("profiles").select("id, full_name, email, phone, department, avatar_url").order("full_name"),
     ])
+
+    if (hostsErr) {
+      setLoadError(hostsErr.message || "Could not load hosts.")
+      setIsLoading(false)
+      return
+    }
 
     if (hostsData) setHosts(hostsData)
     if (locationsData) {
@@ -300,8 +309,13 @@ export default function HostsPage() {
         <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           {isLoading ? (
             <p className="text-center py-8 text-muted-foreground">Loading...</p>
+          ) : loadError ? (
+            <AdminLoadError title="Could not load hosts" detail={loadError} onRetry={loadData} />
           ) : hosts.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">No hosts found</p>
+            <div className="py-8 text-center">
+              <p className="text-muted-foreground">No hosts found</p>
+              <p className="mt-1 text-sm text-muted-foreground">Add a host so visitors can choose who they are here to see.</p>
+            </div>
           ) : (
             <>
               {/* Mobile card view */}

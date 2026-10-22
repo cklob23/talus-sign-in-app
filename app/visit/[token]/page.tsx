@@ -4,6 +4,7 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { getBrandingSettings } from "@/lib/branding"
 import { getTrainingClearance } from "@/lib/training-clearance"
 import { rateLimit } from "@/lib/rate-limit"
+import { visitorFullName } from "@/lib/visit-page"
 
 export const dynamic = "force-dynamic"
 
@@ -47,7 +48,7 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
     : null
 
   const signedOut = Boolean(signIn.sign_out_time)
-  const visitorName = visitor ? `${visitor.first_name} ${visitor.last_name}` : "Visitor"
+  const visitorName = visitorFullName(visitor?.first_name, visitor?.last_name)
 
   return (
     <VisitPageClient
@@ -68,6 +69,7 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
       companyName={branding.companyName}
       logoUrl={branding.companyLogo || null}
       signedOut={signedOut}
+      expiresAt={read.expiresAt}
     />
   )
 }

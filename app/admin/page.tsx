@@ -84,9 +84,6 @@ export default async function AdminDashboardPage() {
         <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at {branding.companyName} facilities</p>
       </div>
 
-      {/* Location Map */}
-      <DashboardMap />
-
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
@@ -144,10 +141,11 @@ export default async function AdminDashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-        <DashboardCharts />
-        <RecentVisitors />
-      </div>
+      <RecentVisitors />
+
+      <DashboardMap />
+
+      <DashboardCharts />
     </div>
   )
 }

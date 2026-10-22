@@ -69,17 +69,17 @@ export function ThemeColorsLoader() {
         
         if (data && data.length > 0) {
           const colors: ColorSettings = {
-            primary_color_light: "#10B981",
-            primary_color_dark: "#10B981",
-            accent_color_light: "#059669",
-            accent_color_dark: "#34D399",
+            primary_color_light: "#00854c",
+            primary_color_dark: "#00854c",
+            accent_color_light: "#00b162",
+            accent_color_dark: "#00b162",
           }
           
           for (const setting of data) {
-            if (setting.key === "primary_color_light") colors.primary_color_light = String(setting.value || "#10B981")
-            if (setting.key === "primary_color_dark") colors.primary_color_dark = String(setting.value || "#10B981")
-            if (setting.key === "accent_color_light") colors.accent_color_light = String(setting.value || "#059669")
-            if (setting.key === "accent_color_dark") colors.accent_color_dark = String(setting.value || "#34D399")
+            if (setting.key === "primary_color_light") colors.primary_color_light = String(setting.value || "#00854c")
+            if (setting.key === "primary_color_dark") colors.primary_color_dark = String(setting.value || "#00854c")
+            if (setting.key === "accent_color_light") colors.accent_color_light = String(setting.value || "#00b162")
+            if (setting.key === "accent_color_dark") colors.accent_color_dark = String(setting.value || "#00b162")
           }
           
           applyColors(colors)
@@ -102,54 +102,54 @@ export function ThemeColorsLoader() {
     const existing = document.getElementById("theme-colors")
     if (existing) existing.remove()
     
-    const primaryLightOklch = hexToOklch(colors.primary_color_light)
-    const primaryDarkOklch = hexToOklch(colors.primary_color_dark)
-    const accentLightOklch = hexToOklch(colors.accent_color_light)
-    const accentDarkOklch = hexToOklch(colors.accent_color_dark)
+    // Keep admin-chosen colors as hex so AA contrast stays as calculated.
+    const primaryLight = colors.primary_color_light
+    const primaryDark = colors.primary_color_dark
+    const accentLight = colors.accent_color_light
+    const accentDark = colors.accent_color_dark
     
-    // Create CSS that overrides the theme colors at all levels
-    // We need to override both the base CSS variables AND the Tailwind theme variables
     style.textContent = `
       :root {
-        --primary: ${primaryLightOklch} !important;
-        --ring: ${primaryLightOklch} !important;
-        --sidebar-primary: ${primaryLightOklch} !important;
-        --sidebar-ring: ${primaryLightOklch} !important;
-        --chart-1: ${primaryLightOklch} !important;
-        --accent: ${accentLightOklch} !important;
-        --sidebar-accent: ${accentLightOklch} !important;
-        --color-primary: ${primaryLightOklch} !important;
-        --color-ring: ${primaryLightOklch} !important;
-        --color-sidebar-primary: ${primaryLightOklch} !important;
-        --color-sidebar-ring: ${primaryLightOklch} !important;
-        --color-chart-1: ${primaryLightOklch} !important;
-        --color-accent: ${accentLightOklch} !important;
-        --color-sidebar-accent: ${accentLightOklch} !important;
+        --primary: ${primaryLight} !important;
+        --ring: #0a5c36 !important;
+        --sidebar-primary: ${primaryLight} !important;
+        --sidebar-ring: #0a5c36 !important;
+        --chart-1: ${hexToOklch(primaryLight)} !important;
+        --accent: #e2f4e9 !important;
+        --sidebar-accent: #e2f4e9 !important;
+        --color-primary: ${primaryLight} !important;
+        --color-ring: #0a5c36 !important;
+        --color-sidebar-primary: ${primaryLight} !important;
+        --color-sidebar-ring: #0a5c36 !important;
+        --color-chart-1: ${hexToOklch(primaryLight)} !important;
+        --color-accent: #e2f4e9 !important;
+        --color-sidebar-accent: #e2f4e9 !important;
+        --brand-accent: ${accentLight} !important;
       }
       
       .dark, :root.dark, html.dark {
-        --primary: ${primaryDarkOklch} !important;
-        --ring: ${primaryDarkOklch} !important;
-        --sidebar-primary: ${primaryDarkOklch} !important;
-        --sidebar-ring: ${primaryDarkOklch} !important;
-        --chart-1: ${primaryDarkOklch} !important;
-        --accent: ${accentDarkOklch} !important;
-        --sidebar-accent: ${accentDarkOklch} !important;
-        --color-primary: ${primaryDarkOklch} !important;
-        --color-ring: ${primaryDarkOklch} !important;
-        --color-sidebar-primary: ${primaryDarkOklch} !important;
-        --color-sidebar-ring: ${primaryDarkOklch} !important;
-        --color-chart-1: ${primaryDarkOklch} !important;
-        --color-accent: ${accentDarkOklch} !important;
-        --color-sidebar-accent: ${accentDarkOklch} !important;
+        --primary: ${primaryDark} !important;
+        --ring: #7fe3ad !important;
+        --sidebar-primary: ${primaryDark} !important;
+        --sidebar-ring: #7fe3ad !important;
+        --chart-1: ${hexToOklch(primaryDark)} !important;
+        --accent: #123a26 !important;
+        --sidebar-accent: #123a26 !important;
+        --color-primary: ${primaryDark} !important;
+        --color-ring: #7fe3ad !important;
+        --color-sidebar-primary: ${primaryDark} !important;
+        --color-sidebar-ring: #7fe3ad !important;
+        --color-chart-1: ${hexToOklch(primaryDark)} !important;
+        --color-accent: #123a26 !important;
+        --color-sidebar-accent: #123a26 !important;
+        --brand-accent: ${accentDark} !important;
       }
       
-      /* Also apply directly to elements using bg-primary */
       .bg-primary {
-        background-color: ${primaryLightOklch} !important;
+        background-color: ${primaryLight} !important;
       }
       .dark .bg-primary {
-        background-color: ${primaryDarkOklch} !important;
+        background-color: ${primaryDark} !important;
       }
     `
     

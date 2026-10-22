@@ -29,7 +29,10 @@ export default async function TrainingLinkPage({
   }
 
   const admin = getAdminClient()
-  const [{ data: visitorType }, { data: location }, branding] = await Promise.all([
+  const hostLookup = read.payload.hostId
+    ? admin.from("hosts").select("name").eq("id", read.payload.hostId).maybeSingle()
+    : Promise.resolve({ data: null as { name?: string } | null })
+  const [{ data: visitorType }, { data: location }, branding, { data: host }] = await Promise.all([
     admin
       .from("visitor_types")
       .select("id, name, training_title, training_video_url, requires_training")
@@ -37,6 +40,7 @@ export default async function TrainingLinkPage({
       .maybeSingle(),
     admin.from("locations").select("id, name").eq("id", read.payload.locationId).maybeSingle(),
     getBrandingSettings(),
+    hostLookup,
   ])
 
   if (!visitorType?.requires_training || !visitorType.training_video_url) {
@@ -51,7 +55,7 @@ export default async function TrainingLinkPage({
       firstName={read.payload.firstName}
       lastName={read.payload.lastName}
       email={read.payload.email}
-      hostName={read.payload.hostName || ""}
+      hostName={host?.name || read.payload.hostName || ""}
       videoTitle={visitorType.training_title || "Safety training"}
       videoUrl={visitorType.training_video_url}
       siteName={location?.name || "Talus Ag"}
