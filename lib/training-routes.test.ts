@@ -42,6 +42,7 @@ function trainingType(
       requires_nda: false,
       requires_training: true,
       training_video_url: videoUrl,
+      location_id: LOCATION_ID,
       ...extra,
     },
   })

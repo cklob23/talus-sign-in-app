@@ -352,6 +352,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             visitorId: visitor.id,
             visitorTypeId: visitorType.id,
             source: "qr",
+            locationId: location.id,
         })
         if (!recorded.ok) {
             console.log("[QR check-in] training completion insert failed:", recorded.error)

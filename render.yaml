@@ -26,9 +26,8 @@ services:
     envVars:
       - fromGroup: talus-cron
 
-  # Caleb creates this Render cron in the dashboard. Blueprint entry documents
-  # the intended job: every 15 minutes, send due booking invites, then hit the
-  # reports endpoint (404 is OK until that route exists).
+  # Caleb creates this Render cron in the dashboard. Every 15 minutes it
+  # sends due booking invites, then runs scheduled reports.
   - type: cron
     name: talus-reports
     runtime: node
@@ -38,8 +37,7 @@ services:
     buildCommand: echo skip
     startCommand: >-
       sh -c 'curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/booking-invites" &&
-      code=$(curl -sS --max-time 120 -o /dev/null -w "%{http_code}" -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/reports");
-      [ "$code" = "200" ] || [ "$code" = "404" ]'
+      curl -fsS --max-time 180 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/reports"'
     envVars:
       - fromGroup: talus-cron
 

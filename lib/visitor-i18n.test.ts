@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { fill, hostArrivalMessage, visitorCopy } from "./visitor-i18n.ts"
+import { fill, hostArrivalMessage, staffGeofenceLine, visitorCopy } from "./visitor-i18n.ts"
 
 describe("visitor copy", () => {
   it("points bookings at I have a booking, not Sign in", () => {
@@ -46,5 +46,39 @@ describe("visitor copy", () => {
     )
     assert.equal(copy.askReception, "Ask reception")
     assert.equal(visitorCopy("es").askReception, "Pregunte en recepción")
+  })
+
+  it("formats the staff geofence banner like the header distances", () => {
+    const en = visitorCopy("en")
+    const es = visitorCopy("es")
+    assert.equal(
+      staffGeofenceLine({
+        copy: en,
+        distanceMeters: 76_220,
+        site: "Test Location",
+        radiusMeters: 200,
+      }),
+      "This kiosk is about 76.2 km from Test Location. Sign-in only works within 200 m.",
+    )
+    assert.equal(
+      staffGeofenceLine({
+        copy: es,
+        distanceMeters: 76_220,
+        site: "Test Location",
+        radiusMeters: 200,
+      }),
+      "Este kiosco está a unos 76.2 km de Test Location. El registro solo funciona dentro de 200 m.",
+    )
+    assert.equal(en.geofenceStaff.includes("looks"), false)
+    assert.equal(en.geofenceStaff.includes("set to stay"), false)
+    assert.equal(es.geofenceStaff.includes("parece"), false)
+    const nearby = staffGeofenceLine({
+      copy: en,
+      distanceMeters: 76.22,
+      site: "Test Location",
+      radiusMeters: 200,
+    })
+    assert.equal(nearby.endsWith("."), true)
+    assert.equal(/\s\./.test(nearby), false)
   })
 })
