@@ -14,6 +14,7 @@ import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
 import { hasValidTrainingForEmail, hasValidTrainingForVisitor } from "@/lib/training-completions"
+import { enforceServerGeofence, loadLocationFence } from "@/lib/geofence-enforce"
 
 export async function POST(request: Request) {
   try {
@@ -63,6 +64,24 @@ export async function POST(request: Request) {
     if (auth.context.source === "qr" && auth.context.locationId !== location_id) {
       return NextResponse.json({ error: "Location does not match check-in token" }, { status: 403 })
     }
+
+    const location = await loadLocationFence(location_id)
+    if (!location) {
+      return NextResponse.json({ error: "Location not found" }, { status: 404 })
+    }
+
+    const staffOverride = raw.staff_override === true && auth.context.source === "receptionist"
+    const geofence = await enforceServerGeofence({
+      location,
+      globallyRequired: true,
+      rawCoords: raw.coords,
+      request,
+      source: "kiosk",
+      scopeId: location_id,
+      staffOverride,
+      actorUserId: auth.context.source === "receptionist" ? auth.context.session.id : null,
+    })
+    if (geofence.blocked) return geofence.blocked
 
     const adminClient = getAdminClient()
 

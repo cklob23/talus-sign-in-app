@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { getAdminClient } from "@/lib/supabase/server"
 import { getBrandingSettings } from "@/lib/branding"
 import { resolveCheckinToken } from "@/lib/checkin-token"
-import { hasGeofence } from "@/lib/checkin-geofence"
+import { shouldEnforceGeofence } from "@/lib/checkin-geofence"
 import { CheckinClient } from "./checkin-client"
 import { CheckinShell } from "./checkin-shell"
 import { isNdaFeatureEnabled } from "@/lib/nda-flag"
@@ -40,11 +40,12 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
     // Only the numbers needed for the on-device pre-check are sent to the browser.
     // The server makes the real decision when the form is submitted.
     const geofence =
-        geofenceRequired && hasGeofence(location)
+        shouldEnforceGeofence(location, geofenceRequired)
             ? {
                 latitude: location.latitude,
                 longitude: location.longitude,
                 auto_signin_radius_meters: location.auto_signin_radius_meters,
+                geofence_enabled: location.geofence_enabled,
             }
             : null
 

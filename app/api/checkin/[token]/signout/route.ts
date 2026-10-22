@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
     }
 
-    const geofence = enforceCheckinGeofence(location, geofenceRequired, body.coords)
+    const geofence = await enforceCheckinGeofence(location, geofenceRequired, body.coords, request, token)
     if (geofence.blocked) return geofence.blocked
 
     const admin = getAdminClient()

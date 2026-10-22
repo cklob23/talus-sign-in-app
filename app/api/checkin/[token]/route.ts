@@ -55,7 +55,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Checked first so a visitor who is not on site is turned away before any
     // of their details are validated or stored.
-    const geofence = enforceCheckinGeofence(location, geofenceRequired, body.coords)
+    const geofence = await enforceCheckinGeofence(location, geofenceRequired, body.coords, request, token)
     if (geofence.blocked) return geofence.blocked
 
     const firstName = body.firstName?.trim()
