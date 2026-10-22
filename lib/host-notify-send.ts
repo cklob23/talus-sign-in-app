@@ -1,5 +1,5 @@
 import { getAdminClient } from "@/lib/supabase/server"
-import { sanitizePlainText } from "@/lib/html-escape"
+import { sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
 import { getSharedTransporter, resetSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
 import { HOST_NOTIFY_BUDGET_MS, sendWithNotifyRetry } from "@/lib/host-notify-retry"
 import { visitUrlForSignIn } from "@/lib/visit-token"
@@ -243,14 +243,17 @@ export async function sendResolvedHostNotification(args: {
   }
 
   let visitUrl = ""
+  let visitOrigin = ""
   if (args.signInId) {
     try {
-      const origin = resolveAppOrigin(null)
-      if (origin) visitUrl = visitUrlForSignIn({ origin, signInId: args.signInId, hostId: args.hostId })
+      visitOrigin = resolveAppOrigin(null)
+      if (visitOrigin) visitUrl = visitUrlForSignIn({ origin: visitOrigin, signInId: args.signInId, hostId: args.hostId })
     } catch {
       visitUrl = ""
     }
   }
+  visitUrl = sanitizeAppUrl(visitUrl, visitOrigin)
+
   const isTraining = args.notificationType === "completing_training"
   const mailArgs = {
     visitorName,
@@ -267,6 +270,7 @@ export async function sendResolvedHostNotification(args: {
     timeZone: args.timeZone,
     visitUrl,
     logoUrl: notifSettings.companyLogo,
+    appOrigin: visitOrigin,
   }
   const rendered = isTraining ? renderHostTrainingEmail(mailArgs) : renderHostArrivalEmail(mailArgs)
 

@@ -1,13 +1,14 @@
-import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
 import { EMAIL_FOOTER_EN, emailButton, emailShell, headingBlock } from "@/lib/email-shell"
 
 export function renderPasswordResetEmail(args: {
   email: string
   resetUrl: string
   logoUrl?: string | null
+  appOrigin?: string
 }): { subject: string; html: string; text: string } {
   const address = sanitizePlainText(args.email, 200)
-  const url = sanitizePlainText(args.resetUrl, 800)
+  const url = sanitizeAppUrl(args.resetUrl, args.appOrigin)
   const subject = "Reset your Talus Ag Visitor Management password"
   const preheader = "Use the button inside within 24 hours. If you did not ask for this, ignore this email."
   const html = emailShell({

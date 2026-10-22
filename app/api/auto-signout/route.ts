@@ -387,6 +387,7 @@ async function runAutoSignout(request: Request) {
               visitors: hv.visitors,
               reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
               logoUrl: smtp.companyLogo,
+              appOrigin: origin,
             })
 
             await transporter.sendMail({

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { readVisitToken } from "@/lib/visit-token"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
+import { visitorFullName } from "@/lib/visit-page"
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const limited = rateLimit(`visit-signout:${clientIp(request)}`, 15, 10 * 60 * 1000)
@@ -28,19 +29,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json({ error: "Visit not found." }, { status: 404 })
   }
   if (signIn.sign_out_time) {
-    return NextResponse.json({ success: true, alreadySignedOut: true })
+    return NextResponse.json({ success: true, alreadySignedOut: true, signedOutAt: signIn.sign_out_time })
   }
 
+  const signedOutAt = new Date().toISOString()
   const { error } = await admin
     .from("sign_ins")
-    .update({ sign_out_time: new Date().toISOString() })
+    .update({ sign_out_time: signedOutAt })
     .eq("id", signIn.id)
   if (error) {
     return NextResponse.json({ error: "Could not sign the visitor out." }, { status: 500 })
   }
 
   const visitor = Array.isArray(signIn.visitor) ? signIn.visitor[0] : signIn.visitor
-  const visitorName = visitor ? `${visitor.first_name} ${visitor.last_name}` : "Visitor"
+  const visitorName = visitorFullName(visitor?.first_name, visitor?.last_name)
   await admin.from("audit_logs").insert({
     user_id: null,
     action: "visitor.sign_out",
@@ -57,5 +59,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     user_agent: request.headers.get("user-agent"),
   })
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, signedOutAt })
 }

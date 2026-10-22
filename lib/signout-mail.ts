@@ -1,4 +1,4 @@
-import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
 import { EMAIL_FOOTER_EN, emailButton, emailShell, headingBlock, pill } from "@/lib/email-shell"
 
 export interface SignoutMailVisitor {
@@ -16,6 +16,7 @@ export function renderSignoutSummaryEmail(args: {
   visitors: SignoutMailVisitor[]
   reviewUrl?: string | null
   logoUrl?: string | null
+  appOrigin?: string | null
 }): { subject: string; html: string; text: string } {
   const site = sanitizePlainText(args.locationName, 200) || "the site"
   const when = sanitizePlainText(args.whenLabel, 120)
@@ -42,7 +43,7 @@ export function renderSignoutSummaryEmail(args: {
     })
     .join("")
 
-  const reviewUrl = args.reviewUrl && /^https?:\/\//i.test(args.reviewUrl) ? args.reviewUrl : ""
+  const reviewUrl = sanitizeAppUrl(args.reviewUrl, args.appOrigin || undefined)
   const html = emailShell({
     lang: "en",
     preheader,

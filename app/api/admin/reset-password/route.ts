@@ -5,6 +5,7 @@ import { logAuditServer } from "@/lib/audit-log"
 import nodemailer from "nodemailer"
 import { NextResponse } from "next/server"
 import { smtpTransportOptions } from "@/lib/smtp-transport"
+import { sanitizeAppUrl } from "@/lib/html-escape"
 import { renderPasswordResetEmail } from "@/lib/password-mail"
 
 /** Load SMTP + company branding from the settings table */
@@ -90,7 +91,13 @@ export async function POST(request: Request) {
 
     // Build a direct link to the reset-password page with the token as a query param.
     // The page verifies the token CLIENT-SIDE using the Supabase browser client.
-    const resetLink = `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`
+    const resetLink = sanitizeAppUrl(
+      `${appOrigin}/kiosk/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`,
+      appOrigin,
+    )
+    if (!resetLink) {
+      return NextResponse.json({ error: "Failed to build a valid reset link." }, { status: 500 })
+    }
 
     // ---------- send email via SMTP ----------
     const smtp = await getSmtpSettings()
@@ -113,6 +120,7 @@ export async function POST(request: Request) {
       email,
       resetUrl: resetLink,
       logoUrl: smtp.companyLogo,
+      appOrigin,
     })
 
     await transporter.sendMail({

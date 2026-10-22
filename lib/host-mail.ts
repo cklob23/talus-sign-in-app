@@ -1,4 +1,4 @@
-import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
 import {
   EMAIL_FOOTER_EN,
   detailRow,
@@ -26,6 +26,7 @@ export interface HostMailVisitor {
   timeZone?: string | null
   visitUrl?: string | null
   logoUrl?: string | null
+  appOrigin?: string | null
 }
 
 export function renderHostArrivalEmail(args: HostMailVisitor): { subject: string; html: string; text: string; preheader: string } {
@@ -48,7 +49,7 @@ export function renderHostArrivalEmail(args: HostMailVisitor): { subject: string
   const photo = /^https?:\/\//i.test(String(args.visitorPhotoUrl || ""))
     ? escapeHtml(String(args.visitorPhotoUrl))
     : ""
-  const visitUrl = args.visitUrl && /^https?:\/\//i.test(args.visitUrl) ? args.visitUrl : ""
+  const visitUrl = sanitizeAppUrl(args.visitUrl, args.appOrigin || undefined)
 
   const rows = [
     detailRow("Site", site),
@@ -113,7 +114,7 @@ export function renderHostTrainingEmail(args: HostMailVisitor & { readyAbout?: s
   const first = visitor.split(" ")[0] || visitor
   const subject = `${visitor} is arriving: safety training in progress`
   const preheader = `Started${clock ? ` at ${clock}` : ""} at ${site}. Ready in about 3 minutes.`
-  const visitUrl = args.visitUrl && /^https?:\/\//i.test(args.visitUrl) ? args.visitUrl : ""
+  const visitUrl = sanitizeAppUrl(args.visitUrl, args.appOrigin || undefined)
 
   const rows = [
     detailRow("Site", site),

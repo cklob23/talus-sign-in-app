@@ -56,6 +56,7 @@ export function detailRow(label: string, value: string, htmlValue = false): stri
   return `<tr><td class="m stk" valign="top" style="padding:9px 12px 9px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#55625a;width:132px;">${escapeHtml(label)}</td><td class="t stk" valign="top" style="padding:9px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:20px;color:#0f1a13;font-weight:600;">${safeValue}</td></tr>`
 }
 
+/** Escape a href for the button. Never slice or cap the URL. */
 export function emailButton(href: string, label: string): string {
   return `<tr><td class="px" style="padding:24px 36px 8px 36px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btnw"><tr><td align="center" bgcolor="#00854c" style="border-radius:12px;background:#00854c;">
 <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${escapeHtml(href)}" style="height:50px;v-text-anchor:middle;width:260px;" arcsize="24%" stroke="f" fillcolor="#00854c"><center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">${escapeHtml(label)}</center></v:roundrect><![endif]-->

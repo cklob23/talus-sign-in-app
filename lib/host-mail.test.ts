@@ -15,6 +15,7 @@ const arrival = renderHostArrivalEmail({
   arrivedAt: "2026-10-22T14:05:00.000Z",
   timeZone: "America/Chicago",
   visitUrl: "https://signin.talusag.com/visit/abc",
+  appOrigin: "https://signin.talusag.com",
   trainingLine: "Cleared",
 })
 
@@ -42,6 +43,7 @@ describe("training, sign-out, and reset emails", () => {
       visitorName: "Carlos Mendoza",
       locationName: "Houston HQ",
       visitUrl: "https://signin.talusag.com/visit/abc",
+      appOrigin: "https://signin.talusag.com",
     })
     const signout = renderSignoutSummaryEmail({
       kind: "location",
@@ -50,10 +52,12 @@ describe("training, sign-out, and reset emails", () => {
       whenLabel: "6:00 PM",
       visitors: [{ name: "Carlos Mendoza", company: "Gulf Coast Electric", badge: "V4821", signedInAt: "8:01 AM" }],
       reviewUrl: "https://signin.talusag.com/admin/history",
+      appOrigin: "https://signin.talusag.com",
     })
     const reset = renderPasswordResetEmail({
       email: "maya@talusag.com",
       resetUrl: "https://signin.talusag.com/auth/reset?token=abc",
+      appOrigin: "https://signin.talusag.com",
     })
 
     assert.match(training.preheader, /Ready in about 3 minutes/)

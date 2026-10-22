@@ -4,6 +4,8 @@ import { readVisitToken, visitUrlFromRequest } from "@/lib/visit-token"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
 import { sendEmail } from "@/lib/email"
 import { renderDisputeEmail } from "@/lib/training-mail"
+import { resolveAppOrigin } from "@/lib/nda"
+import { visitorFullName } from "@/lib/visit-page"
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const limited = rateLimit(`visit-dispute:${clientIp(request)}`, 8, 10 * 60 * 1000)
@@ -35,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const visitor = unwrap(signIn.visitor)
   const host = unwrap(signIn.host)
   const location = unwrap(signIn.location)
-  const visitorName = visitor ? `${visitor.first_name} ${visitor.last_name}` : "Visitor"
+  const visitorName = visitorFullName(visitor?.first_name, visitor?.last_name)
   const hostName = host?.name || "A host"
 
   await admin.from("audit_logs").insert({
@@ -65,6 +67,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       company: visitor?.company || null,
       badgeNumber: signIn.badge_number,
       visitUrl,
+      appOrigin: resolveAppOrigin(request),
     })
     await sendEmail({ to: recipients, ...mail })
   }

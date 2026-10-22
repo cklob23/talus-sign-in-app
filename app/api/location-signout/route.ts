@@ -238,6 +238,7 @@ async function handleLocationSignout(request: Request) {
                             visitors: hv.visitors,
                             reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
                             logoUrl: smtp.companyLogo,
+                            appOrigin: origin,
                         })
                         await transporter.sendMail({
                             from: `"Talus Ag Visitor Management" <${smtp.fromEmail}>`,
