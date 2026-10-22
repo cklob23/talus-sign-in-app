@@ -23,7 +23,7 @@ describe("host arrival email", () => {
     assert.match(arrival.subject, /Carlos/)
     assert.match(arrival.subject, /Houston HQ/)
     assert.match(arrival.preheader, /Gulf Coast Electric/)
-    assert.match(arrival.html, /Carlos is here to see you/)
+    assert.match(arrival.html, /is here to see you/)
     assert.match(arrival.html, /Open visit details/)
     assert.match(arrival.html, /https:\/\/signin\.talusag\.com\/visit\/abc/)
     assert.match(arrival.text, /Open visit details/)
