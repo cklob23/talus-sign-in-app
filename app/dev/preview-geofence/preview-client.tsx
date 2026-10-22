@@ -102,7 +102,7 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
           <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
             <p className="font-medium text-[#8a4500]">Sign in is paused. Please ask reception.</p>
             <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-              <p>This kiosk looks 73.00km from Test Location. Sign-in is set to stay within 200 m.</p>
+              <p>This kiosk is about 76.2 km from Test Location. Sign-in only works within 200 m.</p>
               <Button type="button" variant="outline" className="min-h-12">
                 Allow sign-in anyway
               </Button>

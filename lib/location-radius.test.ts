@@ -53,6 +53,7 @@ describe("formatRadiusMeters", () => {
     assert.equal(formatRadiusMeters(999), "999 m")
     assert.equal(formatRadiusMeters(1000), "1 km")
     assert.equal(formatRadiusMeters(1500), "1.5 km")
+    assert.equal(formatRadiusMeters(76_220), "76.2 km")
     assert.equal(formatRadiusMeters(5_000), "5 km")
     assert.equal(formatRadiusMeters(5_000_000), "5,000 km")
     assert.equal(formatRadiusMeters(1_000_000), "1,000 km")
