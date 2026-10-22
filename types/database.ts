@@ -110,6 +110,7 @@ export interface TrainingCompletion {
   visitor_type_id: string
   completed_at: string
   expires_at: string | null
+  source?: "kiosk" | "qr" | "training_link" | "prior" | null
   created_at: string
 }
 

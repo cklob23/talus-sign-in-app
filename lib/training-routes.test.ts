@@ -68,6 +68,7 @@ function qrBody(training?: unknown) {
   return {
     firstName: "QA TEST",
     lastName: "Visitor7",
+    email: "diego@example.com",
     visitorTypeId: TYPE_ID,
     hostId: HOST_ID,
     idempotencyKey: "11111111-2222-4333-8444-555555555555",
@@ -147,6 +148,31 @@ describe("QR check-in training enforcement", () => {
     assert.ok(signIn)
     assert.equal((signIn.payload as { host_id: string }).host_id, HOST_ID)
     assert.ok(writes.some((w) => w.table === "training_completions" && w.op === "insert"))
+  })
+
+  it("allows a QR sign-in when the visitor is cleared by a training link", async () => {
+    qrLocation()
+    trainingType()
+    setOverride("visitors", { list: [{ id: VISITOR_ID, email: "diego@example.com" }] })
+    setOverride("training_completions", {
+      list: [
+        {
+          visitor_id: VISITOR_ID,
+          completed_at: "2026-10-02T15:00:00.000Z",
+          expires_at: "2027-10-02T15:00:00.000Z",
+          source: "training_link",
+        },
+      ],
+    })
+    const res = await qrSignInPost(
+      jsonRequest(
+        `/api/checkin/${TOKEN}`,
+        qrBody({ via: "link", prior: true, acknowledged: true }),
+      ) as never,
+      qrParams,
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+    assert.equal(writes.some((w) => w.table === "training_completions" && w.op === "insert"), false)
   })
 
   it("does not require training proof when the type has no video", async () => {

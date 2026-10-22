@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin } from "lucide-react"
+import { Plus, Calendar, CheckCircle, XCircle, Trash2, MapPin, Send } from "lucide-react"
 import type { Booking, Host, VisitorType, Location } from "@/types/database"
 import { formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
@@ -35,6 +35,9 @@ export default function BookingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [sendingLinkId, setSendingLinkId] = useState<string | null>(null)
+  const [isAdhocOpen, setIsAdhocOpen] = useState(false)
+  const [adhocSending, setAdhocSending] = useState(false)
   const { timezone: userTimezone } = useTimezone()
   const [form, setForm] = useState({
     firstName: "",
@@ -175,6 +178,51 @@ export default function BookingsPage() {
     }
   }
 
+  async function sendTrainingLink(bookingId: string) {
+    setSendingLinkId(bookingId)
+    try {
+      const res = await fetch("/api/admin/training-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Could not send the training link.")
+      alert(json.sent ? "Training link sent." : "Link created. Email was not sent (check SMTP).")
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not send the training link.")
+    } finally {
+      setSendingLinkId(null)
+    }
+  }
+
+  async function sendAdhocTrainingLink() {
+    setAdhocSending(true)
+    try {
+      const res = await fetch("/api/admin/training-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          company: form.company,
+          visitorTypeId: form.visitorTypeId,
+          locationId: form.locationId,
+          hostId: form.hostId || null,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Could not send the training link.")
+      alert(json.sent ? "Training link sent." : "Link created. Email was not sent (check SMTP).")
+      setIsAdhocOpen(false)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not send the training link.")
+    } finally {
+      setAdhocSending(false)
+    }
+  }
+
   async function updateBookingStatus(id: string, status: "completed" | "cancelled") {
     const supabase = createClient()
     await supabase.from("bookings").update({ status }).eq("id", id)
@@ -264,6 +312,57 @@ export default function BookingsPage() {
               Delete ({selectedIds.size})
             </Button>
           )}
+          <Dialog open={isAdhocOpen} onOpenChange={setIsAdhocOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" className="w-fit">
+                <Send className="w-4 h-4 mr-2" />
+                Send training link
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[95vw] sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Send a training link</DialogTitle>
+                <DialogDescription>Email a visitor so they can watch the safety video before they arrive.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+                  <Input placeholder="Last name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                </div>
+                <Input type="email" placeholder="Visitor email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <Input placeholder="Company" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
+                <Select value={form.visitorTypeId} onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}>
+                  <SelectTrigger><SelectValue placeholder="Visitor type" /></SelectTrigger>
+                  <SelectContent>
+                    {visitorTypes.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={form.locationId} onValueChange={(value) => setForm({ ...form, locationId: value })}>
+                  <SelectTrigger><SelectValue placeholder="Site" /></SelectTrigger>
+                  <SelectContent>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id}>{location.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })}>
+                  <SelectTrigger><SelectValue placeholder="Host (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    {hosts.map((host) => (
+                      <SelectItem key={host.id} value={host.id}>{host.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => void sendAdhocTrainingLink()} disabled={adhocSending}>
+                  {adhocSending ? "Sending..." : "Send link"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="w-fit">
@@ -460,6 +559,12 @@ export default function BookingsPage() {
                     )}
                     {booking.status === "pending" && (
                       <div className="flex justify-end gap-2 pt-1">
+                        {booking.visitor_email && booking.visitor_type?.requires_training && (
+                          <Button variant="outline" size="sm" disabled={sendingLinkId === booking.id} onClick={() => void sendTrainingLink(booking.id)}>
+                            <Send className="w-4 h-4 mr-1" />
+                            Training
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={() => updateBookingStatus(booking.id, "completed")}>
                           <CheckCircle className="w-4 h-4 mr-1" />
                           Complete
@@ -532,6 +637,16 @@ export default function BookingsPage() {
                         <TableCell className="text-right">
                           {booking.status === "pending" && (
                             <div className="flex justify-end gap-2">
+                              {booking.visitor_email && booking.visitor_type?.requires_training && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={sendingLinkId === booking.id}
+                                  onClick={() => void sendTrainingLink(booking.id)}
+                                >
+                                  <Send className="w-4 h-4" />
+                                </Button>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
