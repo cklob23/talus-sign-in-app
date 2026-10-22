@@ -346,32 +346,46 @@ export async function findOrCreateVisitorByEmail(
   return { id: data.id }
 }
 
+async function locationIdForVisitorType(admin: AnyClient, visitorTypeId: string): Promise<string | null> {
+  const { data } = await admin.from("visitor_types").select("location_id").eq("id", visitorTypeId).maybeSingle()
+  return typeof data?.location_id === "string" && data.location_id ? data.location_id : null
+}
+
 export async function recordTrainingCompletion(
   admin: AnyClient,
   args: {
     visitorId: string
     visitorTypeId: string
     source: TrainingSource
+    locationId?: string | null
     expiresAt?: string | null
     now?: number
   },
 ): Promise<{ ok: true; expiresAt: string } | { ok: false; error: string }> {
   const expiresAt = args.expiresAt || defaultTrainingExpiresAt(args.now)
   const completedAt = new Date(args.now ?? Date.now()).toISOString()
+  const locationId = args.locationId || (await locationIdForVisitorType(admin, args.visitorTypeId))
   const row = {
     visitor_id: args.visitorId,
     visitor_type_id: args.visitorTypeId,
     completed_at: completedAt,
     expires_at: expiresAt,
     source: args.source,
+    location_id: locationId,
   }
   const first = await admin.from("training_completions").insert(row).select("id").single()
   if (!first.error) return { ok: true, expiresAt }
   if (first.error?.code === "42703") {
-    const { source: _source, ...legacy } = row
-    const retry = await admin.from("training_completions").insert(legacy).select("id").single()
-    if (!retry.error) return { ok: true, expiresAt }
-    return { ok: false, error: retry.error.message || "Failed to record training" }
+    const { location_id: _locationId, ...withoutLocation } = row
+    const retryLocation = await admin.from("training_completions").insert(withoutLocation).select("id").single()
+    if (!retryLocation.error) return { ok: true, expiresAt }
+    if (retryLocation.error?.code === "42703") {
+      const { source: _source, ...legacy } = withoutLocation
+      const retry = await admin.from("training_completions").insert(legacy).select("id").single()
+      if (!retry.error) return { ok: true, expiresAt }
+      return { ok: false, error: retry.error.message || "Failed to record training" }
+    }
+    return { ok: false, error: retryLocation.error.message || "Failed to record training" }
   }
   return { ok: false, error: first.error.message || "Failed to record training" }
 }

@@ -115,7 +115,47 @@ export interface TrainingCompletion {
   completed_at: string
   expires_at: string | null
   source?: "kiosk" | "qr" | "training_link" | "prior" | null
+  location_id?: string | null
   created_at: string
+  visitor?: Visitor
+  visitor_type?: VisitorType
+  location?: Location
+}
+
+export interface ReportSchedule {
+  id: string
+  name: string
+  kind: "visitors" | "employees" | "training"
+  location_ids: string[]
+  visitor_type_ids: string[]
+  range_type: "previous_day" | "previous_week" | "previous_month" | "last_n_days"
+  last_n_days: number | null
+  frequency: "daily" | "weekly" | "monthly"
+  weekday: number | null
+  month_day: number | null
+  send_time: string
+  timezone: string
+  recipients: string[]
+  format: "csv" | "summary" | "both"
+  enabled: boolean
+  next_run_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReportRun {
+  id: string
+  schedule_id: string
+  trigger: "scheduled" | "manual"
+  status: "queued" | "running" | "sent" | "failed" | "skipped"
+  period_start: string
+  period_end: string
+  row_count: number | null
+  recipients: string[] | null
+  error: string | null
+  started_at: string
+  finished_at: string | null
 }
 
 export interface Host {

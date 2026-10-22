@@ -80,6 +80,11 @@ const ACTION_LABELS: Record<string, string> = {
   // Kiosk actions
   "kiosk.receptionist_login": "Receptionist logged in",
   "kiosk.receptionist_logout": "Receptionist logged out",
+  "report.sent": "Report sent",
+  "report.failed": "Report send failed",
+  "report.schedule_created": "Report schedule created",
+  "report.schedule_updated": "Report schedule updated",
+  "report.schedule_deleted": "Report schedule deleted",
 }
 
 const ENTITY_TYPES = [
@@ -96,6 +101,7 @@ const ENTITY_TYPES = [
   { value: "visitor_type", label: "Visitor Types" },
   { value: "role", label: "Roles" },
   { value: "sync", label: "Syncs" },
+  { value: "report", label: "Reports" },
 ]
 
 type AuditLogWithUser = Omit<AuditLog, 'user'> & {

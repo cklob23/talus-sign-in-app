@@ -26,6 +26,19 @@ services:
     envVars:
       - fromGroup: talus-cron
 
+  # Caleb creates this job. Another branch will add
+  # /api/cron/booking-invites to the same 15-minute cron.
+  - type: cron
+    name: talus-reports
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "*/15 * * * *"
+    buildCommand: echo skip
+    startCommand: curl -fsS --max-time 180 -X POST -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/reports"
+    envVars:
+      - fromGroup: talus-cron
+
 envVarGroups:
   - name: talus-cron
     envVars:

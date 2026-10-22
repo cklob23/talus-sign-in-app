@@ -77,6 +77,11 @@ export type AuditAction =
   | "nda.uploaded"
   | "nda.signed"
   | "nda.downloaded"
+  | "report.sent"
+  | "report.failed"
+  | "report.schedule_created"
+  | "report.schedule_updated"
+  | "report.schedule_deleted"
 
 export type EntityType =
   | "user"
@@ -94,6 +99,7 @@ export type EntityType =
   | "vendor"
   | "qr_code"
   | "nda"
+  | "report"
 
 interface LogAuditParams {
   action: AuditAction
