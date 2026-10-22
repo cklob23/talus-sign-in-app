@@ -1,4 +1,5 @@
 import { escapeHtml } from "@/lib/html-escape"
+import { formatDateTimeWithZone, resolveDisplayTimeZone, toIANATimezone } from "@/lib/timezone"
 
 export const IT_SUPPORT = "it_support@talusag.com"
 
@@ -75,28 +76,27 @@ export function detailsPanel(rowsHtml: string): string {
   return `<tr><td class="px" style="padding:16px 36px 0 36px;"><table role="presentation" class="panel" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f5f8f6" style="background:#f5f8f6;border:1px solid #dce6df;border-radius:12px;"><tr><td style="padding:8px 18px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rowsHtml}</table></td></tr></table></td></tr>`
 }
 
-export function formatMailTime(iso: string | Date | undefined, timeZone?: string | null): string {
+function mailDate(iso: string | Date | undefined): Date | null {
   const date = iso instanceof Date ? iso : iso ? new Date(iso) : new Date()
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toLocaleString("en-US", {
-    timeZone: timeZone || undefined,
-    hour: "numeric",
-    minute: "2-digit",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZoneName: "short",
-  })
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
+/** Full stamp for email body rows, matching the /visit Arrived line. */
+export function formatMailTime(iso: string | Date | undefined, timeZone?: string | null): string {
+  const date = mailDate(iso)
+  if (!date) return ""
+  return formatDateTimeWithZone(date.toISOString(), resolveDisplayTimeZone(timeZone))
+}
+
+/** Subject/preheader clock: "9:13 AM EDT". Missing timezone falls back to America/New_York. */
 export function formatMailClock(iso: string | Date | undefined, timeZone?: string | null): string {
-  const date = iso instanceof Date ? iso : iso ? new Date(iso) : new Date()
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toLocaleString("en-US", {
-    timeZone: timeZone || undefined,
+  const date = mailDate(iso)
+  if (!date) return ""
+  const zone = toIANATimezone(resolveDisplayTimeZone(timeZone))
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
-  })
+  }).format(date)
 }

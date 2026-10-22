@@ -120,8 +120,7 @@ export function PreviewScreens({ screen }: { screen?: string }) {
             badgeNumber="V04821"
             purpose="Electrical panel upgrade"
             photoUrl=""
-            trainingDone
-            trainingMessage="Done"
+            trainingLine="Carlos Mendoza completed the safety video on Oct 2. Cleared until Oct 2027."
             companyName="Talus Ag"
             logoUrl={null}
             signedOut={false}

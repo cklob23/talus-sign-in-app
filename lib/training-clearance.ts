@@ -47,7 +47,7 @@ export function isUnexpiredCompletion(row: { expires_at?: string | null }, now: 
   return Number.isFinite(at) && at >= now
 }
 
-function formatMonthDay(iso: string, locale: "en" | "es"): string {
+export function formatTrainingDay(iso: string, locale: "en" | "es"): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ""
   if (locale === "es") {
@@ -56,7 +56,7 @@ function formatMonthDay(iso: string, locale: "en" | "es"): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date)
 }
 
-function formatMonthYear(iso: string, locale: "en" | "es"): string {
+export function formatTrainingMonthYear(iso: string, locale: "en" | "es"): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ""
   if (locale === "es") {
@@ -71,8 +71,8 @@ export function formatClearanceMessage(
   expiresAt: string | null,
   locale: "en" | "es" = "en",
 ): string {
-  const done = formatMonthDay(completedAt, locale)
-  const until = expiresAt ? formatMonthYear(expiresAt, locale) : null
+  const done = formatTrainingDay(completedAt, locale)
+  const until = expiresAt ? formatTrainingMonthYear(expiresAt, locale) : null
   if (locale === "es") {
     if (until) return `Hizo el video de seguridad el ${done}. Queda autorizado hasta ${until}.`
     return `Hizo el video de seguridad el ${done}. Queda autorizado.`
@@ -199,6 +199,97 @@ export async function getTrainingClearance(
     clearance.visitorId = visitors[0].id
   }
   return clearance
+}
+
+export type HostTrainingState = "cleared" | "expired" | "not_completed" | "not_required"
+
+export type HostTrainingSnapshot = {
+  state: HostTrainingState
+  completedAt: string | null
+  expiresAt: string | null
+}
+
+function completionDates(row: {
+  completed_at?: string | null
+  created_at?: string | null
+  expires_at?: string | null
+}): { completedAt: string | null; expiresAt: string | null } {
+  return {
+    completedAt: row.completed_at || row.created_at || null,
+    expiresAt: row.expires_at || null,
+  }
+}
+
+/** Host visit page: classify training without changing visitor-facing clearance copy. */
+export function hostTrainingFromCompletions(
+  requiresTraining: boolean,
+  rows: Array<{
+    completed_at?: string | null
+    created_at?: string | null
+    expires_at?: string | null
+    source?: string | null
+  }>,
+  now = Date.now(),
+): HostTrainingSnapshot {
+  if (!requiresTraining) {
+    return { state: "not_required", completedAt: null, expiresAt: null }
+  }
+  const cleared = clearanceFromCompletions(rows, now)
+  if (cleared.cleared) {
+    return { state: "cleared", completedAt: cleared.completedAt, expiresAt: cleared.expiresAt }
+  }
+  const expired = rows
+    .map((row) => {
+      const dates = completionDates(row)
+      const expMs = dates.expiresAt ? new Date(dates.expiresAt).getTime() : Number.NaN
+      return { ...dates, expMs }
+    })
+    .filter((row) => Number.isFinite(row.expMs) && row.expMs < now)
+    .sort((a, b) => b.expMs - a.expMs)
+  if (expired[0]) {
+    return { state: "expired", completedAt: expired[0].completedAt, expiresAt: expired[0].expiresAt }
+  }
+  return { state: "not_completed", completedAt: null, expiresAt: null }
+}
+
+export async function getHostTrainingSnapshot(
+  admin: AnyClient,
+  email: string | null | undefined,
+  visitorTypeId: string | null | undefined,
+  requiresTraining: boolean,
+  now = Date.now(),
+): Promise<HostTrainingSnapshot> {
+  if (!requiresTraining) {
+    return { state: "not_required", completedAt: null, expiresAt: null }
+  }
+  const empty: HostTrainingSnapshot = { state: "not_completed", completedAt: null, expiresAt: null }
+  const normalized = normalizeVisitorEmail(email)
+  if (!normalized || !visitorTypeId) return empty
+
+  const visitors = await visitorIdsForNormalizedEmail(admin, normalized)
+  if (visitors.length === 0) return empty
+
+  const ids = visitors.map((v) => v.id)
+  let { data: completions, error } = await admin
+    .from("training_completions")
+    .select("visitor_id, completed_at, created_at, expires_at, source")
+    .in("visitor_id", ids)
+    .eq("visitor_type_id", visitorTypeId)
+    .order("expires_at", { ascending: false })
+    .limit(20)
+  if (error?.code === "42703") {
+    const retry = await admin
+      .from("training_completions")
+      .select("visitor_id, completed_at, created_at, expires_at")
+      .in("visitor_id", ids)
+      .eq("visitor_type_id", visitorTypeId)
+      .order("expires_at", { ascending: false })
+      .limit(20)
+    completions = retry.data
+    error = retry.error
+  }
+  if (error || !Array.isArray(completions)) return empty
+  return hostTrainingFromCompletions(true, completions, now)
 }
 
 export async function hasValidTrainingForVisitor(

@@ -5,6 +5,7 @@ import { HOST_NOTIFY_BUDGET_MS, sendWithNotifyRetry } from "@/lib/host-notify-re
 import { visitUrlForSignIn } from "@/lib/visit-token"
 import { resolveAppOrigin } from "@/lib/nda"
 import { renderHostArrivalEmail, renderHostTrainingEmail } from "@/lib/host-mail"
+import { resolveDisplayTimeZone } from "@/lib/timezone"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -192,6 +193,24 @@ export async function sendResolvedHostNotification(args: {
     notificationType: args.notificationType,
   }
 
+  let timeZone = args.timeZone
+  if (!timeZone?.trim() && args.locationId) {
+    try {
+      const admin = getAdminClient()
+      const { data: location } = await admin
+        .from("locations")
+        .select("timezone")
+        .eq("id", args.locationId)
+        .maybeSingle()
+      if (typeof location?.timezone === "string" && location.timezone.trim()) {
+        timeZone = location.timezone
+      }
+    } catch {
+      timeZone = timeZone ?? null
+    }
+  }
+  timeZone = resolveDisplayTimeZone(timeZone)
+
   const visitorName = sanitizePlainText(args.visitorName, 200)
   const visitorCompany = sanitizePlainText(args.visitorCompany, 200)
   const locationName = sanitizePlainText(args.locationName, 200)
@@ -267,7 +286,7 @@ export async function sendResolvedHostNotification(args: {
     signedInBy: args.signedInBy || "Kiosk",
     trainingLine: args.trainingLine || (isTraining ? "In progress. Not cleared yet." : undefined),
     arrivedAt: args.arrivedAt || new Date(),
-    timeZone: args.timeZone,
+    timeZone,
     visitUrl,
     logoUrl: notifSettings.companyLogo,
     appOrigin: visitOrigin,

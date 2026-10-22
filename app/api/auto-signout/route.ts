@@ -14,6 +14,7 @@ import {
 import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock } from "@/lib/email-shell"
+import { resolveDisplayTimeZone } from "@/lib/timezone"
 
 export const maxDuration = 60
 
@@ -364,7 +365,7 @@ async function runAutoSignout(request: Request) {
             company: visitor.company,
             badge: (signIn as { badge_number?: string | null }).badge_number,
             signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
-              ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, tz)
+              ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, resolveDisplayTimeZone(location.timezone))
               : null,
           })
         }
@@ -376,7 +377,7 @@ async function runAutoSignout(request: Request) {
               kind: "auto",
               hostName: hv.hostName,
               locationName: location.name,
-              whenLabel: `${localTimeStr} ${tz}`,
+              whenLabel: formatMailClock(now, resolveDisplayTimeZone(location.timezone)),
               visitors: hv.visitors,
               reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
               logoUrl: smtp.companyLogo,
