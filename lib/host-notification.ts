@@ -1,67 +1,12 @@
 import { getAdminClient } from "@/lib/supabase/server"
-import { POST as notifyHostHandler } from "@/app/api/notify-host/route"
+import {
+  resolveHostContact,
+  sendResolvedHostNotification,
+  type HostNotificationType,
+} from "@/lib/host-notify-send"
 
-/**
- * Server-side host notification used by the public QR self sign-in flow.
- *
- * The kiosk resolves host contact details and the `host_notifications` toggle in
- * the browser, but the QR flow is driven by unauthenticated visitors, so all of
- * that has to happen on the server. This keeps both flows behaviourally
- * identical while never trusting a client-supplied email address.
- */
+export type { HostNotificationType }
 
-export type HostNotificationType = "arrived" | "completing_training"
-
-/**
- * Resolves a host's contact details, preferring their linked profile.
- *
- * The kiosk gives the profile precedence over the denormalised `hosts` columns,
- * which can go stale when someone updates their account. Mirroring that order
- * here keeps notifications going to the same address in both flows.
- */
-async function resolveHostContact(hostId: string, locationId: string) {
-    const admin = getAdminClient()
-
-    // Scoping to the location means one site's poster can never be used to
-    // notify (or spam) a host who belongs to a different site.
-    const { data: host } = await admin
-        .from("hosts")
-        .select("id, name, email, phone, profile_id, is_active")
-        .eq("id", hostId)
-        .eq("location_id", locationId)
-        .eq("is_active", true)
-        .maybeSingle()
-
-    if (!host) return null
-
-    let name = host.name
-    let email = host.email
-    let phone = host.phone
-
-    if (host.profile_id) {
-        const { data: profile } = await admin
-            .from("profiles")
-            .select("full_name, email, phone")
-            .eq("id", host.profile_id)
-            .maybeSingle()
-
-        if (profile) {
-            name = profile.full_name || name
-            email = profile.email || email
-            phone = profile.phone || phone
-        }
-    }
-
-    if (!email && !phone) return null
-    return { name, email, phone }
-}
-
-/**
- * True unless an admin has explicitly disabled host notifications.
- *
- * The row is absent on a fresh install, and the admin UI treats that as on, so
- * defaulting to `true` here avoids silently dropping notifications.
- */
 async function hostNotificationsEnabled(): Promise<boolean> {
     const admin = getAdminClient()
     const { data } = await admin
@@ -78,8 +23,8 @@ async function hostNotificationsEnabled(): Promise<boolean> {
 /**
  * Sends a host notification for a QR self sign-in.
  *
- * Always resolves — a notification failure must never stop a visitor getting
- * on site, since that would leave them physically present but unrecorded.
+ * Host contact is resolved server-side. A notification failure must never
+ * stop a visitor getting on site.
  */
 export async function sendHostNotification(args: {
     hostId: string | null
@@ -103,36 +48,23 @@ export async function sendHostNotification(args: {
         const host = await resolveHostContact(args.hostId, args.locationId)
         if (!host) return { sent: false, reason: "host_not_found" }
 
-        // Invoke the notification handler in-process rather than doing an HTTP
-        // round trip back to our own server. A self-fetch has to guess its own
-        // origin, and guessing wrong fails at the TLS layer (an https origin
-        // pointed at a plain-http port), which silently swallowed every email.
-        const res = await notifyHostHandler(
-            new Request("https://internal.invalid/api/notify-host", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    hostEmail: host.email,
-                    hostName: host.name,
-                    hostPhone: host.phone,
-                    visitorName: args.visitorName,
-                    visitorCompany: args.visitorCompany ?? null,
-                    purpose: args.purpose ?? null,
-                    badgeNumber: args.badgeNumber ?? null,
-                    locationName: args.locationName,
-                    locationId: args.locationId,
-                    notificationType: args.notificationType,
-                    visitorTypeName: args.visitorTypeName ?? null,
-                    visitorPhotoUrl: args.visitorPhotoUrl ?? null,
-                }),
-            }),
-        )
+        const results = await sendResolvedHostNotification({
+            host,
+            locationId: args.locationId,
+            locationName: args.locationName,
+            notificationType: args.notificationType,
+            visitorName: args.visitorName,
+            visitorCompany: args.visitorCompany ?? null,
+            visitorTypeName: args.visitorTypeName ?? null,
+            badgeNumber: args.badgeNumber ?? null,
+            visitorPhotoUrl: args.visitorPhotoUrl ?? null,
+            purpose: args.purpose ?? null,
+        })
 
-        if (!res.ok) {
-            console.log("[v0] host notification rejected:", args.notificationType, res.status)
-            return { sent: false, reason: "notify_failed" }
+        if (results.email === "sent" || results.sms === "sent" || results.loggedOnly) {
+            return { sent: true }
         }
-        return { sent: true }
+        return { sent: false, reason: "notify_failed" }
     } catch (error) {
         console.log("[v0] host notification error:", args.notificationType, error)
         return { sent: false, reason: "error" }

@@ -53,6 +53,7 @@ import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANA
 import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
+import { useNdaEnabled } from "@/hooks/use-features"
 
 type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -100,6 +101,7 @@ export default function KioskPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { branding } = useBranding()
+  const ndaEnabled = useNdaEnabled()
   const [mode, setMode] = useState<KioskMode>("receptionist-login")
   const [receptionistUser, setReceptionistUser] = useState<{ id: string; email: string; name: string } | null>(null)
   const [tenantLoaded, setTenantLoaded] = useState(false)
@@ -1069,33 +1071,22 @@ export default function KioskPage() {
 
       // Check if visitor type requires training
       if (visitorTypeData?.requires_training) {
-        // First, find or create the visitor
         let visitorId: string | null = null
 
-        const { data: existingVisitor } = await supabase
-          .from("visitors")
-          .select("id")
-          .eq("email", selectedBooking.visitor_email)
-          .single()
-
-        if (existingVisitor) {
-          visitorId = existingVisitor.id
-
-          // Check for existing training completion
-          const { data: trainingCompletion } = await supabase
-            .from("training_completions")
-            .select("*")
-            .eq("visitor_id", existingVisitor.id)
-            .eq("visitor_type_id", visitorTypeData!.id)
-            .single()
-
-          if (trainingCompletion) {
-            const hasExpired = trainingCompletion.expires_at &&
-              new Date(trainingCompletion.expires_at) < new Date()
-
-            if (!hasExpired) {
-              // Training is valid, proceed with sign-in
-              await completeBookingSignIn(existingVisitor.id)
+        if (selectedBooking.visitor_email) {
+          const statusRes = await fetch("/api/kiosk/training-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: selectedBooking.visitor_email,
+              visitor_type_id: visitorTypeData.id,
+            }),
+          })
+          if (statusRes.ok) {
+            const status = await statusRes.json()
+            visitorId = status.visitorId || null
+            if (status.hasValidTraining && visitorId) {
+              await completeBookingSignIn(visitorId)
               return
             }
           }
@@ -1185,42 +1176,11 @@ export default function KioskPage() {
     hostNotifiedRef.current = dedupeKey
 
     try {
-      const supabase = createClient()
-      const { data: hostData } = await supabase
-        .from("hosts")
-        .select("id, name, email, phone, profile_id")
-        .eq("id", opts.hostId)
-        .maybeSingle()
-
-      if (!hostData) return
-
-      let hostEmail = hostData.email
-      let hostName = hostData.name
-      let hostPhone = hostData.phone
-
-      if (hostData.profile_id) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("full_name, email, phone")
-          .eq("id", hostData.profile_id)
-          .maybeSingle()
-
-        if (profileData) {
-          hostName = profileData.full_name || hostName
-          hostEmail = profileData.email || hostEmail
-          hostPhone = profileData.phone || hostPhone
-        }
-      }
-
-      if (!hostEmail && !hostPhone) return
-
       await fetch("/api/notify-host", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          hostEmail,
-          hostName,
-          hostPhone,
+          hostId: opts.hostId,
           visitorName: opts.visitorName,
           visitorCompany: opts.visitorCompany,
           purpose: opts.purpose,
@@ -1299,33 +1259,21 @@ export default function KioskPage() {
     if (selectedVisitorType.requires_training) {
       setIsLoading(true)
       try {
-        const supabase = createClient()
-
         if (form.email) {
-          const { data: existingVisitor } = await supabase
-            .from("visitors")
-            .select("id")
-            .eq("email", form.email)
-            .maybeSingle()
-
-          if (existingVisitor) {
-            const { data: trainingCompletion } = await supabase
-              .from("training_completions")
-              .select("*")
-              .eq("visitor_id", existingVisitor.id)
-              .eq("visitor_type_id", selectedVisitorType.id)
-              .maybeSingle()
-
-            if (trainingCompletion) {
-              const hasExpired =
-                trainingCompletion.expires_at &&
-                new Date(trainingCompletion.expires_at) < new Date()
-
-              if (!hasExpired) {
-                setIsLoading(false)
-                proceedToPhoto()
-                return
-              }
+          const statusRes = await fetch("/api/kiosk/training-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: form.email,
+              visitor_type_id: selectedVisitorType.id,
+            }),
+          })
+          if (statusRes.ok) {
+            const status = await statusRes.json()
+            if (status.hasValidTraining) {
+              setIsLoading(false)
+              proceedToPhoto()
+              return
             }
           }
         }
@@ -1409,7 +1357,7 @@ export default function KioskPage() {
       // visitor must not be admitted, and aborting here means there is no
       // sign-in row to unwind.
       let acknowledgementId: string | null = null
-      if (ndaInfo && ndaSignature) {
+      if (ndaEnabled && ndaInfo && ndaSignature) {
         const ndaRes = await fetch("/api/kiosk/nda", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1682,7 +1630,7 @@ export default function KioskPage() {
       return
     }
 
-    if (selectedVisitorType?.requires_nda) {
+    if (ndaEnabled && selectedVisitorType?.requires_nda) {
       setIsLoading(true)
       try {
         const res = await fetch("/api/kiosk/nda", {

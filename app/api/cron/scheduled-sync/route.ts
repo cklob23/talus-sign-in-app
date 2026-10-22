@@ -2,18 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { syncAzureUsers } from "@/lib/sync/azure"
 import { syncRampVendors } from "@/lib/sync/ramp"
-
-// Allow up to 60s for sync operations (Vercel Pro/Enterprise)
-export const maxDuration = 60
-
-// Schedule frequency options mapped to milliseconds
-const SCHEDULE_MS: Record<string, number> = {
-  "1h": 60 * 60 * 1000,
-  "6h": 6 * 60 * 60 * 1000,
-  "12h": 12 * 60 * 60 * 1000,
-  "24h": 24 * 60 * 60 * 1000,
-  "168h": 7 * 24 * 60 * 60 * 1000,
-}
+import { isSyncDue, parseSyncRequest, shouldRunProvider } from "@/lib/sync/schedule"
 
 function createAdminClient() {
   return createSupabaseClient(
@@ -48,7 +37,6 @@ async function upsertSetting(
   key: string,
   value: string
 ) {
-  // Check if exists
   const { data: existing } = await adminClient
     .from("settings")
     .select("id")
@@ -66,47 +54,39 @@ async function upsertSetting(
   }
 }
 
-/**
- * Determines if a sync is due, respecting start date/time and frequency.
- * - If start date is in the future, skip (not yet time).
- * - If start date is in the past (or empty), check if enough time has passed
- *   since lastSync based on the frequency interval.
- * - If never synced before, sync now (as long as start date has passed).
- */
-function isDue(schedule: string, lastSyncIso: string | null, startDateIso: string | null): boolean {
-  if (schedule === "off" || !SCHEDULE_MS[schedule]) return false
-
-  const now = Date.now()
-
-  // If a start date is set and it's in the future, don't run yet
-  if (startDateIso) {
-    const startTime = new Date(startDateIso).getTime()
-    if (!Number.isNaN(startTime) && startTime > now) return false
-  }
-
-  // Never synced before -- run now
-  if (!lastSyncIso) return true
-
-  const lastSync = new Date(lastSyncIso).getTime()
-  const interval = SCHEDULE_MS[schedule]
-  return now - lastSync >= interval
+type ProviderResult = {
+  ran: boolean
+  reason?: string
+  synced?: number
+  total?: number
+  created?: number
+  updated?: number
+  deactivated?: number
+  errors?: number
+  error?: string
 }
 
 /**
- * Core sync logic shared by both GET (Vercel Cron) and POST (manual) triggers.
+ * Core sync logic shared by both GET (scheduler) and POST (manual) triggers.
+ * Providers run independently so one failure never blocks the other.
  */
 async function runScheduledSync(request: Request) {
   try {
-    // Verify cron secret (Vercel sends this as Authorization: Bearer <secret>)
-    const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      return NextResponse.json(
+        { error: "Server is not configured: CRON_SECRET is not set." },
+        { status: 500 },
+      )
+    }
+    const authHeader = request.headers.get("authorization")
+    if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { provider, dryRun } = parseSyncRequest(request.url)
     const adminClient = createAdminClient()
 
-    // Read schedule settings including start dates
     const [azureSchedule, rampSchedule, azureStart, rampStart, lastAzureSync, lastRampSync] =
       await Promise.all([
         getSetting(adminClient, "sync_schedule_azure"),
@@ -117,84 +97,98 @@ async function runScheduledSync(request: Request) {
         getSetting(adminClient, "last_ramp_sync"),
       ])
 
-    const results: {
-      azure?: { ran: boolean; synced?: number; total?: number; error?: string }
-      ramp?: { ran: boolean; synced?: number; total?: number; error?: string }
-    } = {}
+    const azureDue = isSyncDue(azureSchedule || "off", lastAzureSync, azureStart)
+    const rampDue = isSyncDue(rampSchedule || "off", lastRampSync, rampStart)
+    const runAzure = shouldRunProvider(provider, "azure", azureDue)
+    const runRamp = shouldRunProvider(provider, "ramp", rampDue)
 
-    // Azure AD sync
-    if (isDue(azureSchedule || "off", lastAzureSync, azureStart)) {
+    const results: { azure?: ProviderResult; ramp?: ProviderResult } = {}
+
+    const azureTask = (async () => {
+      if (!runAzure) {
+        results.azure = {
+          ran: false,
+          reason: provider !== "all" ? `provider=${provider}` : "not_due",
+        }
+        return
+      }
       try {
-        const result = await syncAzureUsers(adminClient, { syncPhotos: false })
-        await upsertSetting(
-          adminClient,
-          "last_azure_sync",
-          new Date().toISOString()
-        )
+        const result = await syncAzureUsers(adminClient, { syncPhotos: false, dryRun })
+        if (!dryRun) {
+          await upsertSetting(adminClient, "last_azure_sync", new Date().toISOString())
+          await adminClient.from("audit_logs").insert({
+            action: "scheduled_sync.azure",
+            entity_type: "system",
+            description: `Scheduled Azure AD sync: ${result.synced}/${result.total} users synced, ${result.deactivated} deactivated${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ""}`,
+          })
+        }
         results.azure = {
           ran: true,
           synced: result.synced,
           total: result.total,
+          created: result.created,
+          updated: result.updated,
+          deactivated: result.deactivated,
+          errors: result.errors.length,
         }
-
-        await adminClient.from("audit_logs").insert({
-          action: "scheduled_sync.azure",
-          entity_type: "system",
-          description: `Scheduled Azure AD sync: ${result.synced}/${result.total} users synced${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ""}`,
-        })
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Azure sync failed"
+        const message = err instanceof Error ? err.message : "Azure sync failed"
         results.azure = { ran: true, error: message }
-
-        await adminClient.from("audit_logs").insert({
-          action: "scheduled_sync.azure_error",
-          entity_type: "system",
-          description: `Scheduled Azure AD sync failed: ${message}`,
-        })
+        if (!dryRun) {
+          await adminClient.from("audit_logs").insert({
+            action: "scheduled_sync.azure_error",
+            entity_type: "system",
+            description: `Scheduled Azure AD sync failed: ${message}`,
+          })
+        }
       }
-    } else {
-      results.azure = { ran: false }
-    }
+    })()
 
-    // Ramp vendor sync
-    if (isDue(rampSchedule || "off", lastRampSync, rampStart)) {
+    const rampTask = (async () => {
+      if (!runRamp) {
+        results.ramp = {
+          ran: false,
+          reason: provider !== "all" ? `provider=${provider}` : "not_due",
+        }
+        return
+      }
       try {
-        const result = await syncRampVendors(adminClient)
-        await upsertSetting(
-          adminClient,
-          "last_ramp_sync",
-          new Date().toISOString()
-        )
+        const result = await syncRampVendors(adminClient, { dryRun })
+        if (!dryRun) {
+          await upsertSetting(adminClient, "last_ramp_sync", new Date().toISOString())
+          await adminClient.from("audit_logs").insert({
+            action: "scheduled_sync.ramp",
+            entity_type: "system",
+            description: `Scheduled Ramp sync: ${result.synced}/${result.total} vendors synced, ${result.deactivated} deactivated${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ""}`,
+          })
+        }
         results.ramp = {
           ran: true,
           synced: result.synced,
           total: result.total,
+          deactivated: result.deactivated,
+          errors: result.errors.length,
         }
-
-        await adminClient.from("audit_logs").insert({
-          action: "scheduled_sync.ramp",
-          entity_type: "system",
-          description: `Scheduled Ramp sync: ${result.synced}/${result.total} vendors synced${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ""}`,
-        })
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Ramp sync failed"
+        const message = err instanceof Error ? err.message : "Ramp sync failed"
         results.ramp = { ran: true, error: message }
-
-        await adminClient.from("audit_logs").insert({
-          action: "scheduled_sync.ramp_error",
-          entity_type: "system",
-          description: `Scheduled Ramp sync failed: ${message}`,
-        })
+        if (!dryRun) {
+          await adminClient.from("audit_logs").insert({
+            action: "scheduled_sync.ramp_error",
+            entity_type: "system",
+            description: `Scheduled Ramp sync failed: ${message}`,
+          })
+        }
       }
-    } else {
-      results.ramp = { ran: false }
-    }
+    })()
+
+    await Promise.all([azureTask, rampTask])
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
+      dryRun,
+      provider,
       schedules: {
         azure: azureSchedule || "off",
         ramp: rampSchedule || "off",
@@ -216,16 +210,14 @@ async function runScheduledSync(request: Request) {
 }
 
 /**
- * GET handler -- called by Vercel Cron every hour.
- * Vercel Crons always send GET requests.
+ * GET/POST handler. Production runs on Render; call with
+ * Authorization: Bearer $CRON_SECRET from the hourly cron or a manual curl.
+ * Optional query: ?provider=azure|ramp and ?dryRun=1 (still requires CRON_SECRET).
  */
 export async function GET(request: Request) {
   return runScheduledSync(request)
 }
 
-/**
- * POST handler -- kept for manual triggers or backward compatibility.
- */
 export async function POST(request: Request) {
   return runScheduledSync(request)
 }

@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
+import { requireKioskContext } from "@/lib/kiosk-auth"
+import { asRequiredEmail } from "@/lib/kiosk-input"
 
-// Mark checked_in bookings as completed when a visitor signs out
-// Uses admin client to bypass RLS
 export async function POST(request: Request) {
   try {
-    const { visitor_email } = await request.json()
+    const auth = await requireKioskContext(request)
+    if (!auth.ok) return auth.response
+
+    const body = await request.json().catch(() => null)
+    const visitor_email = asRequiredEmail(
+      body && typeof body === "object" ? (body as { visitor_email?: unknown }).visitor_email : null,
+    )
 
     if (!visitor_email) {
       return NextResponse.json({ error: "visitor_email is required" }, { status: 400 })
     }
 
     const supabase = getAdminClient()
-
     const { error } = await supabase
       .from("bookings")
       .update({ status: "completed" })
@@ -27,9 +32,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error("Complete bookings error:", err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to complete bookings" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Failed to complete bookings" }, { status: 500 })
   }
 }

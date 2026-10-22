@@ -1,7 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ThemeColorsLoader } from "@/components/theme-colors-loader"
 import { getBrandingSettings } from "@/lib/branding"
@@ -64,7 +63,6 @@ export default function RootLayout({
           <ThemeColorsLoader />
           {children}
         </ThemeProvider>
-        <Analytics />
       </body>
     </html>
   )

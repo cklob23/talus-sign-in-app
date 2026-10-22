@@ -1,35 +1,50 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-
-// Create admin client with service role key to bypass RLS
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase environment variables")
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-  })
-}
+import { getAdminClient } from "@/lib/supabase/server"
+import { requireKioskContext } from "@/lib/kiosk-auth"
+import { asOptionalEmail, asOptionalString, asOptionalUuid, asRequiredUuid } from "@/lib/kiosk-input"
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const { sign_in_id, visitor_id, visitor_name, visitor_email, badge_number } = body
+    const auth = await requireKioskContext(request)
+    if (!auth.ok) return auth.response
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
+    const raw = body as Record<string, unknown>
+    const sign_in_id = asRequiredUuid(raw.sign_in_id)
+    const visitor_id = asOptionalUuid(raw.visitor_id)
+    const visitor_name = asOptionalString(raw.visitor_name, 200)
+    const visitor_email = asOptionalEmail(raw.visitor_email)
+    const badge_number = asOptionalString(raw.badge_number, 20)
 
     if (!sign_in_id) {
-      return NextResponse.json(
-        { error: "Missing required field: sign_in_id" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Missing required field: sign_in_id" }, { status: 400 })
+    }
+    if (
+      visitor_id === undefined ||
+      visitor_name === undefined ||
+      visitor_email === undefined ||
+      badge_number === undefined
+    ) {
+      return NextResponse.json({ error: "Invalid field value" }, { status: 400 })
     }
 
     const adminClient = getAdminClient()
 
-    // Update the sign-in record with sign-out time
+    if (auth.context.source === "qr") {
+      const { data: existing } = await adminClient
+        .from("sign_ins")
+        .select("id, location_id")
+        .eq("id", sign_in_id)
+        .maybeSingle()
+      if (!existing || existing.location_id !== auth.context.locationId) {
+        return NextResponse.json({ error: "Sign-in not found" }, { status: 404 })
+      }
+    }
+
     const { error: signOutError } = await adminClient
       .from("sign_ins")
       .update({ sign_out_time: new Date().toISOString() })
@@ -37,39 +52,32 @@ export async function POST(request: Request) {
 
     if (signOutError) {
       console.error("[API] Sign-out update error:", signOutError)
-      return NextResponse.json(
-        { error: signOutError.message },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Failed to sign out" }, { status: 500 })
     }
 
-    // Log the audit entry
     const visitorLabel = visitor_name
       ? visitor_email
         ? `${visitor_name} (${visitor_email})`
         : visitor_name
       : "Unknown visitor"
     await adminClient.from("audit_logs").insert({
-      user_id: null,
+      user_id: auth.context.source === "receptionist" ? auth.context.session.id : null,
       action: "visitor.sign_out",
       entity_type: "visitor",
-      entity_id: visitor_id,
+      entity_id: visitor_id || null,
       description: `Visitor signed out: ${visitorLabel}`,
       metadata: {
         sign_in_id,
         visitor_id,
         visitor_name,
         visitor_email,
-        badge_number
+        badge_number,
       },
     })
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("[API] Visitor sign-out error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

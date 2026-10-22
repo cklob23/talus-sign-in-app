@@ -28,6 +28,7 @@ import { logAudit } from "@/lib/audit-log"
 import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
 import { QrCodeSettings } from "@/components/admin/qr-code-settings"
 import { refreshBranding } from "@/hooks/use-branding"
+import { useNdaEnabled } from "@/hooks/use-features"
 import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/lib/tier"
 import Image from "next/image"
 
@@ -99,6 +100,7 @@ interface Location {
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const { timezone, setTimezone, isSaving: isSavingTimezone } = useUserTimezone()
+  const ndaEnabled = useNdaEnabled()
   const [mounted, setMounted] = useState(false)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -1519,6 +1521,7 @@ export default function SettingsPage() {
                     onCheckedChange={(checked: boolean) => setForm({ ...form, requiresTraining: checked })}
                   />
                 </div>
+                {ndaEnabled && (
                 <div className="flex items-center justify-between">
                   <div>
                     <Label htmlFor="requiresNda">Requires NDA</Label>
@@ -1532,6 +1535,7 @@ export default function SettingsPage() {
                     onCheckedChange={(checked: boolean) => setForm({ ...form, requiresNda: checked })}
                   />
                 </div>
+                )}
                 {form.requiresTraining && (
                   <>
                     <div className="space-y-2">

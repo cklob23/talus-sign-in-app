@@ -2,13 +2,19 @@ import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { logAuditServer } from "@/lib/audit-log"
+import { safeNextPath } from "@/lib/safe-redirect"
+import {
+  KIOSK_SESSION_COOKIE,
+  receptionistCookieOptions,
+  signReceptionistSession,
+} from "@/lib/kiosk-session"
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
   const errorParam = searchParams.get("error")
   const errorDescription = searchParams.get("error_description")
-  const next = searchParams.get("next") ?? "/admin"
+  const next = safeNextPath(searchParams.get("next"), "/admin")
   const type = searchParams.get("type") // 'admin' or 'employee'
   const locationId = searchParams.get("location_id")
 
@@ -197,16 +203,13 @@ export async function GET(request: Request) {
             role: profile.role || "staff",
             loginAt: new Date().toISOString(),
           }
-          const encodedSession = Buffer.from(JSON.stringify(receptionistSession)).toString("base64")
 
           const redirectResponse = createRedirectWithCookies(getRedirectUrl("/kiosk"))
-          redirectResponse.cookies.set("kiosk-receptionist-session", encodedSession, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax" as const,
-            path: "/",
-            maxAge: 60 * 60 * 24, // 24 hours
-          })
+          redirectResponse.cookies.set(
+            KIOSK_SESSION_COOKIE,
+            signReceptionistSession(receptionistSession),
+            receptionistCookieOptions(),
+          )
 
           // Sign out of Supabase auth so it doesn't interfere with admin sessions
           await supabase.auth.signOut()

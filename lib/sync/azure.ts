@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { collectNumberedPages, collectPages, graphPageItems, mapPool } from "@/lib/sync/schedule"
 
 const GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
+const AUTH_USERS_PAGE_SIZE = 1000
+const UPSERT_CONCURRENCY = 8
+const DEACTIVATE_CHUNK = 100
 
 export interface AzureCredentials {
   tenantId: string
@@ -89,10 +93,19 @@ async function getCredentialsFromDB(): Promise<AzureCredentials | null> {
   }
 }
 
+function getCredentialsFromEnv(): AzureCredentials | null {
+  const clientId = process.env.AZURE_CLIENT_ID || process.env.AZURE_AD_CLIENT_ID || ""
+  const clientSecret = process.env.AZURE_CLIENT_SECRET || process.env.AZURE_AD_CLIENT_SECRET || ""
+  const tenantId = process.env.AZURE_TENANT_ID || process.env.AZURE_AD_TENANT_ID || "common"
+  if (!clientId || !clientSecret) return null
+  return { tenantId, clientId, clientSecret }
+}
+
 /**
  * Fetch Azure AD credentials.
  *
  * Priority: DB settings table FIRST (user-supplied secret value),
+ * then AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET env vars,
  * then Supabase Management API as fallback.
  *
  * The Management API may return a secret that differs from the raw
@@ -107,7 +120,13 @@ export async function getAzureCredentials(): Promise<AzureCredentials> {
     return dbCreds
   }
 
-  // 2. Fallback: Supabase Management API
+  // 2. Render / process env (never log these values)
+  const envCreds = getCredentialsFromEnv()
+  if (envCreds) {
+    return envCreds
+  }
+
+  // 3. Fallback: Supabase Management API
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
   const projectRef = supabaseUrl.replace("https://", "").split(".")[0]
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN
@@ -147,7 +166,7 @@ export async function getAzureCredentials(): Promise<AzureCredentials> {
   }
 
   throw new Error(
-    "Microsoft SSO is not enabled or credentials are missing. Configure it in Settings first."
+    "Microsoft SSO is not enabled or credentials are missing. Configure Azure tenant/client/secret in Settings or set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET."
   )
 }
 
@@ -188,15 +207,14 @@ const GRAPH_USER_SELECT =
   "id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,accountEnabled"
 
 /**
- * Fetch all users from Azure AD via Graph API (handles pagination).
+ * Fetch all users from Azure AD via Graph API. Follows @odata.nextLink
+ * until Graph returns a page without one.
  */
 export async function fetchAzureUsers(accessToken: string): Promise<AzureUser[]> {
-  const allUsers: AzureUser[] = []
+  const firstUrl = `${GRAPH_API_URL}/users?$select=${GRAPH_USER_SELECT}&$top=999`
 
-  let nextUrl: string | null = `${GRAPH_API_URL}/users?$select=${GRAPH_USER_SELECT}&$top=999`
-
-  while (nextUrl) {
-    const response = await fetch(nextUrl, {
+  return collectPages(firstUrl, async (url) => {
+    const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
@@ -210,12 +228,31 @@ export async function fetchAzureUsers(accessToken: string): Promise<AzureUser[]>
       )
     }
 
-    const data: { value?: AzureUser[]; "@odata.nextLink"?: string } = await response.json()
-    allUsers.push(...(data.value || []))
-    nextUrl = data["@odata.nextLink"] || null
-  }
+    return graphPageItems<AzureUser>(await response.json())
+  })
+}
 
-  return allUsers
+/**
+ * Page through supabase.auth.admin.listUsers so upserts can match existing
+ * auth users beyond the first page.
+ */
+export async function listAllAuthUsers(
+  adminClient: SupabaseClient,
+): Promise<Map<string, string>> {
+  const users = await collectNumberedPages(async (page) => {
+    const { data, error } = await adminClient.auth.admin.listUsers({
+      page,
+      perPage: AUTH_USERS_PAGE_SIZE,
+    })
+    if (error) throw new Error(`Failed to list auth users: ${error.message}`)
+    return data?.users || []
+  }, AUTH_USERS_PAGE_SIZE)
+
+  const byEmail = new Map<string, string>()
+  for (const user of users) {
+    if (user.email) byEmail.set(user.email.toLowerCase(), user.id)
+  }
+  return byEmail
 }
 
 /**
@@ -338,6 +375,10 @@ export interface SyncOptions {
    * is disabled (e.g. staff disabled for licensing/MFA reasons, not offboarded).
    */
   deactivateHostOnDisable?: boolean
+  /** Skip all writes. Lookups still run so the caller can report counts. */
+  dryRun?: boolean
+  /** Preloaded auth.users email -> id map (all pages). */
+  authByEmail?: Map<string, string>
 }
 
 export async function upsertAzureUser(
@@ -346,7 +387,13 @@ export async function upsertAzureUser(
   azureUser: AzureUser,
   options: SyncOptions = {},
 ): Promise<UpsertAzureUserResult | null> {
-  const { syncPhotos = false, createMissing = true, deactivateHostOnDisable = true } = options
+  const {
+    syncPhotos = false,
+    createMissing = true,
+    deactivateHostOnDisable = true,
+    dryRun = false,
+    authByEmail,
+  } = options
 
   const email = azureUserEmail(azureUser)
   if (!email) return null
@@ -392,19 +439,24 @@ export async function upsertAzureUser(
 
   if (existing) {
     profileId = existing.id
-    const { error } = await adminClient.from("profiles").update(fields).eq("id", profileId)
-    if (error) throw new Error(error.message)
+    if (!dryRun) {
+      const { error } = await adminClient.from("profiles").update(fields).eq("id", profileId)
+      if (error) throw new Error(error.message)
 
-    // Keep the auth email in step with the directory so SSO login still maps.
-    await adminClient.auth.admin.updateUserById(profileId, { email }).catch(() => { })
+      // Keep the auth email in step with the directory so SSO login still maps.
+      await adminClient.auth.admin.updateUserById(profileId, { email }).catch(() => { })
+    }
   } else {
     // No profile yet: reuse an auth user with this email if one exists,
     // otherwise create one. This keeps profiles.id === auth.users.id.
-    const { data: authUsers } = await adminClient.auth.admin.listUsers()
-    const existingAuthUser = authUsers?.users?.find((u) => u.email?.toLowerCase() === email)
+    // listUsers is first-page-only unless the caller preloads every page.
+    const existingAuthId = authByEmail?.get(email)
 
-    if (existingAuthUser) {
-      profileId = existingAuthUser.id
+    if (existingAuthId) {
+      profileId = existingAuthId
+    } else if (dryRun) {
+      profileId = azureUser.id
+      isNew = true
     } else {
       const { data: newAuthUser, error: authError } = await adminClient.auth.admin.createUser({
         email,
@@ -414,18 +466,21 @@ export async function upsertAzureUser(
       if (authError) throw new Error(`Failed to create auth user: ${authError.message}`)
       profileId = newAuthUser.user.id
       isNew = true
+      authByEmail?.set(email, profileId)
     }
 
-    const { error } = await adminClient.from("profiles").upsert(
-      { id: profileId, role: "staff", created_at: new Date().toISOString(), ...fields },
-      { onConflict: "id" },
-    )
-    if (error) throw new Error(`Profile insert failed: ${error.message}`)
+    if (!dryRun) {
+      const { error } = await adminClient.from("profiles").upsert(
+        { id: profileId, role: "staff", created_at: new Date().toISOString(), ...fields },
+        { onConflict: "id" },
+      )
+      if (error) throw new Error(`Profile insert failed: ${error.message}`)
+    }
   }
 
   // Photo (optional; slow, so scheduled syncs skip it).
   let avatarUrl: string | null = null
-  if (syncPhotos) {
+  if (syncPhotos && !dryRun) {
     try {
       avatarUrl = await syncAzurePhoto(adminClient, accessToken, azureUser.id, profileId)
       if (avatarUrl) {
@@ -450,7 +505,9 @@ export async function upsertAzureUser(
   // in. We never re-activate a host here: an admin may have deactivated a host
   // for their own reasons while the directory account stays enabled.
   if (!isActive && deactivateHostOnDisable) hostFields.is_active = false
-  await adminClient.from("hosts").update(hostFields).eq("profile_id", profileId)
+  if (!dryRun) {
+    await adminClient.from("hosts").update(hostFields).eq("profile_id", profileId)
+  }
 
   return { profileId, isNew }
 }
@@ -463,29 +520,43 @@ export async function syncAzureUsers(
   adminClient: SupabaseClient,
   options: SyncOptions = {},
 ): Promise<AzureSyncResult> {
+  const dryRun = options.dryRun === true
   const credentials = await getAzureCredentials()
   const accessToken = await getAzureAccessToken(credentials)
 
   // A failure here throws BEFORE the deactivation sweep runs, so a transient
   // Graph outage can never be misread as "everyone left the directory".
   const azureUsers = await fetchAzureUsers(accessToken)
+  const authByEmail = options.authByEmail || (dryRun ? new Map<string, string>() : await listAllAuthUsers(adminClient))
+  const upsertOptions: SyncOptions = { ...options, dryRun, authByEmail }
+
+  const errors: string[] = []
+  const seenOids = new Set<string>()
+  for (const azureUser of azureUsers) seenOids.add(azureUser.id)
+
+  const upsertResults = await mapPool(azureUsers, UPSERT_CONCURRENCY, async (azureUser) => {
+    try {
+      const result = await upsertAzureUser(adminClient, accessToken, azureUser, upsertOptions)
+      return { result, error: null as string | null }
+    } catch (userError) {
+      const email = azureUserEmail(azureUser) || azureUser.id
+      return {
+        result: null,
+        error: `${email}: ${userError instanceof Error ? userError.message : "Unknown error"}`,
+      }
+    }
+  })
 
   let created = 0
   let updated = 0
-  const errors: string[] = []
-  const seenOids = new Set<string>()
-
-  for (const azureUser of azureUsers) {
-    seenOids.add(azureUser.id)
-    try {
-      const result = await upsertAzureUser(adminClient, accessToken, azureUser, options)
-      if (!result) continue
-      if (result.isNew) created++
-      else updated++
-    } catch (userError) {
-      const email = azureUserEmail(azureUser) || azureUser.id
-      errors.push(`${email}: ${userError instanceof Error ? userError.message : "Unknown error"}`)
+  for (const row of upsertResults) {
+    if (row.error) {
+      errors.push(row.error)
+      continue
     }
+    if (!row.result) continue
+    if (row.result.isNew) created++
+    else updated++
   }
 
   // Deactivation sweep: profiles that were directory-managed but are no longer
@@ -502,22 +573,31 @@ export async function syncAzureUsers(
     const stale = (managed || []).filter(
       (p) => p.azure_object_id && !seenOids.has(p.azure_object_id) && p.role !== "admin",
     )
-    for (const p of stale) {
-      const { error } = await adminClient
-        .from("profiles")
-        .update({
-          is_active: false,
-          directory_status: "removed",
-          directory_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", p.id)
-      if (!error) {
-        deactivated++
+    deactivated = stale.length
+
+    if (!dryRun) {
+      const syncedAt = new Date().toISOString()
+      for (let i = 0; i < stale.length; i += DEACTIVATE_CHUNK) {
+        const chunk = stale.slice(i, i + DEACTIVATE_CHUNK)
+        const ids = chunk.map((p) => p.id)
+        const { error } = await adminClient
+          .from("profiles")
+          .update({
+            is_active: false,
+            directory_status: "removed",
+            directory_synced_at: syncedAt,
+            updated_at: syncedAt,
+          })
+          .in("id", ids)
+        if (error) {
+          deactivated -= chunk.length
+          errors.push(`Deactivate chunk ${i / DEACTIVATE_CHUNK + 1}: ${error.message}`)
+          continue
+        }
         // Deactivate the linked host too, so they stop being selectable. A user
         // removed from the directory entirely is always deactivated as a host,
         // regardless of the disable-time host option.
-        await adminClient.from("hosts").update({ is_active: false }).eq("profile_id", p.id)
+        await adminClient.from("hosts").update({ is_active: false }).in("profile_id", ids)
       }
     }
   }

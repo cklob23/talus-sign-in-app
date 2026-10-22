@@ -1,0 +1,35 @@
+# The existing web service (talus-sign-in-app / srv-d5t7dkd6ubrc73avi9og) is
+# dashboard-managed. Do not declare it here or a Blueprint sync will try to
+# recreate or conflict with it. Cron jobs below can be created manually in
+# the dashboard or applied via Blueprint.
+
+services:
+  - type: cron
+    name: talus-auto-signout
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "*/15 * * * *"
+    buildCommand: echo skip
+    startCommand: curl -fsS --max-time 120 -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/auto-signout"
+    envVars:
+      - fromGroup: talus-cron
+
+  - type: cron
+    name: talus-scheduled-sync
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "0 * * * *"
+    buildCommand: echo skip
+    startCommand: curl -fsS --max-time 900 -H "Authorization: Bearer $CRON_SECRET" "$TARGET_URL/api/cron/scheduled-sync"
+    envVars:
+      - fromGroup: talus-cron
+
+envVarGroups:
+  - name: talus-cron
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: TARGET_URL
+        value: http://talus-sign-in-app-qt7b:10000

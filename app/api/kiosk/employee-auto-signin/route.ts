@@ -1,24 +1,20 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-
-// Service-role admin client to bypass RLS (no auth session required)
-function getAdminClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !serviceRoleKey) {
-        throw new Error("Missing Supabase environment variables")
-    }
-
-    return createClient(supabaseUrl, serviceRoleKey, {
-        auth: { persistSession: false },
-    })
-}
+import { getAdminClient } from "@/lib/supabase/server"
+import { requireKioskContext } from "@/lib/kiosk-auth"
+import { asRequiredUuid } from "@/lib/kiosk-input"
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json()
-        const { profile_id, location_id } = body
+        const auth = await requireKioskContext(request)
+        if (!auth.ok) return auth.response
+
+        const body = await request.json().catch(() => null)
+        if (!body || typeof body !== "object") {
+            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+        }
+
+        const profile_id = asRequiredUuid((body as { profile_id?: unknown }).profile_id)
+        const location_id = asRequiredUuid((body as { location_id?: unknown }).location_id)
 
         if (!profile_id || !location_id) {
             return NextResponse.json(
@@ -29,7 +25,6 @@ export async function POST(request: Request) {
 
         const adminClient = getAdminClient()
 
-        // Verify the profile exists and is an employee/staff/admin
         const { data: profile, error: profileError } = await adminClient
             .from("profiles")
             .select("id, email, full_name, role, avatar_url, location_id")
@@ -37,20 +32,13 @@ export async function POST(request: Request) {
             .single()
 
         if (profileError || !profile) {
-            return NextResponse.json(
-                { error: "Employee not found" },
-                { status: 404 },
-            )
+            return NextResponse.json({ error: "Employee not found" }, { status: 404 })
         }
 
         if (!["employee", "admin", "staff"].includes(profile.role)) {
-            return NextResponse.json(
-                { error: "User is not an employee" },
-                { status: 403 },
-            )
+            return NextResponse.json({ error: "User is not an employee" }, { status: 403 })
         }
 
-        // Check if already signed in today (has an open sign-in record with no sign-out)
         const { data: existingSignIn } = await adminClient
             .from("employee_sign_ins")
             .select("*")
@@ -61,10 +49,8 @@ export async function POST(request: Request) {
         let signInTime: string
 
         if (existingSignIn) {
-            // Already signed in — return the existing record
             signInTime = existingSignIn.sign_in_time
         } else {
-            // Insert a new sign-in record
             const { data: newSignIn, error: insertError } = await adminClient
                 .from("employee_sign_ins")
                 .insert({
@@ -78,15 +64,11 @@ export async function POST(request: Request) {
 
             if (insertError) {
                 console.error("[API] Employee auto sign-in insert error:", insertError)
-                return NextResponse.json(
-                    { error: insertError.message },
-                    { status: 500 },
-                )
+                return NextResponse.json({ error: "Failed to sign in employee" }, { status: 500 })
             }
 
             signInTime = newSignIn.sign_in_time
 
-            // Log the audit entry
             await adminClient.from("audit_logs").insert({
                 user_id: profile_id,
                 action: "employee.sign_in",
@@ -102,7 +84,6 @@ export async function POST(request: Request) {
             })
         }
 
-        // Get location details for the response
         const { data: location } = await adminClient
             .from("locations")
             .select("name, timezone")
@@ -128,9 +109,6 @@ export async function POST(request: Request) {
         })
     } catch (error) {
         console.error("[API] Employee auto sign-in error:", error)
-        return NextResponse.json(
-            { error: error instanceof Error ? error.message : "Internal server error" },
-            { status: 500 },
-        )
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }
 }

@@ -1,35 +1,42 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-
-// Create admin client with service role key to bypass RLS
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase environment variables")
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-  })
-}
+import { getAdminClient } from "@/lib/supabase/server"
+import { requireKioskContext } from "@/lib/kiosk-auth"
+import {
+  asOptionalEmail,
+  asOptionalHttpUrl,
+  asOptionalString,
+  asRequiredUuid,
+  asTrimmedString,
+} from "@/lib/kiosk-input"
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const { first_name, last_name, email, phone, company, photo_url } = body
+    const auth = await requireKioskContext(request)
+    if (!auth.ok) return auth.response
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
+    const first_name = asTrimmedString((body as { first_name?: unknown }).first_name, 100)
+    const last_name = asTrimmedString((body as { last_name?: unknown }).last_name, 100)
+    const email = asOptionalEmail((body as { email?: unknown }).email)
+    const phone = asOptionalString((body as { phone?: unknown }).phone, 40)
+    const company = asOptionalString((body as { company?: unknown }).company, 200)
+    const photo_url = asOptionalHttpUrl((body as { photo_url?: unknown }).photo_url)
 
     if (!first_name || !last_name) {
       return NextResponse.json(
         { error: "Missing required fields: first_name and last_name" },
-        { status: 400 }
+        { status: 400 },
       )
+    }
+    if (email === undefined || phone === undefined || company === undefined || photo_url === undefined) {
+      return NextResponse.json({ error: "Invalid field value" }, { status: 400 })
     }
 
     const adminClient = getAdminClient()
-
-    // Create the visitor record
     const { data: visitor, error: visitorError } = await adminClient
       .from("visitors")
       .insert({
@@ -45,40 +52,37 @@ export async function POST(request: Request) {
 
     if (visitorError) {
       console.error("[API] Visitor insert error:", visitorError)
-      return NextResponse.json(
-        { error: visitorError.message },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Failed to create visitor" }, { status: 500 })
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      visitor 
-    })
+    return NextResponse.json({ success: true, visitor })
   } catch (error) {
     console.error("[API] Create visitor error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-// Update visitor (for photo, etc.)
 export async function PUT(request: Request) {
   try {
-    const body = await request.json()
-    const { id, photo_url } = body
+    const auth = await requireKioskContext(request)
+    if (!auth.ok) return auth.response
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
+
+    const id = asRequiredUuid((body as { id?: unknown }).id)
+    const photo_url = asOptionalHttpUrl((body as { photo_url?: unknown }).photo_url)
 
     if (!id) {
-      return NextResponse.json(
-        { error: "Missing required field: id" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Missing required field: id" }, { status: 400 })
+    }
+    if (photo_url === undefined) {
+      return NextResponse.json({ error: "Invalid photo_url" }, { status: 400 })
     }
 
     const adminClient = getAdminClient()
-
     const updateData: Record<string, string | null> = {}
     if (photo_url !== undefined) updateData.photo_url = photo_url
 
@@ -91,21 +95,12 @@ export async function PUT(request: Request) {
 
     if (updateError) {
       console.error("[API] Visitor update error:", updateError)
-      return NextResponse.json(
-        { error: updateError.message },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Failed to update visitor" }, { status: 500 })
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      visitor 
-    })
+    return NextResponse.json({ success: true, visitor })
   } catch (error) {
     console.error("[API] Update visitor error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

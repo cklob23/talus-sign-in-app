@@ -79,6 +79,7 @@ export function CheckinFlow({
     visitorTypes,
     hosts,
     geofence,
+    ndaEnabled = false,
 }: {
     token: string
     locationName: string
@@ -86,6 +87,8 @@ export function CheckinFlow({
     hosts: CheckinHost[]
     /** Null when the site has no coordinates or the admin turned enforcement off. */
     geofence: CheckinGeofence | null
+    /** Server-passed NDA_ENABLED. Off skips the NDA step and keeps training order. */
+    ndaEnabled?: boolean
 }) {
     // Runs as soon as the page opens so a visitor who is not on site finds out
     // before typing anything. The server re-checks the same coordinates.
@@ -161,10 +164,10 @@ export function CheckinFlow({
         // Only shown once the server has confirmed a signature is actually needed:
         // enforcement may be off, no NDA uploaded, or this person may have signed
         // the current version recently.
-        if (ndaInfo) list.push("nda")
+        if (ndaEnabled && ndaInfo) list.push("nda")
         list.push("photo")
         return list
-    }, [visitorTypes.length, selectedType, ndaInfo])
+    }, [visitorTypes.length, selectedType, ndaInfo, ndaEnabled])
 
     /**
      * Tells the host the visitor has started training, matching the kiosk.
@@ -202,7 +205,7 @@ export function CheckinFlow({
     async function continueFromDetails() {
         setError(null)
 
-        if (!selectedType?.requires_nda) {
+        if (!ndaEnabled || !selectedType?.requires_nda) {
             setNdaInfo(null)
             advanceFrom("details", false)
             return
@@ -243,7 +246,7 @@ export function CheckinFlow({
         list.push("details")
         if (selectedType?.requires_host) list.push("host")
         if (selectedType?.requires_training && selectedType.training_video_url) list.push("training")
-        if (ndaRequired) list.push("nda")
+        if (ndaEnabled && ndaRequired) list.push("nda")
         list.push("photo")
         const next = list[list.indexOf(from) + 1]
         if (next === "training") notifyTrainingStarted()
