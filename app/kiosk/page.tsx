@@ -199,6 +199,10 @@ export default function KioskPage() {
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
+  /** Signed ticket from /api/kiosk/training/start; the server needs it to record training. */
+  const trainingTicketRef = useRef<string | null>(null)
+  /** Set when training-status said this visitor's earlier training is still valid. */
+  const priorTrainingValidRef = useRef(false)
   // Guards against duplicate sign-ins / duplicate host notifications caused by
   // double/triple taps on the kiosk touchscreen or component re-renders.
   const ndaSignatureRef = useRef<SignaturePadHandle>(null)
@@ -1220,8 +1224,33 @@ export default function KioskPage() {
   // Begin the training video and track watch progress. The training video is an
   // embedded iframe (e.g. YouTube), so progress is tracked on a timer that
   // unlocks the acknowledgement step once complete.
-  function startVideoProgress() {
-    if (videoStarted) return
+  async function startVideoProgress() {
+    if (videoStarted || isLoading) return
+    if (!selectedVisitorType) return
+
+    // Ask the server for a training ticket first. The training completion is
+    // only accepted with this ticket once the video has run its full length,
+    // so the timer must not start without it.
+    setIsLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/kiosk/training/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitor_type_id: selectedVisitorType.id }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || typeof json.ticket !== "string") {
+        throw new Error(json.error || "Could not start training. Please try again.")
+      }
+      trainingTicketRef.current = json.ticket
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start training. Please try again.")
+      return
+    } finally {
+      setIsLoading(false)
+    }
+
     setVideoStarted(true)
     setVideoProgress(0)
 
@@ -1289,6 +1318,7 @@ export default function KioskPage() {
           if (statusRes.ok) {
             const status = await statusRes.json()
             if (status.hasValidTraining) {
+              priorTrainingValidRef.current = true
               setIsLoading(false)
               proceedToPhoto()
               return
@@ -1356,15 +1386,38 @@ export default function KioskPage() {
       }
 
       // 3. Record training completion when applicable.
+      // The server checks the training ticket (or the group option, or an
+      // earlier valid completion) and the acknowledgement before recording it,
+      // and the sign-in below is refused without a valid completion.
       if (selectedVisitorType?.requires_training) {
-        await fetch("/api/kiosk/training", {
+        const trainingRes = await fetch("/api/kiosk/training", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             visitor_id: visitorId,
             visitor_type_id: selectedVisitorType.id,
+            email: form.email || null,
+            training: {
+              ticket: trainingTicketRef.current,
+              acknowledged: trainingAcknowledged,
+              bypass: bypassTraining,
+              prior: priorTrainingValidRef.current,
+            },
           }),
         })
+        if (!trainingRes.ok) {
+          const trainingJson = await trainingRes.json().catch(() => ({}))
+          const code = typeof trainingJson.code === "string" ? trainingJson.code : ""
+          if (code.startsWith("training_")) {
+            // Back to the video with the reason shown, instead of a dead end.
+            stopCamera()
+            resetTraining()
+            setMode("training")
+            setError(trainingJson.error || "Please complete the safety training.")
+            return
+          }
+          throw new Error(trainingJson.error || "Failed to record training")
+        }
       }
 
       const badgeNumber = generateBadgeNumber()
@@ -1531,6 +1584,8 @@ export default function KioskPage() {
     if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current)
     }
+    trainingTicketRef.current = null
+    priorTrainingValidRef.current = false
   }
 
   // Camera functions for visitor photo
@@ -2683,7 +2738,7 @@ export default function KioskPage() {
                         <SelectContent>
                           {hosts.map((host) => (
                             <SelectItem key={host.id} value={host.id}>
-                              {host.name} {host.department && `(${host.department})`}
+                              {host.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -3211,7 +3266,7 @@ export default function KioskPage() {
                   {!videoStarted && selectedVisitorType.training_video_url && (
                     <div
                       className="absolute inset-0 bg-foreground/60 flex flex-col items-center justify-center cursor-pointer rounded-lg"
-                      onClick={startVideoProgress}
+                      onClick={() => void startVideoProgress()}
                     >
                       <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
                         <PlayCircle className="w-12 h-12 text-primary" />

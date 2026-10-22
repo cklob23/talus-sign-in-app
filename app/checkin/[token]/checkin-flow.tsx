@@ -10,6 +10,14 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pa
 import { LocationGatePanel, useLocationGate, type CheckinGeofence } from "./location-gate"
 import type { DeviceCoords } from "@/lib/checkin-geofence"
 import {
+    clampSeek,
+    IDLE_RESET_NOTICE,
+    recordWatchPosition,
+    shouldIdleReset,
+    watchedToEnd,
+    type WatchProgress,
+} from "@/lib/checkin-idle"
+import {
     ArrowLeft,
     ArrowRight,
     ArrowUpRight,
@@ -26,8 +34,8 @@ import {
     UserRound,
 } from "lucide-react"
 
-/** Reset the flow after this much inactivity so a shared phone never leaks PII. */
-const INACTIVITY_MS = 10 * 60 * 1000
+/** How often the idle check runs. The limit itself lives in lib/checkin-idle. */
+const IDLE_CHECK_INTERVAL_MS = 15_000
 
 export interface CheckinVisitorType {
     id: string
@@ -99,7 +107,19 @@ export function CheckinFlow({
     const [details, setDetails] = useState<Details>(emptyDetails)
     const [hostId, setHostId] = useState<string | null>(null)
     const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
-    const [trainingDone, setTrainingDone] = useState(false)
+    /** The video played through to the end (seeking ahead does not count). */
+    const [videoEnded, setVideoEnded] = useState(false)
+    /** The visitor ticked "I have watched and understood". Only possible after the video ends. */
+    const [trainingAcknowledged, setTrainingAcknowledged] = useState(false)
+    const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
+    /** Signed ticket from training-start; the server needs it to accept the sign-in. */
+    const [trainingTicket, setTrainingTicket] = useState<{ typeId: string; ticket: string } | null>(null)
+    const [startingTraining, setStartingTraining] = useState(false)
+    const [idleNotice, setIdleNotice] = useState<string | null>(null)
+    const watchProgressRef = useRef<WatchProgress>({ maxWatched: 0 })
+    const videoPlayingRef = useRef(false)
+    const submittingRef = useRef(false)
+    const lastActivityRef = useRef(Date.now())
     /** Null until the server has been asked; null also means "not required". */
     const [ndaInfo, setNdaInfo] = useState<NdaInfo | null>(null)
     const [ndaAgreed, setNdaAgreed] = useState(false)
@@ -126,7 +146,8 @@ export function CheckinFlow({
         setDetails(emptyDetails)
         setHostId(null)
         setPhotoDataUrl(null)
-        setTrainingDone(false)
+        resetTrainingProgress()
+        setTrainingTicket(null)
         setNdaInfo(null)
         setNdaAgreed(false)
         setNdaHasInk(false)
@@ -141,19 +162,41 @@ export function CheckinFlow({
         setStep(visitorTypes.length > 0 ? "type" : "details")
     }, [visitorTypes.length])
 
-    // Idle reset. Skipped on the success screen so a visitor can read their badge
-    // number without it disappearing mid-glance.
+    function resetTrainingProgress() {
+        setVideoEnded(false)
+        setTrainingAcknowledged(false)
+        setVideoSeconds(null)
+        watchProgressRef.current = { maxWatched: 0 }
+        videoPlayingRef.current = false
+    }
+
+    // Idle reset. Never fires while the training video is playing or a request
+    // is in flight, and never on the success screen. When it does fire the
+    // visitor is told why, instead of silently landing back on step 1.
     useEffect(() => {
         if (step === "done") return
-        let timer = window.setTimeout(reset, INACTIVITY_MS)
+        lastActivityRef.current = Date.now()
         const bump = () => {
-            window.clearTimeout(timer)
-            timer = window.setTimeout(reset, INACTIVITY_MS)
+            lastActivityRef.current = Date.now()
         }
-        const events = ["pointerdown", "keydown", "focusin"] as const
-        events.forEach((event) => window.addEventListener(event, bump))
+        const events = ["pointerdown", "keydown", "focusin", "touchstart"] as const
+        events.forEach((event) => window.addEventListener(event, bump, { passive: true }))
+        const timer = window.setInterval(() => {
+            if (
+                shouldIdleReset({
+                    now: Date.now(),
+                    lastActivityAt: lastActivityRef.current,
+                    mediaPlaying: videoPlayingRef.current,
+                    busy: submittingRef.current,
+                    done: false,
+                })
+            ) {
+                reset()
+                setIdleNotice(IDLE_RESET_NOTICE)
+            }
+        }, IDLE_CHECK_INTERVAL_MS)
         return () => {
-            window.clearTimeout(timer)
+            window.clearInterval(timer)
             events.forEach((event) => window.removeEventListener(event, bump))
         }
     }, [step, reset])
@@ -174,36 +217,55 @@ export function CheckinFlow({
     }, [visitorTypes.length, selectedType, ndaInfo, ndaEnabled])
 
     /**
-     * Tells the host the visitor has started training, matching the kiosk.
+     * Runs when the visitor reaches the training video.
      *
-     * Fire-and-forget and deduped per host: a failure here must not block the
-     * visitor from starting training, and going back and forward through the
-     * step must not send the host a second email.
+     * Fetches the signed training ticket the server needs at sign-in, and tells
+     * the host the visitor has started training (once per host, so going back
+     * and forward through the step does not send a second email). A failure is
+     * shown on the training step with a retry, never swallowed.
      */
-    function notifyTrainingStarted() {
-        if (!hostId || trainingNotifiedRef.current === hostId) return
-        // Marked synchronously so a double-tap cannot send twice.
-        trainingNotifiedRef.current = hostId
+    async function startTraining(opts: { forceNewTicket?: boolean } = {}) {
+        if (!typeId) return
+        const haveTicket = !opts.forceNewTicket && trainingTicket?.typeId === typeId
+        const notifyHost = !!hostId && trainingNotifiedRef.current !== hostId
+        if (haveTicket && !notifyHost) return
+        if (notifyHost) trainingNotifiedRef.current = hostId
         if (!trainingIdempotencyKeyRef.current) {
             trainingIdempotencyKeyRef.current = crypto.randomUUID()
         }
-        void fetch(`/api/checkin/${token}/notify-training`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                hostId,
-                visitorTypeId: typeId,
-                firstName: details.firstName,
-                lastName: details.lastName,
-                company: details.company,
-                idempotencyKey: trainingIdempotencyKeyRef.current,
-            }),
-        }).then((res) => {
-            if (!res.ok) trainingNotifiedRef.current = null
-        }).catch(() => {
-            // Allow a retry if the request never reached the server.
-            trainingNotifiedRef.current = null
-        })
+        setStartingTraining(true)
+        try {
+            const res = await fetch(`/api/checkin/${token}/training-start`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    hostId,
+                    visitorTypeId: typeId,
+                    firstName: details.firstName,
+                    lastName: details.lastName,
+                    company: details.company,
+                    idempotencyKey: trainingIdempotencyKeyRef.current,
+                    notifyHost,
+                }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok || typeof json.ticket !== "string") {
+                if (notifyHost) trainingNotifiedRef.current = null
+                throw new Error(json.error ?? "Could not start the training. Please try again.")
+            }
+            // Keep the earliest ticket for this type: it is the one that proves
+            // how long the visitor has been on the training step.
+            if (!haveTicket) setTrainingTicket({ typeId, ticket: json.ticket })
+        } catch (err) {
+            if (notifyHost) trainingNotifiedRef.current = null
+            setError(
+                err instanceof Error && err.message !== "Failed to fetch"
+                    ? err.message
+                    : "Could not start the training. Check your connection and try again.",
+            )
+        } finally {
+            setStartingTraining(false)
+        }
     }
 
     /**
@@ -259,7 +321,7 @@ export function CheckinFlow({
         if (ndaEnabled && ndaRequired) list.push("nda")
         list.push("photo")
         const next = list[list.indexOf(from) + 1]
-        if (next === "training") notifyTrainingStarted()
+        if (next === "training") void startTraining()
         if (next) setStep(next)
     }
 
@@ -268,8 +330,8 @@ export function CheckinFlow({
         const index = steps.indexOf(step)
         const next = steps[index + 1]
         if (!next) return
-        if (next === "training") notifyTrainingStarted()
         setStep(next)
+        if (next === "training") void startTraining()
     }
 
     function goBack() {
@@ -279,7 +341,11 @@ export function CheckinFlow({
         if (previous) setStep(previous)
     }
 
+    const trainingInFlow = steps.includes("training")
+
     async function submit() {
+        if (submittingRef.current) return
+        submittingRef.current = true
         setSubmitting(true)
         setError(null)
         if (!signInIdempotencyKeyRef.current) {
@@ -302,15 +368,47 @@ export function CheckinFlow({
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
                     coords,
                     idempotencyKey: signInIdempotencyKeyRef.current,
+                    training: trainingInFlow
+                        ? {
+                            ticket: trainingTicket?.typeId === typeId ? trainingTicket.ticket : null,
+                            acknowledged: videoEnded && trainingAcknowledged,
+                            videoSeconds,
+                        }
+                        : undefined,
                 }),
             })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error ?? "Could not complete sign-in")
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) {
+                const code = typeof json.code === "string" ? json.code : ""
+                if (code.startsWith("training_")) {
+                    // Send the visitor back to the video with the reason, rather
+                    // than leaving them on a step they cannot fix from.
+                    if (code !== "training_not_acknowledged") {
+                        resetTrainingProgress()
+                        if (code !== "training_too_early") setTrainingTicket(null)
+                    }
+                    signInIdempotencyKeyRef.current = null
+                    setStep("training")
+                    setError(json.error ?? "Please complete the safety training.")
+                    if (code === "training_ticket_expired" || code === "training_ticket_invalid" || code === "training_ticket_missing") {
+                        // Host was already told about this visit; only a new ticket is needed.
+                        trainingNotifiedRef.current = hostId
+                        void startTraining({ forceNewTicket: true })
+                    }
+                    return
+                }
+                throw new Error(json.error ?? "Could not complete sign-in")
+            }
             setResult({ badgeNumber: json.badgeNumber, visitorName: json.visitorName, signInId: json.signInId })
             setStep("done")
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not complete sign-in")
+            setError(
+                err instanceof Error && err.message !== "Failed to fetch"
+                    ? err.message
+                    : "Could not reach the server. Check your connection and tap Sign in again.",
+            )
         } finally {
+            submittingRef.current = false
             setSubmitting(false)
         }
     }
@@ -336,15 +434,24 @@ export function CheckinFlow({
 
             {step === "type" ? (
                 <StepPanel title="What brings you here?" subtitle="Choose the option that fits your visit.">
+                    {idleNotice ? (
+                        <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            {idleNotice}
+                        </p>
+                    ) : null}
                     <div className="flex flex-col gap-2">
                         {visitorTypes.map((type) => (
                             <button
                                 key={type.id}
                                 type="button"
                                 onClick={() => {
+                                    if (type.id !== typeId) {
+                                        resetTrainingProgress()
+                                        setTrainingTicket(null)
+                                    }
+                                    setIdleNotice(null)
                                     setTypeId(type.id)
                                     setHostId(null)
-                                    setTrainingDone(false)
                                     setStep("details")
                                 }}
                                 className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent active:bg-accent"
@@ -477,29 +584,87 @@ export function CheckinFlow({
                     title={selectedType.training_title ?? "Safety training"}
                     subtitle="Please watch the full video before continuing."
                 >
+                    {/* The video only appears once the server has issued the training
+                        ticket, so watch time always counts from a known start. */}
+                    {trainingTicket?.typeId !== typeId ? (
+                        <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg border bg-card p-4 text-center text-sm">
+                            {startingTraining || !error ? (
+                                <>
+                                    <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden="true" />
+                                    <span>Preparing your training...</span>
+                                </>
+                            ) : (
+                                <Button type="button" variant="outline" onClick={() => void startTraining()}>
+                                    Try again
+                                </Button>
+                            )}
+                        </div>
+                    ) : (
                     <div className="overflow-hidden rounded-lg border bg-black">
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are baked into the source video */}
                         <video
                             src={selectedType.training_video_url}
                             controls
                             playsInline
+                            controlsList="nodownload noplaybackrate"
+                            disablePictureInPicture
                             className="aspect-video w-full"
-                            onEnded={() => setTrainingDone(true)}
+                            onLoadedMetadata={(e) => {
+                                const duration = e.currentTarget.duration
+                                if (Number.isFinite(duration) && duration > 0) setVideoSeconds(duration)
+                            }}
+                            onPlay={() => {
+                                videoPlayingRef.current = true
+                                lastActivityRef.current = Date.now()
+                            }}
+                            onPause={() => {
+                                videoPlayingRef.current = false
+                                lastActivityRef.current = Date.now()
+                            }}
+                            onTimeUpdate={(e) => {
+                                recordWatchPosition(watchProgressRef.current, e.currentTarget.currentTime)
+                                lastActivityRef.current = Date.now()
+                            }}
+                            onSeeking={(e) => {
+                                const video = e.currentTarget
+                                const allowed = clampSeek(watchProgressRef.current, video.currentTime)
+                                if (allowed !== video.currentTime) video.currentTime = allowed
+                            }}
+                            onEnded={(e) => {
+                                videoPlayingRef.current = false
+                                lastActivityRef.current = Date.now()
+                                const video = e.currentTarget
+                                recordWatchPosition(watchProgressRef.current, video.currentTime)
+                                if (watchedToEnd(watchProgressRef.current, video.duration)) {
+                                    setVideoSeconds(video.duration)
+                                    setVideoEnded(true)
+                                    setError(null)
+                                } else {
+                                    setError("Please watch the whole video without skipping ahead.")
+                                }
+                            }}
                         />
                     </div>
-                    <label className="flex items-start gap-3 rounded-lg border bg-card p-3 text-sm">
+                    )}
+                    <p className="text-xs text-muted-foreground" aria-live="polite">
+                        {videoEnded ? "Video complete." : "The checkbox unlocks when the video has finished."}
+                    </p>
+                    <label
+                        className={`flex items-start gap-3 rounded-lg border bg-card p-3 text-sm ${videoEnded ? "" : "opacity-60"}`}
+                    >
                         <input
                             type="checkbox"
-                            checked={trainingDone}
-                            onChange={(e) => setTrainingDone(e.target.checked)}
+                            checked={trainingAcknowledged}
+                            disabled={!videoEnded}
+                            onChange={(e) => setTrainingAcknowledged(videoEnded && e.target.checked)}
                             className="mt-0.5 h-4 w-4 accent-primary"
                         />
                         <span>I have watched and understood the safety training.</span>
                     </label>
                     <NavRow
                         onBack={goBack}
-                        nextLabel="Continue"
-                        nextDisabled={!trainingDone}
+                        nextLabel={startingTraining ? "Preparing..." : "Continue"}
+                        nextDisabled={!videoEnded || !trainingAcknowledged || trainingTicket?.typeId !== typeId || startingTraining}
                         onNext={goNext}
                         error={error}
                     />
@@ -718,7 +883,7 @@ function HostStep({
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase()
         if (!q) return hosts
-        return hosts.filter((h) => h.name.toLowerCase().includes(q) || (h.department ?? "").toLowerCase().includes(q))
+        return hosts.filter((h) => h.name.toLowerCase().includes(q))
     }, [hosts, query])
 
     return (
@@ -728,7 +893,7 @@ function HostStep({
                 <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search by name or department"
+                    placeholder="Search by name"
                     className="pl-9"
                     aria-label="Search hosts"
                 />
@@ -753,9 +918,6 @@ function HostStep({
                                     <UserRound className="h-5 w-5 shrink-0 text-muted-foreground" />
                                     <span>
                                         <span className="block font-medium">{host.name}</span>
-                                        {host.department ? (
-                                            <span className="block text-xs text-muted-foreground">{host.department}</span>
-                                        ) : null}
                                     </span>
                                 </span>
                                 {selected ? <Check className="h-5 w-5 shrink-0 text-primary" /> : null}
