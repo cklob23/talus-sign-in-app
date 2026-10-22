@@ -9,6 +9,12 @@
  */
 
 export const CHECKIN_IDLE_MS = 10 * 60 * 1000
+/** Kiosk half-finished forms return to welcome after this idle time. */
+export const KIOSK_IDLE_MS = 90 * 1000
+/** Success screen returns to welcome unless someone taps. */
+export const KIOSK_DONE_RESET_MS = 20 * 1000
+/** Visible countdown before an idle reset. */
+export const KIOSK_IDLE_WARN_MS = 10 * 1000
 
 export function shouldIdleReset(opts: {
   now: number
@@ -27,6 +33,24 @@ export function shouldIdleReset(opts: {
 
 export const IDLE_RESET_NOTICE =
   "Your sign-in was cleared after 10 minutes without activity. Please start again."
+
+export function idleSecondsLeft(opts: {
+  now: number
+  lastActivityAt: number
+  limitMs: number
+}): number {
+  return Math.max(0, Math.ceil((opts.limitMs - (opts.now - opts.lastActivityAt)) / 1000))
+}
+
+export function shouldShowIdleWarning(opts: {
+  now: number
+  lastActivityAt: number
+  limitMs: number
+  warnMs?: number
+}): boolean {
+  const leftMs = opts.limitMs - (opts.now - opts.lastActivityAt)
+  return leftMs > 0 && leftMs <= (opts.warnMs ?? KIOSK_IDLE_WARN_MS)
+}
 
 /**
  * Tracks how far a visitor has genuinely watched a video, so seeking ahead does

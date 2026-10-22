@@ -26,6 +26,7 @@ import type { Booking, Host, VisitorType, Location } from "@/types/database"
 import { formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 import { logAudit } from "@/lib/audit-log"
+import { AdminLoadError } from "@/components/admin/load-error"
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -33,6 +34,7 @@ export default function BookingsPage() {
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [sendingLinkId, setSendingLinkId] = useState<string | null>(null)
@@ -53,9 +55,10 @@ export default function BookingsPage() {
 
   async function loadData() {
     setIsLoading(true)
+    setLoadError(null)
     const supabase = createClient()
 
-    const [{ data: bookingsData }, { data: hostsData }, { data: typesData }, { data: locationsData }] = await Promise.all([
+    const [{ data: bookingsData, error: bookingsErr }, { data: hostsData }, { data: typesData }, { data: locationsData }] = await Promise.all([
       supabase
         .from("bookings")
         .select(
@@ -72,12 +75,17 @@ export default function BookingsPage() {
       supabase.from("locations").select("*").order("name"),
     ])
 
+    if (bookingsErr) {
+      setLoadError(bookingsErr.message || "Could not load bookings.")
+      setIsLoading(false)
+      return
+    }
+
     if (bookingsData) setBookings(bookingsData as Booking[])
     if (hostsData) setHosts(hostsData)
     if (typesData) setVisitorTypes(typesData)
     if (locationsData) {
       setLocations(locationsData)
-      // Set default location if not already set
       if (!form.locationId && locationsData.length > 0) {
         setForm(prev => ({ ...prev, locationId: locationsData[0].id }))
       }
@@ -510,8 +518,13 @@ export default function BookingsPage() {
         <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
           {isLoading ? (
             <p className="text-center py-8 text-muted-foreground">Loading...</p>
+          ) : loadError ? (
+            <AdminLoadError title="Could not load bookings" detail={loadError} onRetry={loadData} />
           ) : bookings.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">No bookings found</p>
+            <div className="py-8 text-center">
+              <p className="text-muted-foreground">No bookings found</p>
+              <p className="mt-1 text-sm text-muted-foreground">Create a booking to pre-register a visitor.</p>
+            </div>
           ) : (
             <>
               {/* Mobile card view */}

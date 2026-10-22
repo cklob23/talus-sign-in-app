@@ -15,6 +15,8 @@ import {
     type WatchProgress,
 } from "@/lib/checkin-idle"
 import { TrainingPlayer } from "@/components/training-player"
+import { fill, visitorCopy, type VisitorLang } from "@/lib/visitor-i18n"
+import { typeRequiresPhoto } from "@/lib/requires-photo"
 import {
     ArrowLeft,
     ArrowRight,
@@ -43,6 +45,7 @@ export interface CheckinVisitorType {
     requires_company: boolean
     requires_training: boolean
     requires_nda: boolean
+    requires_photo?: boolean
     training_title: string | null
     training_video_url: string | null
 }
@@ -86,6 +89,7 @@ export function CheckinFlow({
     hosts,
     geofence,
     ndaEnabled = false,
+    lang = "en",
 }: {
     token: string
     locationName: string
@@ -95,7 +99,9 @@ export function CheckinFlow({
     geofence: CheckinGeofence | null
     /** Server-passed NDA_ENABLED. Off skips the NDA step and keeps training order. */
     ndaEnabled?: boolean
+    lang?: VisitorLang
 }) {
+    const copy = visitorCopy(lang)
     // Runs as soon as the page opens so a visitor who is not on site finds out
     // before typing anything. The server re-checks the same coordinates.
     const gate = useLocationGate(geofence)
@@ -215,7 +221,7 @@ export function CheckinFlow({
         // enforcement may be off, no NDA uploaded, or this person may have signed
         // the current version recently.
         if (ndaEnabled && ndaInfo) list.push("nda")
-        list.push("photo")
+        if (typeRequiresPhoto(selectedType)) list.push("photo")
         return list
     }, [visitorTypes.length, selectedType, ndaInfo, ndaEnabled])
 
@@ -460,7 +466,16 @@ export function CheckinFlow({
     }
 
     if (step === "done" && result) {
-        return <SuccessPanel result={result} locationName={locationName} onDone={reset} />
+        const hostName = hosts.find((host) => host.id === hostId)?.name || null
+        return (
+            <SuccessPanel
+                result={result}
+                locationName={locationName}
+                onDone={reset}
+                hostName={hostName}
+                copy={copy}
+            />
+        )
     }
 
     if (mode === "signout") {
@@ -474,7 +489,7 @@ export function CheckinFlow({
             <StepProgress total={steps.length} current={stepIndex} />
 
             {step === "type" ? (
-                <StepPanel title="What brings you here?" subtitle="Choose the option that fits your visit.">
+                <StepPanel title={copy.whyHere} subtitle={copy.whyHereHelp}>
                     {idleNotice ? (
                         <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                             {idleNotice}
@@ -495,7 +510,7 @@ export function CheckinFlow({
                                     setHostId(null)
                                     setStep("details")
                                 }}
-                                className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent active:bg-accent"
+                                className="flex min-h-14 items-center justify-between gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:bg-accent active:bg-accent"
                             >
                                 <span className="flex items-center gap-3">
                                     <span
@@ -507,9 +522,9 @@ export function CheckinFlow({
                                         <span className="block font-medium">{type.name}</span>
                                         <span className="block text-xs text-muted-foreground">
                                             {[
-                                                type.requires_host ? "Host required" : null,
-                                                type.requires_company ? "Company required" : null,
-                                                type.requires_training ? "Safety training" : null,
+                                                type.requires_host ? copy.host : null,
+                                                type.requires_company ? copy.company : null,
+                                                type.requires_training ? copy.safety : null,
                                             ]
                                                 .filter(Boolean)
                                                 .join(" • ") || "No extra steps"}
@@ -524,7 +539,7 @@ export function CheckinFlow({
             ) : null}
 
             {step === "details" ? (
-                <StepPanel title="Your details" subtitle={`Signing in at ${locationName}.`}>
+                <StepPanel title={copy.yourDetails} subtitle={locationName}>
                     <form
                         className="flex flex-col gap-4"
                         onSubmit={(event) => {
@@ -533,7 +548,7 @@ export function CheckinFlow({
                         }}
                     >
                         <div className="grid grid-cols-2 gap-3">
-                            <Field id="first-name" label="First name" required>
+                            <Field id="first-name" label={copy.firstName} required>
                                 {(id) => (
                                     <Input
                                         id={id}
@@ -544,7 +559,7 @@ export function CheckinFlow({
                                     />
                                 )}
                             </Field>
-                            <Field id="last-name" label="Last name" required>
+                            <Field id="last-name" label={copy.lastName} required>
                                 {(id) => (
                                     <Input
                                         id={id}
@@ -556,7 +571,7 @@ export function CheckinFlow({
                                 )}
                             </Field>
                         </div>
-                        <Field id="company" label="Company" required={selectedType?.requires_company ?? false}>
+                        <Field id="company" label={copy.company} required={selectedType?.requires_company ?? false}>
                             {(id) => (
                                 <CompanyAutocomplete
                                     id={id}
@@ -566,7 +581,7 @@ export function CheckinFlow({
                                 />
                             )}
                         </Field>
-                        <Field id="email" label="Email" hint="So we can send you a copy of your visit record.">
+                        <Field id="email" label={copy.email} hint={copy.emailHint}>
                             {(id) => (
                                 <Input
                                     id={id}
@@ -579,7 +594,7 @@ export function CheckinFlow({
                                 />
                             )}
                         </Field>
-                        <Field id="phone" label="Phone">
+                        <Field id="phone" label={copy.phone}>
                             {(id) => (
                                 <Input
                                     id={id}
@@ -593,7 +608,7 @@ export function CheckinFlow({
                         </Field>
                         <NavRow
                             onBack={stepIndex > 0 ? goBack : undefined}
-                            nextLabel={checkingNda ? "Checking..." : "Continue"}
+                            nextLabel={checkingNda ? copy.continue : copy.continue}
                             nextType="submit"
                             nextDisabled={checkingNda}
                             nextIcon={checkingNda ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
@@ -607,16 +622,20 @@ export function CheckinFlow({
                 <HostStep
                     hosts={hosts}
                     hostId={hostId}
-                    onSelect={setHostId}
+                    onSelect={(id) => {
+                        setHostId(id)
+                        setError(null)
+                    }}
                     onBack={goBack}
                     onNext={() => {
                         if (!hostId) {
-                            setError("Please choose who you are visiting.")
+                            setError(copy.hostRequired)
                             return
                         }
                         goNext()
                     }}
                     error={error}
+                    copy={copy}
                 />
             ) : null}
 
@@ -626,7 +645,10 @@ export function CheckinFlow({
                         <p className="text-sm text-muted-foreground">
                             You watched the safety video from your training link. No video and no code today.
                         </p>
-                        <NavRow onBack={goBack} nextLabel="Continue" onNext={goNext} error={error} />
+                        {hosts.find((host) => host.id === hostId)?.name ? (
+                            <p className="text-sm text-[#00703f]">{fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}</p>
+                        ) : null}
+                        <NavRow onBack={goBack} nextLabel={copy.continue} onNext={goNext} error={error} />
                     </StepPanel>
                 ) : skipKind === "code" && !codeProof ? (
                     <StepPanel title="Type the 6 digit code" subtitle={`We sent a code to ${maskedEmail || details.email}. It lasts 30 minutes.`}>
@@ -710,8 +732,13 @@ export function CheckinFlow({
                         }}
                     />
                     )}
+                    {hosts.find((host) => host.id === hostId)?.name ? (
+                        <p className="text-sm font-medium text-[#00703f]">
+                            {fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}
+                        </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground" aria-live="polite">
-                        {videoEnded ? "Video complete." : "The checkbox unlocks when the video has finished."}
+                        {videoEnded ? "Video complete." : copy.trainingHelp}
                     </p>
                     <label
                         className={`flex items-start gap-3 rounded-lg border bg-card p-3 text-sm ${videoEnded ? "" : "opacity-60"}`}
@@ -723,7 +750,7 @@ export function CheckinFlow({
                             onChange={(e) => setTrainingAcknowledged(videoEnded && e.target.checked)}
                             className="mt-0.5 h-4 w-4 accent-primary"
                         />
-                        <span>I watched the video. I will follow the safety rules.</span>
+                        <span>{copy.trainingAck}</span>
                     </label>
                     <NavRow
                         onBack={goBack}
@@ -787,15 +814,15 @@ export function CheckinFlow({
             ) : null}
 
             {step === "photo" ? (
-                <StepPanel title="Add a photo" subtitle="Optional, but it helps your host recognise you.">
-                    <PhotoPicker value={photoDataUrl} onChange={setPhotoDataUrl} />
-                    <div className="rounded-lg border bg-card p-3 text-xs leading-relaxed text-muted-foreground">
-                        By signing in you confirm you will follow all site safety rules and sign out when you leave.
-                    </div>
+                <StepPanel
+                    title={copy.photoTitle}
+                    subtitle={typeRequiresPhoto(selectedType) ? copy.photoRequired : copy.photoOptional}
+                >
+                    <PhotoPicker value={photoDataUrl} onChange={setPhotoDataUrl} copy={copy} />
                     <NavRow
                         onBack={goBack}
-                        nextLabel={submitting ? "Signing in..." : "Sign in"}
-                        nextDisabled={submitting}
+                        nextLabel={submitting ? copy.completeSignIn : copy.completeSignIn}
+                        nextDisabled={submitting || (typeRequiresPhoto(selectedType) && !photoDataUrl)}
                         nextIcon={submitting ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
                         onNext={() => void submit()}
                         error={error}
@@ -807,18 +834,18 @@ export function CheckinFlow({
           the entry step — whichever step that happens to be for this location. */}
             {stepIndex === 0 ? (
                 <div className="mt-auto border-t pt-4 text-center">
-                    <p className="text-sm text-muted-foreground">Already signed in and leaving?</p>
+                    <p className="text-sm text-muted-foreground">{copy.alreadyHere}</p>
                     <Button
                         type="button"
                         variant="outline"
-                        className="mt-2 w-full gap-2"
+                        className="mt-2 min-h-12 w-full gap-2"
                         onClick={() => {
                             setError(null)
                             setMode("signout")
                         }}
                     >
                         <LogOut className="h-4 w-4" />
-                        {`Sign out of ${locationName}`}
+                        {fill(copy.signOutOf, { site: locationName })}
                     </Button>
                 </div>
             ) : null}
@@ -915,12 +942,12 @@ function NavRow({
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <div className="flex gap-3">
                 {onBack ? (
-                    <Button type="button" variant="outline" size="lg" onClick={onBack} className="shrink-0">
+                    <Button type="button" variant="outline" size="lg" onClick={onBack} className="min-h-12 min-w-12 shrink-0">
                         <ArrowLeft className="h-4 w-4" />
                         <span className="sr-only">Back</span>
                     </Button>
                 ) : null}
-                <Button type={nextType} size="lg" className="flex-1" disabled={nextDisabled} onClick={onNext}>
+                <Button type={nextType} size="lg" className="min-h-12 flex-1" disabled={nextDisabled} onClick={onNext}>
                     {nextLabel}
                     {nextIcon ?? <ArrowRight className="ml-1.5 h-4 w-4" />}
                 </Button>
@@ -936,6 +963,7 @@ function HostStep({
     onBack,
     onNext,
     error,
+    copy,
 }: {
     hosts: CheckinHost[]
     hostId: string | null
@@ -943,6 +971,7 @@ function HostStep({
     onBack: () => void
     onNext: () => void
     error: string | null
+    copy: ReturnType<typeof visitorCopy>
 }) {
     const [query, setQuery] = useState("")
     const filtered = useMemo(() => {
@@ -952,21 +981,21 @@ function HostStep({
     }, [hosts, query])
 
     return (
-        <StepPanel title="Who are you visiting?" subtitle="We will let them know you have arrived.">
+        <StepPanel title={copy.host} subtitle={copy.hostHint}>
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search by name"
-                    className="pl-9"
-                    aria-label="Search hosts"
+                    placeholder={copy.hostSearch}
+                    className="min-h-12 pl-9"
+                    aria-label={copy.hostSearch}
                 />
             </div>
 
             <div className="flex max-h-[45svh] flex-col gap-2 overflow-y-auto">
                 {filtered.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">No matching hosts.</p>
+                    <p className="py-6 text-center text-sm text-muted-foreground">{copy.noHosts}</p>
                 ) : (
                     filtered.map((host) => {
                         const selected = host.id === hostId
@@ -976,7 +1005,7 @@ function HostStep({
                                 type="button"
                                 onClick={() => onSelect(host.id)}
                                 aria-pressed={selected}
-                                className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors ${selected ? "border-primary bg-primary/10" : "bg-card hover:bg-accent"
+                                className={`flex min-h-14 items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${selected ? "border-primary bg-primary/10" : "bg-card hover:bg-accent"}
                                     }`}
                             >
                                 <span className="flex items-center gap-3">
@@ -992,12 +1021,12 @@ function HostStep({
                 )}
             </div>
 
-            <NavRow onBack={onBack} onNext={onNext} nextLabel="Continue" error={error} />
+            <NavRow onBack={onBack} onNext={onNext} nextLabel={copy.continue} error={error} />
         </StepPanel>
     )
 }
 
-function PhotoPicker({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+function PhotoPicker({ value, onChange, copy }: { value: string | null; onChange: (v: string | null) => void; copy: ReturnType<typeof visitorCopy> }) {
     const inputRef = useRef<HTMLInputElement>(null)
 
     function handleFile(file: File) {
@@ -1033,9 +1062,9 @@ function PhotoPicker({ value, onChange }: { value: string | null; onChange: (v: 
                         }}
                     />
                     <div className="flex gap-2">
-                        <Button type="button" variant="outline" onClick={() => inputRef.current?.click()}>
+                        <Button type="button" variant="outline" className="min-h-12" onClick={() => inputRef.current?.click()}>
                             <Camera className="mr-1.5 h-4 w-4" />
-                            {value ? "Retake" : "Take photo"}
+                            {value ? copy.takePhoto : copy.takePhoto}
                         </Button>
                         {value ? (
                             <Button type="button" variant="ghost" onClick={() => onChange(null)}>
@@ -1054,39 +1083,45 @@ function SuccessPanel({
     result,
     locationName,
     onDone,
+    hostName,
+    copy,
 }: {
     result: Result
     locationName: string
     onDone: () => void
+    hostName: string | null
+    copy: ReturnType<typeof visitorCopy>
 }) {
     return (
         <section className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
-            <CheckCircle2 className="h-16 w-16 text-primary" aria-hidden="true" />
+            <CheckCircle2 className="h-16 w-16 text-[#00854c]" aria-hidden="true" />
             <div className="space-y-1">
-                <h1 className="text-2xl font-semibold text-balance">You&apos;re signed in</h1>
+                <h1 className="text-2xl font-semibold text-balance">{copy.signedInTitle}</h1>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                    Welcome to {locationName}, {result.visitorName}.
+                    {locationName}, {result.visitorName}.
                 </p>
             </div>
 
             <Card className="w-full">
                 <CardContent className="space-y-1 p-5">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Your badge number</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.badgeNumber}</p>
                     <p className="font-mono text-3xl font-bold">{result.badgeNumber}</p>
                 </CardContent>
             </Card>
 
             <div className="flex items-start gap-2 rounded-lg border bg-card p-3 text-left text-sm leading-relaxed">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <span>Please remember to sign out when you leave the site.</span>
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#00703f]" />
+                <span>
+                    {hostName ? fill(copy.hostTold, { host: hostName }) : copy.hostNotTold} {copy.rememberSignOut}
+                </span>
             </div>
 
             <div className="flex w-full flex-col gap-2">
-                <Button size="lg" asChild>
-                    <a href={`/badge/${result.signInId}`}>View my badge</a>
+                <Button size="lg" className="min-h-12" asChild>
+                    <a href={`/badge/${result.signInId}`}>{copy.collectBadge}</a>
                 </Button>
-                <Button size="lg" variant="ghost" onClick={onDone}>
-                    Sign in someone else
+                <Button size="lg" variant="ghost" className="min-h-12" onClick={onDone}>
+                    {copy.done}
                 </Button>
             </div>
         </section>

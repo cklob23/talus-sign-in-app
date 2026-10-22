@@ -52,6 +52,8 @@ export interface VisitorType {
   requires_company: boolean
   requires_training: boolean
   requires_nda: boolean
+  /** Missing before 010. App treats undefined as true. */
+  requires_photo?: boolean
   training_video_url: string | null
   training_title: string | null
   location_id: string

@@ -3,10 +3,11 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { getBrandingSettings } from "@/lib/branding"
 import { resolveCheckinToken } from "@/lib/checkin-token"
 import { hasGeofence } from "@/lib/checkin-geofence"
-import { CheckinFlow } from "./checkin-flow"
+import { CheckinClient } from "./checkin-client"
 import { CheckinShell } from "./checkin-shell"
 import { isNdaFeatureEnabled } from "@/lib/nda-flag"
 import { listActiveHosts, QR_HOST_SELECT } from "@/lib/active-hosts"
+import { fetchVisitorTypesWithPhoto } from "@/lib/requires-photo"
 
 export const dynamic = "force-dynamic"
 
@@ -50,12 +51,9 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
     // Visitor types and hosts are global: the admin UI manages them as one
     // flat list. hosts.location_id is not a filter (P1-6).
     const [{ data: visitorTypes }, hostsResult] = await Promise.all([
-        admin
-            .from("visitor_types")
-            .select(
-                "id, name, badge_color, requires_host, requires_company, requires_training, requires_nda, training_title, training_video_url",
-            )
-            .order("name"),
+        fetchVisitorTypesWithPhoto((columns) =>
+            admin.from("visitor_types").select(columns).order("name"),
+        ),
         listActiveHosts(admin, QR_HOST_SELECT),
     ])
 
@@ -71,15 +69,15 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
     }
 
     return (
-        <CheckinShell companyName={branding.companyName} logo={branding.companyLogo} locationName={location.name}>
-            <CheckinFlow
-                token={token}
-                locationName={location.name}
-                visitorTypes={visitorTypes ?? []}
-                hosts={hostsResult.hosts}
-                geofence={geofence}
-                ndaEnabled={isNdaFeatureEnabled()}
-            />
-        </CheckinShell>
+        <CheckinClient
+            token={token}
+            companyName={branding.companyName}
+            logo={branding.companyLogo}
+            locationName={location.name}
+            visitorTypes={visitorTypes ?? []}
+            hosts={hostsResult.hosts}
+            geofence={geofence}
+            ndaEnabled={isNdaFeatureEnabled()}
+        />
     )
 }

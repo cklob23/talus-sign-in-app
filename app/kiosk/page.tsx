@@ -54,8 +54,14 @@ import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUn
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
+import { LangToggle } from "@/components/lang-toggle"
+import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
+import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
+import { fill, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
+import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
+import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
 
-type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
+type KioskMode = "receptionist-login" | "home" | "visitor-type" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
 /** What the server says about the NDA for this visitor type and person. */
 interface KioskNdaInfo {
@@ -134,7 +140,16 @@ export default function KioskPage() {
     locationName?: string
     photoUrl?: string
     signInId?: string
+    hostName?: string
+    hostNotified?: boolean
   } | null>(null)
+  const [lang, setLang] = useState<VisitorLang>("en")
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [geofenceOverride, setGeofenceOverride] = useState(false)
+  const [idleSeconds, setIdleSeconds] = useState<number | null>(null)
+  const lastActivityRef = useRef(Date.now())
+  const videoPlayingRef = useRef(false)
+  const [photoStaffOverride, setPhotoStaffOverride] = useState(false)
 
 
   const [form, setForm] = useState<SignInForm>({
@@ -962,9 +977,11 @@ export default function KioskPage() {
   async function loadData() {
     const supabase = createClient()
 
-    const [{ data: locData }, { data: typesData }, hostsRes] = await Promise.all([
+    const [{ data: locData }, typesRes, hostsRes] = await Promise.all([
       supabase.from("locations").select("*").order("name"),
-      supabase.from("visitor_types").select("*").order("name"),
+      fetchVisitorTypesWithPhoto((columns) =>
+        supabase.from("visitor_types").select(columns).order("name"),
+      ),
       fetch("/api/kiosk/hosts"),
     ])
 
@@ -975,7 +992,7 @@ export default function KioskPage() {
         setSelectedLocation(locData[0].id)
       }
     }
-    if (typesData) setVisitorTypes(typesData)
+    if (typesRes.data) setVisitorTypes(typesRes.data as VisitorType[])
 
     if (hostsRes.ok) {
       const hostsJson = await hostsRes.json().catch(() => null)
@@ -1074,8 +1091,8 @@ export default function KioskPage() {
   // Complete sign-in for a pre-registered booking
   async function handleBookingSignIn() {
     if (!selectedBooking) return
-    if (isOutsideGeofence) {
-      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to check in.`)
+    if (isOutsideGeofence && !geofenceOverride) {
+      setError(visitorCopy(lang).geofenceVisitor)
       return
     }
     setIsLoading(true)
@@ -1289,6 +1306,7 @@ export default function KioskPage() {
 
     setVideoStarted(true)
     setVideoProgress(0)
+    videoPlayingRef.current = true
   }
 
   async function verifyKioskCode() {
@@ -1324,23 +1342,23 @@ export default function KioskPage() {
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (isOutsideGeofence) {
-      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to sign in.`)
+    if (isOutsideGeofence && !geofenceOverride) {
+      setError(visitorCopy(lang).geofenceVisitor)
       return
     }
 
-    if (!selectedVisitorType) {
-      setError("Please select a visitor type")
+    const nextErrors: Record<string, string> = {}
+    if (!form.firstName.trim()) nextErrors.firstName = visitorCopy(lang).firstNameRequired
+    if (!form.lastName.trim()) nextErrors.lastName = visitorCopy(lang).lastNameRequired
+    if (!selectedVisitorType) nextErrors.visitorType = visitorCopy(lang).typeRequired
+    if (selectedVisitorType?.requires_host && !form.hostId) nextErrors.host = visitorCopy(lang).hostRequired
+    if (selectedVisitorType?.requires_company && !form.company.trim()) nextErrors.company = visitorCopy(lang).companyRequired
+    setFieldErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      setError(Object.values(nextErrors)[0])
       return
     }
-    if (selectedVisitorType.requires_host && !form.hostId) {
-      setError("Please select who you are visiting")
-      return
-    }
-    if (selectedVisitorType.requires_company && !form.company.trim()) {
-      setError("Please enter your company")
-      return
-    }
+    if (!selectedVisitorType) return
 
     setError(null)
 
@@ -1557,6 +1575,8 @@ export default function KioskPage() {
         locationName: currentLocation?.name,
         photoUrl: photoUrl || undefined,
         signInId: signInData.signIn?.id,
+        hostName: hosts.find((host) => host.id === form.hostId)?.name,
+        hostNotified: hostNotificationsEnabled && Boolean(form.hostId),
       })
       setMode("success")
     } catch (err) {
@@ -1616,6 +1636,8 @@ export default function KioskPage() {
         visitorType: selectedBooking.visitor_type?.name,
         locationName: currentLocation?.name,
         signInId: signInData.signIn?.id,
+        hostName: hosts.find((host) => host.id === selectedBooking.host_id)?.name,
+        hostNotified: hostNotificationsEnabled && Boolean(selectedBooking.host_id),
       })
       setMode("success")
     } catch (err) {
@@ -1792,8 +1814,9 @@ export default function KioskPage() {
   }
 
   function goToPhotoCapture() {
-    // Skip photo capture if not available in current tier
-    if (!hasFeature("photoCapture")) {
+    // Skip photo capture if not available in current tier, not required for this
+    // type, or a receptionist already overrode the requirement.
+    if (!hasFeature("photoCapture") || !typeRequiresPhoto(selectedVisitorType) || photoStaffOverride) {
       completeSignIn()
       return
     }
@@ -1909,6 +1932,11 @@ export default function KioskPage() {
     hostNotifiedRef.current = null
     signInIdempotencyKeyRef.current = null
     trainingIdempotencyKeyRef.current = null
+    setFieldErrors({})
+    setPhotoStaffOverride(false)
+    setIdleSeconds(null)
+    lastActivityRef.current = Date.now()
+    videoPlayingRef.current = false
   }
 
   async function handleEmployeeLogin(e: React.FormEvent) {
@@ -2148,9 +2176,56 @@ export default function KioskPage() {
   }
 
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
+  const copy = visitorCopy(lang)
+  const visitorBlockedByGeofence = isOutsideGeofence && !geofenceOverride
+
+  useEffect(() => {
+    setLang(readVisitorLang())
+  }, [])
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now()
+    const bump = () => {
+      lastActivityRef.current = Date.now()
+      setIdleSeconds(null)
+    }
+    const events = ["pointerdown", "keydown", "touchstart"] as const
+    events.forEach((event) => window.addEventListener(event, bump, { passive: true }))
+    const timer = window.setInterval(() => {
+      const visitorModes = ["visitor-type", "sign-in", "booking", "training", "cleared", "code", "photo", "sign-out", "success"]
+      if (!visitorModes.includes(mode)) return
+      const mediaPlaying = mode === "training" && (videoPlayingRef.current || (videoStarted && !trainingWatched))
+      const done = mode === "success"
+      const limitMs = done ? KIOSK_DONE_RESET_MS : KIOSK_IDLE_MS
+      if (mediaPlaying) {
+        setIdleSeconds(null)
+        return
+      }
+      if (shouldIdleReset({
+        now: Date.now(),
+        lastActivityAt: lastActivityRef.current,
+        mediaPlaying,
+        busy: isLoading || signInInProgressRef.current,
+        done: false,
+        limitMs,
+      })) {
+        handleReset()
+        return
+      }
+      if (shouldShowIdleWarning({ now: Date.now(), lastActivityAt: lastActivityRef.current, limitMs })) {
+        setIdleSeconds(idleSecondsLeft({ now: Date.now(), lastActivityAt: lastActivityRef.current, limitMs }))
+      } else {
+        setIdleSeconds(null)
+      }
+    }, 1000)
+    return () => {
+      window.clearInterval(timer)
+      events.forEach((event) => window.removeEventListener(event, bump))
+    }
+  }, [mode, videoStarted, trainingWatched, isLoading])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/30">
+    <div className="kiosk-touch min-h-screen bg-[#f5f8f6]">
       {mode === "receptionist-login" ? (
         <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
           <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-center">
@@ -2160,30 +2235,36 @@ export default function KioskPage() {
           </div>
         </header>
       ) : (
-        <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
-          <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-50 border-b border-[#dce6df] bg-white">
+          <div className="container mx-auto flex items-center justify-between gap-2 px-3 py-3 sm:px-4">
             <div className="shrink-0">
               <Link href="/">
                 <TalusAgLogo />
               </Link>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-              {/* Clock display with location timezone */}
-              <div className="hidden md:flex items-center gap-2 text-sm border-r pr-4 mr-2">
-                <Clock className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium text-foreground">
+              <div className="hidden items-center gap-2 text-sm lg:flex">
+                <MapPin className="h-4 w-4 text-[#00703f]" />
+                <span className="font-medium">{currentLocation?.name || "Select location"}</span>
+              </div>
+              <div className="hidden items-center gap-2 border-r pr-4 text-sm md:flex portrait:hidden">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">
                   {currentTime.toLocaleTimeString("en-US", {
                     timeZone: toIANATimezone(currentTimezone),
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
                 </span>
-                <span className="font-medium text-xs text-muted-foreground">
-                  {getTimezoneAbbreviation(currentTimezone)}
-                </span>
               </div>
-              {/* Location indicator */}
-              <div className="hidden sm:flex items-center gap-2 text-sm">
+              <LangToggle
+                lang={lang}
+                onLang={(next) => {
+                  writeVisitorLang(next)
+                  setLang(next)
+                }}
+              />
+              <div className="hidden items-center gap-2 text-sm xl:flex portrait:hidden">
                 {isDetectingLocation ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -2247,7 +2328,7 @@ export default function KioskPage() {
 
               {locations.length > 1 && (
                 <Select value={selectedLocation} onValueChange={(val) => { setSelectedLocation(val); setUserManuallySelectedLocation(true) }}>
-                  <SelectTrigger className="w-[140px] sm:w-[180px]">
+                  <SelectTrigger className="hidden w-[140px] sm:flex sm:w-[180px] portrait:hidden">
                     <SelectValue placeholder="Location" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2265,7 +2346,7 @@ export default function KioskPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-muted-foreground hover:text-foreground bg-transparent"
+                  className="min-h-12 min-w-12 bg-transparent text-muted-foreground hover:text-foreground"
                   onClick={handleReceptionistLogout}
                   title={`Logged in as ${receptionistUser.name}. Click to lock kiosk.`}
                 >
@@ -2278,7 +2359,19 @@ export default function KioskPage() {
         </header>
       )}
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
+      <main className="container mx-auto px-3 py-4 sm:px-4 sm:py-8">
+        {idleSeconds !== null && (
+          <button
+            type="button"
+            className="mb-4 w-full rounded-xl border border-[#8a4500] bg-[#fff3df] px-4 py-3 text-left text-[#8a4500]"
+            onClick={() => {
+              lastActivityRef.current = Date.now()
+              setIdleSeconds(null)
+            }}
+          >
+            {fill(copy.startingOver, { seconds: idleSeconds })}
+          </button>
+        )}
         {mode === "receptionist-login" && (
           <div className="max-w-sm mx-auto mt-8 sm:mt-16">
             <div className="text-center mb-6 sm:mb-8">
@@ -2380,87 +2473,37 @@ export default function KioskPage() {
         )}
 
         {mode === "home" && (
-          <div className="max-w-2xl mx-auto">
-            <div className="text-center mb-6 sm:mb-12">
-              <h1 className="text-2xl sm:text-4xl font-bold text-foreground mb-2 sm:mb-3">Visitor Check-In</h1>
-              <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName}. Please sign in or sign out below.</p>
-            </div>
-
-            {/* Geofence warning banner */}
+          <div className="mx-auto max-w-5xl">
             {isOutsideGeofence && selectedLocationDistance && geofenceRadius && (
-              <div className="mb-4 sm:mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 sm:p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-amber-800">
-                    You are {formatDistance(selectedLocationDistance, "")} from {currentLocation?.name || "this location"}
-                  </p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Sign-in is only available within {formatDistance(geofenceRadius, "")} of this location. Please move closer to sign in.
-                  </p>
-                </div>
+              <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                {receptionistUser && (
+                  <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                    <p>
+                      {fill(copy.geofenceStaff, {
+                        distance: formatDistance(selectedLocationDistance, ""),
+                        site: currentLocation?.name || "this site",
+                        radius: formatDistance(geofenceRadius, ""),
+                      })}
+                    </p>
+                    <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                      {copy.geofenceOverride}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
-
-            {/* Visitor options - always shown */}
-            <div className={`grid gap-3 sm:gap-6 ${hasFeature("visitorPreRegistration") ? "grid-cols-3" : "grid-cols-2"}`}>
-              <Card
-                className={`transition-all group flex flex-col h-full ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-primary/50"}`}
-                onClick={() => !isOutsideGeofence && setMode("sign-in")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-primary/20 transition-colors">
-                    <UserPlus className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
-                  </div>
-                  <CardTitle className="text-base sm:text-2xl">Sign In</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">New visitor? Sign in here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                  <Button className="w-full" size="lg" disabled={isOutsideGeofence}>
-                    Sign In
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {hasFeature("visitorPreRegistration") && (
-                <Card
-                  className={`transition-all group flex flex-col h-full ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-blue-500/50"}`}
-                  onClick={() => !isOutsideGeofence && setMode("booking")}
-                >
-                  <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
-                    <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-100 flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-blue-200 transition-colors">
-                      <CalendarCheck className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                    </div>
-                    <CardTitle className="text-base sm:text-2xl">I Have a Booking</CardTitle>
-                    <CardDescription className="text-xs sm:text-sm hidden sm:block">Pre-registered? Check in here</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                    <Button variant="outline" className="w-full bg-transparent border-blue-200 text-blue-600 hover:bg-blue-50" size="lg" disabled={isOutsideGeofence}>
-                      Check In
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              <Card
-                className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all group flex flex-col h-full"
-                onClick={() => setMode("sign-out")}
-              >
-                <CardHeader className="text-center pb-2 sm:pb-4 p-3 sm:p-6 flex-1">
-                  <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-secondary flex items-center justify-center mb-2 sm:mb-4 group-hover:bg-secondary/80 transition-colors">
-                    <LogOut className="w-6 h-6 sm:w-8 sm:h-8 text-foreground" />
-                  </div>
-                  <CardTitle className="text-lg sm:text-2xl">Sign Out</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Leaving? Sign out here</CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 mt-auto">
-                  <Button variant="secondary" className="w-full" size="lg">
-                    Sign Out
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="mt-4 sm:mt-8">
+            <KioskWelcome
+              companyName={branding.companyName}
+              copy={copy}
+              onSignIn={() => setMode("visitor-type")}
+              onSignOut={() => setMode("sign-out")}
+              onBooking={() => setMode("booking")}
+              onStaff={() => setMode("employee-login")}
+              showBooking={hasFeature("visitorPreRegistration")}
+              visitorBlocked={visitorBlockedByGeofence}
+            />
+            <div className="mt-6">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
               {employeeSignedIn && currentEmployee ? (
                 <Card className={`mb-4 sm:mb-6 ${autoSignOutSecondsLeft !== null ? "border-amber-300 bg-amber-50/50" : "border-green-200 bg-green-50/50"}`}>
@@ -2484,7 +2527,7 @@ export default function KioskPage() {
                               </span>
                             </p>
                           ) : (
-                            <p className="text-xs sm:text-sm text-green-600 flex items-center gap-1">
+                            <p className="flex items-center gap-1 text-xs text-[#00703f] sm:text-sm">
                               <CheckCircle className="w-3 h-3" />
                               Currently signed in
                             </p>
@@ -2504,29 +2547,7 @@ export default function KioskPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ) : (
-                <Card
-                  className={`transition-all group mb-4 sm:mb-6 ${isOutsideGeofence ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:shadow-lg hover:border-primary/50"}`}
-                  onClick={() => !isOutsideGeofence && setMode("employee-login")}
-                >
-                  <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors shrink-0">
-                          <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-sm sm:text-base">Employee Sign In</h3>
-                          <p className="text-xs sm:text-sm text-muted-foreground">
-                            {isOutsideGeofence ? "Move closer to sign in" : `${branding.companyName} employees sign in here`}
-                          </p>
-                        </div>
-                      </div>
-                      <ArrowLeft className="w-5 h-5 text-muted-foreground rotate-180 shrink-0" />
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              ) : null}
 
               {/* Remembered employee - only show quick sign-in option if NOT already signed in */}
               {rememberedEmployee && !employeeSignedIn && (
@@ -2618,90 +2639,131 @@ export default function KioskPage() {
           </div>
         )}
 
+        {mode === "visitor-type" && (
+          <div>
+            {visitorBlockedByGeofence && (
+              <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                  <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                    <p>
+                      {fill(copy.geofenceStaff, {
+                        distance: formatDistance(selectedLocationDistance, ""),
+                        site: currentLocation?.name || "this site",
+                        radius: formatDistance(geofenceRadius, ""),
+                      })}
+                    </p>
+                    <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                      {copy.geofenceOverride}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            <KioskTypeStep
+              types={visitorTypes}
+              copy={copy}
+              onBack={() => setMode("home")}
+              onPick={(id) => {
+                setForm({ ...form, visitorTypeId: id })
+                setFieldErrors({})
+                setError(null)
+                setMode("sign-in")
+              }}
+            />
+          </div>
+        )}
+
         {mode === "sign-in" && (
           <div className="max-w-xl mx-auto">
-            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={handleReset}>
+            <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => setMode("visitor-type")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
+              {copy.back}
             </Button>
 
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="text-xl sm:text-2xl">Visitor Sign In</CardTitle>
-                <CardDescription className="text-xs sm:text-sm">Please fill out the form below to sign in</CardDescription>
+                <p className="mb-2 text-sm text-[#55625a]">{fill(copy.stepOf, { current: 2, total: selectedVisitorType?.requires_training ? 4 : 3 })}</p>
+                <CardTitle className="text-xl sm:text-2xl">{copy.yourDetails}</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">{copy.welcomeSubtitle}</CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
                 <form onSubmit={handleSignInSubmit} className="space-y-3 sm:space-y-4">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border bg-[#f5f8f6] p-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: selectedVisitorType?.badge_color || "#00854c" }} />
+                      <span className="truncate font-semibold">{selectedVisitorType?.name || copy.whyHere}</span>
+                    </div>
+                    <Button type="button" variant="ghost" className="shrink-0" onClick={() => setMode("visitor-type")}>
+                      {copy.changeType}
+                    </Button>
+                  </div>
+                  {fieldErrors.visitorType ? (
+                    <p id="visitor-type-error" className="text-sm text-destructive" role="alert">{fieldErrors.visitorType}</p>
+                  ) : null}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="firstName">First Name *</Label>
+                      <Label htmlFor="firstName">{copy.firstName} *</Label>
                       <Input
                         id="firstName"
                         required
                         value={form.firstName}
-                        onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                        placeholder="John"
+                        onChange={(e) => {
+                          setForm({ ...form, firstName: e.target.value })
+                          setFieldErrors((prev) => ({ ...prev, firstName: "" }))
+                        }}
+                        aria-invalid={Boolean(fieldErrors.firstName)}
+                        aria-describedby={fieldErrors.firstName ? "firstName-error" : undefined}
                       />
+                      {fieldErrors.firstName ? (
+                        <p id="firstName-error" className="text-sm text-destructive" role="alert">{fieldErrors.firstName}</p>
+                      ) : null}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="lastName">Last Name *</Label>
+                      <Label htmlFor="lastName">{copy.lastName} *</Label>
                       <Input
                         id="lastName"
                         required
                         value={form.lastName}
-                        onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-                        placeholder="Doe"
+                        onChange={(e) => {
+                          setForm({ ...form, lastName: e.target.value })
+                          setFieldErrors((prev) => ({ ...prev, lastName: "" }))
+                        }}
+                        aria-invalid={Boolean(fieldErrors.lastName)}
+                        aria-describedby={fieldErrors.lastName ? "lastName-error" : undefined}
                       />
+                      {fieldErrors.lastName ? (
+                        <p id="lastName-error" className="text-sm text-destructive" role="alert">{fieldErrors.lastName}</p>
+                      ) : null}
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{copy.email}</Label>
                     <Input
                       id="email"
                       type="email"
                       value={form.email}
                       onChange={(e) => setForm({ ...form, email: e.target.value })}
-                      placeholder="john.doe@example.com"
+                      aria-describedby="email-hint"
                     />
+                    <p id="email-hint" className="text-xs text-[#55625a]">{copy.emailHint}</p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Phone</Label>
+                    <Label htmlFor="phone">{copy.phone}</Label>
                     <Input
                       id="phone"
                       type="tel"
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                      placeholder="(555) 123-4567"
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="visitorType">Visitor Type *</Label>
-                    <Select
-                      value={form.visitorTypeId}
-                      onValueChange={(value) => setForm({ ...form, visitorTypeId: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select visitor type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {visitorTypes.map((type) => (
-                          <SelectItem key={type.id} value={type.id}>
-                            <span className="flex items-center gap-2">
-                              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: type.badge_color }} />
-                              {type.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
 
                   {selectedVisitorType?.requires_company && (
                     <div className="space-y-2">
-                      <Label htmlFor="company">Company *</Label>
+                      <Label htmlFor="company">{copy.company} *</Label>
                       {hasVendors ? (
                         <div className="relative">
                           <Input
@@ -2713,6 +2775,7 @@ export default function KioskPage() {
                               const val = e.target.value
                               setCompanySearch(val)
                               setForm({ ...form, company: val })
+                              setFieldErrors((prev) => ({ ...prev, company: "" }))
                               setShowCompanyResults(true)
 
                               if (val.trim().length < 2) {
@@ -2742,7 +2805,9 @@ export default function KioskPage() {
                               // Delay to allow click on results
                               setTimeout(() => setShowCompanyResults(false), 200)
                             }}
-                            placeholder="Start typing to search companies..."
+                            placeholder={copy.companyHint}
+                            aria-invalid={Boolean(fieldErrors.company)}
+                            aria-describedby={fieldErrors.company ? "company-error" : "company-hint"}
                           />
                           {showCompanyResults && companySearch.trim().length >= 2 && (
                             <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
@@ -2781,19 +2846,35 @@ export default function KioskPage() {
                           id="company"
                           required={selectedVisitorType.requires_company}
                           value={form.company}
-                          onChange={(e) => setForm({ ...form, company: e.target.value })}
-                          placeholder="Company name"
+                          onChange={(e) => {
+                            setForm({ ...form, company: e.target.value })
+                            setFieldErrors((prev) => ({ ...prev, company: "" }))
+                          }}
+                          placeholder={copy.company}
+                          aria-invalid={Boolean(fieldErrors.company)}
+                          aria-describedby={fieldErrors.company ? "company-error" : undefined}
                         />
+                      )}
+                      {fieldErrors.company ? (
+                        <p id="company-error" className="text-sm text-destructive" role="alert">{fieldErrors.company}</p>
+                      ) : (
+                        <p id="company-hint" className="text-xs text-[#55625a]">{copy.companyHint}</p>
                       )}
                     </div>
                   )}
 
                   {selectedVisitorType?.requires_host && (
                     <div className="space-y-2">
-                      <Label htmlFor="host">Who are you visiting? *</Label>
-                      <Select value={form.hostId} onValueChange={(value) => setForm({ ...form, hostId: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select host" />
+                      <Label htmlFor="host">{copy.host} *</Label>
+                      <Select
+                        value={form.hostId}
+                        onValueChange={(value) => {
+                          setForm({ ...form, hostId: value })
+                          setFieldErrors((prev) => ({ ...prev, host: "" }))
+                        }}
+                      >
+                        <SelectTrigger aria-invalid={Boolean(fieldErrors.host)} aria-describedby={fieldErrors.host ? "host-error" : "host-hint"}>
+                          <SelectValue placeholder={copy.hostSearch} />
                         </SelectTrigger>
                         <SelectContent>
                           {hosts.map((host) => (
@@ -2803,51 +2884,65 @@ export default function KioskPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {fieldErrors.host ? (
+                        <p id="host-error" className="text-sm text-destructive" role="alert">{fieldErrors.host}</p>
+                      ) : (
+                        <p id="host-hint" className="text-xs text-[#55625a]">{copy.hostHint}</p>
+                      )}
                     </div>
                   )}
 
                   <div className="space-y-2">
-                    <Label htmlFor="purpose">
-                      Purpose of Visit
-                    </Label>
+                    <Label htmlFor="purpose">{copy.purpose}</Label>
                     <Textarea
                       id="purpose"
                       value={form.purpose}
                       onChange={(e) => setForm({ ...form, purpose: e.target.value })}
-                      placeholder="Brief description of your visit"
                       rows={3}
                     />
                   </div>
 
                   {isOutsideGeofence && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-700">
-                        You are too far from {currentLocation?.name || "this location"}.
-                        Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to sign in.
-                      </p>
+                    <div className="rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                      <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                      {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                        <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                          <p>
+                            {fill(copy.geofenceStaff, {
+                              distance: formatDistance(selectedLocationDistance, ""),
+                              site: currentLocation?.name || "this site",
+                              radius: formatDistance(geofenceRadius, ""),
+                            })}
+                          </p>
+                          <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                            {copy.geofenceOverride}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
 
                   {hostsError && selectedVisitorType?.requires_host && (
                     <p className="text-sm text-destructive">{hostsError}</p>
                   )}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence || Boolean(hostsError && selectedVisitorType?.requires_host)}>
+                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || visitorBlockedByGeofence || Boolean(hostsError && selectedVisitorType?.requires_host)}>
                     {isLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {selectedVisitorType?.requires_training ? "Starting training..." : "Signing in..."}
+                        {selectedVisitorType?.requires_training ? copy.nextTraining : copy.completeSignIn}
                       </>
                     ) : selectedVisitorType?.requires_training ? (
                       <>
                         <PlayCircle className="w-4 h-4 mr-2" />
-                        Continue to Training
+                        {copy.nextTraining}
                       </>
+                    ) : typeRequiresPhoto(selectedVisitorType) ? (
+                      copy.nextPhoto
                     ) : (
-                      "Complete Sign In"
+                      copy.completeSignIn
                     )}
                   </Button>
                 </form>
@@ -2974,12 +3069,22 @@ export default function KioskPage() {
                     )}
 
                     {isOutsideGeofence && (
-                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                        <p className="text-xs text-amber-700">
-                          You are too far from {currentLocation?.name || "this location"}.
-                          Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to check in.
-                        </p>
+                      <div className="rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                        <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                        {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                          <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                            <p>
+                              {fill(copy.geofenceStaff, {
+                                distance: formatDistance(selectedLocationDistance, ""),
+                                site: currentLocation?.name || "this site",
+                                radius: formatDistance(geofenceRadius, ""),
+                              })}
+                            </p>
+                            <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                              {copy.geofenceOverride}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2997,7 +3102,7 @@ export default function KioskPage() {
                       </Button>
                       <Button
                         className="flex-1"
-                        disabled={!selectedBooking || isLoading || isOutsideGeofence}
+                        disabled={!selectedBooking || isLoading || visitorBlockedByGeofence}
                         onClick={handleBookingSignIn}
                       >
                         {isLoading ? (
@@ -3282,7 +3387,7 @@ export default function KioskPage() {
           <div className="max-w-3xl mx-auto">
             <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => setMode("sign-in")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Form
+              {copy.back}
             </Button>
 
             <Card>
@@ -3293,13 +3398,20 @@ export default function KioskPage() {
                   </div>
                   <div>
                     <CardTitle className="text-lg sm:text-2xl">
-                      {selectedVisitorType.training_title || "Safety Training Required"}
+                      {selectedVisitorType.training_title || copy.trainingTitle}
                     </CardTitle>
                     <CardDescription className="text-xs sm:text-sm">
-                      As a {selectedVisitorType.name}, you must complete this training before signing in
+                      {copy.trainingHelp}
                     </CardDescription>
                   </div>
                 </div>
+                {hosts.find((host) => host.id === form.hostId)?.name ? (
+                  <p className="mt-2 text-sm font-medium text-[#00703f]">
+                    {fill(copy.hostTold, { host: hosts.find((host) => host.id === form.hostId)!.name })}
+                  </p>
+                ) : form.hostId || hostNotificationsEnabled === false ? (
+                  <p className="mt-2 text-sm text-[#55625a]">{hostNotificationsEnabled ? copy.hostNotTold : copy.hostNotifyOff}</p>
+                ) : null}
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
                 <div className="relative">
@@ -3307,9 +3419,13 @@ export default function KioskPage() {
                     videoStarted ? (
                       <TrainingPlayer
                         url={selectedVisitorType.training_video_url}
-                        title={selectedVisitorType.training_title || "Safety training"}
+                        title={selectedVisitorType.training_title || copy.trainingTitle}
                         onDuration={setVideoSeconds}
+                        onPlayingChange={(playing) => {
+                          videoPlayingRef.current = playing
+                        }}
                         onEnded={(seconds) => {
+                          videoPlayingRef.current = false
                           setVideoSeconds(seconds)
                           setTrainingWatched(true)
                           setVideoProgress(100)
@@ -3324,47 +3440,41 @@ export default function KioskPage() {
                           <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
                             <PlayCircle className="w-12 h-12 text-primary" />
                           </div>
-                          <p className="text-background font-medium text-lg">Tap to start training</p>
+                          <p className="text-background font-medium text-lg">{copy.tapToStart}</p>
                         </div>
                       </div>
                     )
                   ) : (
                     <div className="aspect-video w-full flex flex-col items-center justify-center text-muted-foreground rounded-lg bg-muted">
                       <PlayCircle className="w-16 h-16 mb-4 opacity-50" />
-                      <p>Training video not available</p>
-                      <p className="text-sm">Please ask reception for help</p>
+                      <p>{copy.trainingTitle}</p>
+                      <p className="text-sm">{copy.geofenceVisitor}</p>
                     </div>
                   )}
                 </div>
 
                 {videoStarted && !trainingWatched && (
                   <p className="text-sm text-muted-foreground">
-                    Watch the video to the end. The box unlocks when it finishes.
+                    {copy.trainingHelp}
                   </p>
                 )}
 
-                {/* Acknowledgment Checkbox */}
                 {trainingWatched && (
-                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
+                  <div className="rounded-lg border border-[#dce6df] bg-[#e2f4e9] p-4">
+                    <label htmlFor="acknowledge" className="flex min-h-12 cursor-pointer items-start gap-3">
                       <Checkbox
                         id="acknowledge"
                         checked={trainingAcknowledged}
                         onCheckedChange={(checked) => setTrainingAcknowledged(checked === true)}
                         className="mt-1"
                       />
-                      <label htmlFor="acknowledge" className="text-sm leading-relaxed cursor-pointer">
-                        I confirm that I have watched and understood the safety training video. I agree to follow
-                        all safety guidelines and procedures while on {branding.companyName} premises. I understand that failure
-                        to comply may result in being asked to leave the facility.
-                      </label>
-                    </div>
+                      <span className="text-sm leading-relaxed">{copy.trainingAck}</span>
+                    </label>
                   </div>
                 )}
 
                 {error && <p className="text-sm text-destructive">{error}</p>}
 
-                {/* Continue to Photo Button */}
                 <Button
                   onClick={proceedToPhoto}
                   className="w-full"
@@ -3372,19 +3482,14 @@ export default function KioskPage() {
                   disabled={!trainingWatched || !trainingAcknowledged || isLoading}
                 >
                   {isLoading ? (
-                    "Processing..."
-                  ) : !trainingWatched ? (
-                    <>
-                      <Clock className="w-4 h-4 mr-2" />
-                      Complete Training to Continue
-                    </>
-                  ) : !trainingAcknowledged ? (
-                    "Please Acknowledge to Continue"
-                  ) : (
+                    copy.continue
+                  ) : typeRequiresPhoto(selectedVisitorType) ? (
                     <>
                       <Camera className="w-4 h-4 mr-2" />
-                      Continue to Photo
+                      {copy.nextPhoto}
                     </>
+                  ) : (
+                    copy.completeSignIn
                   )}
                 </Button>
               </CardContent>
@@ -3587,9 +3692,9 @@ export default function KioskPage() {
                     <Camera className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                   </div>
                   <div>
-                    <CardTitle className="text-lg sm:text-2xl">Visitor Photo</CardTitle>
+                    <CardTitle className="text-lg sm:text-2xl">{copy.photoTitle}</CardTitle>
                     <CardDescription className="text-xs sm:text-sm">
-                      Please take a photo for your visitor badge
+                      {typeRequiresPhoto(selectedVisitorType) ? copy.photoRequired : copy.photoHelp}
                     </CardDescription>
                   </div>
                 </div>
@@ -3651,35 +3756,48 @@ export default function KioskPage() {
                         className="flex-1"
                         disabled={isLoading}
                       >
-                        {isLoading ? "Completing Sign In..." : (
+                        {isLoading ? copy.completeSignIn : (
                           <>
                             <CheckCircle className="w-4 h-4 mr-2" />
-                            Complete Sign In
+                            {copy.completeSignIn}
                           </>
                         )}
                       </Button>
                     </>
                   ) : (
                     <>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setCapturedPhoto(null)
-                          stopCamera()
-                          completeSignIn()
-                        }}
-                        className="flex-1 bg-transparent"
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Signing in...
-                          </>
+                      {typeRequiresPhoto(selectedVisitorType) ? (
+                        receptionistUser ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setPhotoStaffOverride(true)
+                              setCapturedPhoto(null)
+                              stopCamera()
+                              completeSignIn()
+                            }}
+                            className="flex-1 bg-transparent"
+                            disabled={isLoading}
+                          >
+                            {copy.skipPhotoStaff}
+                          </Button>
                         ) : (
-                          "Skip Photo"
-                        )}
-                      </Button>
+                          <p className="flex-1 text-sm text-[#55625a]">{copy.photoStaffHelp}</p>
+                        )
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setCapturedPhoto(null)
+                            stopCamera()
+                            completeSignIn()
+                          }}
+                          className="flex-1 bg-transparent"
+                          disabled={isLoading}
+                        >
+                          {copy.skipPhoto}
+                        </Button>
+                      )}
                       <Button
                         onClick={capturePhoto}
                         className="flex-1"
@@ -3688,12 +3806,12 @@ export default function KioskPage() {
                         {isLoading ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Please wait
+                            {copy.continue}
                           </>
                         ) : (
                           <>
                             <Camera className="w-4 h-4 mr-2" />
-                            Take Photo
+                            {copy.takePhoto}
                           </>
                         )}
                       </Button>
@@ -3715,12 +3833,12 @@ export default function KioskPage() {
                   <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
                 </div>
 
-                <h2 className="text-xl sm:text-2xl font-bold mb-2">{successData.type === "in" ? "Welcome!" : "Goodbye!"}</h2>
+                <h2 className="text-xl sm:text-2xl font-bold mb-2">{successData.type === "in" ? copy.signedInTitle : copy.signedOutTitle}</h2>
                 <p className="text-base sm:text-lg text-muted-foreground mb-4 sm:mb-6">{successData.name}</p>
 
                 {successData.type === "in" && (
                   <div className="bg-secondary rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
-                    <p className="text-xs sm:text-sm text-muted-foreground mb-1">Your Badge Number</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground mb-1">{copy.badgeNumber}</p>
                     <p className="text-2xl sm:text-3xl font-mono font-bold text-foreground">{successData.badge}</p>
                   </div>
                 )}
@@ -3739,10 +3857,19 @@ export default function KioskPage() {
                   </div>
                 )}
 
+                {successData.type === "in" ? (
+                  <p className="mb-2 text-sm font-medium text-[#00703f]">
+                    {successData.hostName
+                      ? fill(copy.hostTold, { host: successData.hostName })
+                      : successData.hostNotified === false
+                        ? copy.hostNotifyOff
+                        : copy.hostNotTold}
+                  </p>
+                ) : null}
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                   {successData.type === "in"
-                    ? "Please collect your visitor badge from reception."
-                    : `Thank you for visiting ${branding.companyName}.`}
+                    ? `${copy.collectBadge} ${copy.rememberSignOut}`
+                    : fill(copy.thanksVisit, { company: branding.companyName })}
                 </p>
 
                 <div className="flex flex-col gap-2">
@@ -3768,7 +3895,7 @@ export default function KioskPage() {
                     </Button>
                   )}
                   <Button onClick={handleReset} size="lg" className="w-full">
-                    Done
+                    {copy.done}
                   </Button>
                 </div>
               </CardContent>

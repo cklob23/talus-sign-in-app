@@ -1,6 +1,15 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { CHECKIN_IDLE_MS, clampSeek, recordWatchPosition, shouldIdleReset, watchedToEnd } from "./checkin-idle.ts"
+import {
+  CHECKIN_IDLE_MS,
+  KIOSK_DONE_RESET_MS,
+  KIOSK_IDLE_MS,
+  clampSeek,
+  recordWatchPosition,
+  shouldIdleReset,
+  shouldShowIdleWarning,
+  watchedToEnd,
+} from "./checkin-idle.ts"
 
 const base = { now: 0, lastActivityAt: 0, mediaPlaying: false, busy: false, done: false }
 
@@ -18,6 +27,32 @@ describe("QR check-in idle reset", () => {
   it("never resets while the sign-in request is in flight or on the badge screen", () => {
     assert.equal(shouldIdleReset({ ...base, now: 20 * 60 * 1000, busy: true }), false)
     assert.equal(shouldIdleReset({ ...base, now: 20 * 60 * 1000, done: true }), false)
+  })
+})
+
+describe("kiosk idle reset", () => {
+  it("resets a half-finished form after 90 seconds", () => {
+    assert.equal(shouldIdleReset({ ...base, now: KIOSK_IDLE_MS - 1, limitMs: KIOSK_IDLE_MS }), false)
+    assert.equal(shouldIdleReset({ ...base, now: KIOSK_IDLE_MS, limitMs: KIOSK_IDLE_MS }), true)
+  })
+
+  it("does not interrupt training video playback", () => {
+    assert.equal(
+      shouldIdleReset({ ...base, now: 5 * 60 * 1000, mediaPlaying: true, limitMs: KIOSK_IDLE_MS }),
+      false,
+    )
+  })
+
+  it("resets the done screen after 20 seconds and warns in the last 10", () => {
+    assert.equal(shouldIdleReset({ ...base, now: KIOSK_DONE_RESET_MS, limitMs: KIOSK_DONE_RESET_MS }), true)
+    assert.equal(
+      shouldShowIdleWarning({ now: 15_000, lastActivityAt: 0, limitMs: KIOSK_DONE_RESET_MS }),
+      true,
+    )
+    assert.equal(
+      shouldShowIdleWarning({ now: 5_000, lastActivityAt: 0, limitMs: KIOSK_DONE_RESET_MS }),
+      false,
+    )
   })
 })
 

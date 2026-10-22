@@ -1,56 +1,5 @@
 import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
-
-const IT_SUPPORT = "it_support@talusag.com"
-
-function preheaderPad(text: string): string {
-  return `${escapeHtml(text)}${"&#8199;&#847;".repeat(8)}`
-}
-
-function emailShell(args: {
-  lang: "en" | "es"
-  preheader: string
-  logoUrl: string
-  bodyHtml: string
-}): string {
-  const footer =
-    args.lang === "es"
-      ? `Talus Ag Visitor Management. Mensaje automático.<br>¿Necesita ayuda? Escriba a IT Support en <a class="g" href="mailto:${IT_SUPPORT}" style="color:#00703f;text-decoration:underline;font-weight:600;">${IT_SUPPORT}</a>.`
-      : `Talus Ag Visitor Management. This is an automated message.<br>Need help? Contact IT Support at <a class="g" href="mailto:${IT_SUPPORT}" style="color:#00703f;text-decoration:underline;font-weight:600;">${IT_SUPPORT}</a>.`
-
-  return `<!DOCTYPE html><html lang="${args.lang}" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title></title><style>
-:root{color-scheme:light dark;supported-color-schemes:light dark}
-@media (prefers-color-scheme: dark){
- .bg{background:#0a110d!important} .card{background:#111a15!important;border-color:#263429!important}
- .t{color:#e8efea!important} .m{color:#a0afa5!important} .g{color:#4fd68f!important}
- .panel{background:#17231c!important;border-color:#263429!important} .tint{background:#123a26!important}
- .line{border-color:#263429!important}
- .code{background:#17231c!important;color:#e8efea!important;border-color:#4fd68f!important}
-}
-@media (max-width:480px){.px{padding-left:20px!important;padding-right:20px!important}.h1{font-size:24px!important;line-height:30px!important}.stk{display:block!important;width:100%!important}.btnw{width:100%!important}td.stk.m{padding-bottom:0!important;padding-top:12px!important}td.stk.t{padding-top:2px!important}}
-</style></head>
-<body class="bg" style="margin:0;padding:0;background:#eef4f0;-webkit-text-size-adjust:100%;">
-<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${preheaderPad(args.preheader)}</div>
-<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef4f0" style="background:#eef4f0;"><tr><td align="center" style="padding:28px 12px;">
-<table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="max-width:600px;background:#ffffff;border:1px solid #dce6df;border-radius:16px;">
-<tr><td height="6" bgcolor="#00b162" style="height:6px;line-height:6px;font-size:0;background:#00b162;border-radius:16px 16px 0 0;">&nbsp;</td></tr>
-<tr><td class="px" style="padding:24px 36px 4px 36px;">
-${args.logoUrl ? `<img src="${escapeHtml(args.logoUrl)}" width="124" alt="Talus Ag" style="display:block;border:0;width:124px;margin-left:-6px;height:auto;">` : `<div class="t" style="font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#0f1a13;">Talus Ag</div>`}
-</td></tr>
-${args.bodyHtml}
-<tr><td class="px" style="padding:0 36px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="line" style="border-top:1px solid #dce6df;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>
-<tr><td class="px m" style="padding:18px 36px 26px 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;line-height:20px;color:#55625a;">${footer}</td></tr>
-</table>
-</td></tr></table></body></html>`
-}
-
-function detailRow(label: string, value: string): string {
-  return `<tr><td class="m stk" valign="top" style="padding:9px 12px 9px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#55625a;width:132px;">${escapeHtml(label)}</td><td class="t stk" valign="top" style="padding:9px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:20px;color:#0f1a13;font-weight:600;">${escapeHtml(value)}</td></tr>`
-}
-
-function button(href: string, label: string): string {
-  return `<tr><td class="px" style="padding:24px 36px 8px 36px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btnw"><tr><td align="center" bgcolor="#00854c" style="border-radius:12px;background:#00854c;">
-<a href="${escapeHtml(href)}" style="display:inline-block;padding:15px 28px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">${escapeHtml(label)}</a></td></tr></table></td></tr>`
-}
+import { IT_SUPPORT, detailRow, emailButton as button, emailShell } from "@/lib/email-shell"
 
 export interface TrainingLinkMailArgs {
   lang: "en" | "es"
