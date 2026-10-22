@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test lib/*.test.ts lib/sync/*.test.ts"
+    "test": "node --experimental-strip-types --import ./lib/test-register.mjs --test lib/*.test.ts lib/sync/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
