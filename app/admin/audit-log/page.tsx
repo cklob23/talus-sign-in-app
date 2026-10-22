@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   "visitor.auto_sign_out": "Visitor auto-sign out completed",
   "visitor.not_my_visitor": "Host said this is not their visitor",
   "visitor.training_link_sent": "Training link sent",
+  "visitor.photo_missing": "Visitor photo missing",
   // Employee actions
   "employee.sign_in": "Employee signed in",
   "employee.sign_out": "Employee signed out",

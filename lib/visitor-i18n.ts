@@ -93,6 +93,9 @@ const en = {
   skipPhoto: "Skip photo",
   skipPhotoStaff: "Skip photo (staff)",
   photoStaffHelp: "Reception can skip the photo if the camera is not working.",
+  photoCameraUnavailable: "This device has no usable camera. Ask reception to take your photo.",
+  photoCameraDenied: "Camera access was blocked. Ask reception to take your photo.",
+  askReception: "Ask reception",
   alreadyHere: "Already signed in and leaving?",
   signOutOf: "Sign out of {site}",
   idleNotice: "Your sign-in was cleared after a period without activity. Please start again.",
@@ -176,6 +179,9 @@ const es: typeof en = {
   skipPhoto: "Omitir foto",
   skipPhotoStaff: "Omitir foto (personal)",
   photoStaffHelp: "Recepción puede omitir la foto si la cámara no funciona.",
+  photoCameraUnavailable: "Este dispositivo no tiene cámara. Pida en recepción que le tomen la foto.",
+  photoCameraDenied: "Se bloqueó el acceso a la cámara. Pida en recepción que le tomen la foto.",
+  askReception: "Pregunte en recepción",
   alreadyHere: "¿Ya está registrado y se va?",
   signOutOf: "Salir de {site}",
   idleNotice: "Se borró su registro por inactividad. Empiece de nuevo.",
@@ -194,4 +200,17 @@ export function visitorCopy(lang: VisitorLang): VisitorCopy {
 
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? ""))
+}
+
+/** Host arrival copy is only for the success screen after notify was queued. */
+export function hostArrivalMessage(opts: {
+  signedIn: boolean
+  hostName?: string | null
+  hostNotified?: boolean | null
+  copy: Pick<VisitorCopy, "hostTold" | "hostNotTold" | "hostNotifyOff">
+}): string | null {
+  if (!opts.signedIn) return null
+  if (opts.hostNotified && opts.hostName) return fill(opts.copy.hostTold, { host: opts.hostName })
+  if (opts.hostNotified === false) return opts.copy.hostNotifyOff
+  return opts.copy.hostNotTold
 }

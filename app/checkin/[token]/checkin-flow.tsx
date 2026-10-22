@@ -16,8 +16,9 @@ import {
     type WatchProgress,
 } from "@/lib/checkin-idle"
 import { TrainingPlayer } from "@/components/training-player"
-import { fill, visitorCopy, type VisitorLang } from "@/lib/visitor-i18n"
+import { fill, hostArrivalMessage, visitorCopy, type VisitorLang } from "@/lib/visitor-i18n"
 import { typeRequiresPhoto } from "@/lib/requires-photo"
+import { classifyCameraError, photoFallbackAllowed, type CameraIssue } from "@/lib/camera-fallback"
 import {
     ArrowLeft,
     ArrowRight,
@@ -81,6 +82,7 @@ interface Result {
     badgeNumber: string
     visitorName: string
     signInId: string
+    hostNotified?: boolean
 }
 
 export function CheckinFlow({
@@ -112,6 +114,7 @@ export function CheckinFlow({
     const [details, setDetails] = useState<Details>(emptyDetails)
     const [hostId, setHostId] = useState<string | null>(null)
     const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
+    const [cameraIssue, setCameraIssue] = useState<CameraIssue | null>(null)
     /** The video played through to the end (seeking ahead does not count). */
     const [videoEnded, setVideoEnded] = useState(false)
     /** The visitor ticked "I have watched and understood". Only possible after the video ends. */
@@ -157,6 +160,7 @@ export function CheckinFlow({
         setDetails(emptyDetails)
         setHostId(null)
         setPhotoDataUrl(null)
+        setCameraIssue(null)
         resetTrainingProgress()
         setTrainingTicket(null)
         setNdaInfo(null)
@@ -421,6 +425,11 @@ export function CheckinFlow({
                     visitorTypeId: typeId,
                     hostId,
                     photoDataUrl,
+                    photoMissing: photoFallbackAllowed({
+                        required: typeRequiresPhoto(selectedType),
+                        hasPhoto: Boolean(photoDataUrl),
+                        cameraUnavailable: Boolean(cameraIssue),
+                    }) && !photoDataUrl,
                     ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
                     coords: postCoords,
@@ -459,7 +468,12 @@ export function CheckinFlow({
                 }
                 throw new Error(json.error ?? "Could not complete sign-in")
             }
-            setResult({ badgeNumber: json.badgeNumber, visitorName: json.visitorName, signInId: json.signInId })
+            setResult({
+                badgeNumber: json.badgeNumber,
+                visitorName: json.visitorName,
+                signInId: json.signInId,
+                hostNotified: json.hostNotified === true,
+            })
             setStep("done")
         } catch (err) {
             setError(
@@ -487,6 +501,7 @@ export function CheckinFlow({
                 locationName={locationName}
                 onDone={reset}
                 hostName={hostName}
+                hostNotified={result.hostNotified === true}
                 copy={copy}
             />
         )
@@ -670,9 +685,6 @@ export function CheckinFlow({
                         <p className="text-sm text-muted-foreground">
                             You watched the safety video from your training link. No video and no code today.
                         </p>
-                        {hosts.find((host) => host.id === hostId)?.name ? (
-                            <p className="text-sm text-[#00703f]">{fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}</p>
-                        ) : null}
                         <NavRow onBack={goBack} nextLabel={copy.continue} onNext={goNext} error={error} />
                     </StepPanel>
                 ) : skipKind === "code" && !codeProof ? (
@@ -757,11 +769,6 @@ export function CheckinFlow({
                         }}
                     />
                     )}
-                    {hosts.find((host) => host.id === hostId)?.name ? (
-                        <p className="text-sm font-medium text-[#00703f]">
-                            {fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}
-                        </p>
-                    ) : null}
                     <p className="text-xs text-muted-foreground" aria-live="polite">
                         {videoEnded ? "Video complete." : copy.trainingHelp}
                     </p>
@@ -843,7 +850,13 @@ export function CheckinFlow({
                     title={copy.photoTitle}
                     subtitle={typeRequiresPhoto(selectedType) ? copy.photoRequired : copy.photoOptional}
                 >
-                    <PhotoPicker value={photoDataUrl} onChange={setPhotoDataUrl} copy={copy} />
+                    <PhotoPicker
+                        value={photoDataUrl}
+                        onChange={setPhotoDataUrl}
+                        copy={copy}
+                        cameraIssue={cameraIssue}
+                        onCameraIssue={setCameraIssue}
+                    />
                     <NavRow
                         onBack={goBack}
                         nextLabel={
@@ -853,7 +866,15 @@ export function CheckinFlow({
                                     ? copy.retry
                                     : copy.completeSignIn
                         }
-                        nextDisabled={submitting || checkingLocation || (typeRequiresPhoto(selectedType) && !photoDataUrl)}
+                        nextDisabled={
+                            submitting ||
+                            checkingLocation ||
+                            !photoFallbackAllowed({
+                                required: typeRequiresPhoto(selectedType),
+                                hasPhoto: Boolean(photoDataUrl),
+                                cameraUnavailable: Boolean(cameraIssue),
+                            })
+                        }
                         nextIcon={submitting || checkingLocation ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : undefined}
                         onNext={() => void submit()}
                         error={error}
@@ -1057,8 +1078,41 @@ function HostStep({
     )
 }
 
-function PhotoPicker({ value, onChange, copy }: { value: string | null; onChange: (v: string | null) => void; copy: ReturnType<typeof visitorCopy> }) {
+function PhotoPicker({
+    value,
+    onChange,
+    copy,
+    cameraIssue,
+    onCameraIssue,
+}: {
+    value: string | null
+    onChange: (v: string | null) => void
+    copy: ReturnType<typeof visitorCopy>
+    cameraIssue: CameraIssue | null
+    onCameraIssue: (issue: CameraIssue | null) => void
+}) {
     const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        async function probe() {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                onCameraIssue("unavailable")
+                return
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+                stream.getTracks().forEach((track) => track.stop())
+                if (!cancelled) onCameraIssue(null)
+            } catch (err) {
+                if (!cancelled) onCameraIssue(classifyCameraError(err))
+            }
+        }
+        void probe()
+        return () => {
+            cancelled = true
+        }
+    }, [onCameraIssue])
 
     function handleFile(file: File) {
         // A file input with `capture` is the most reliable camera path on iOS and
@@ -1080,6 +1134,11 @@ function PhotoPicker({ value, onChange, copy }: { value: string | null; onChange
                             <Camera className="h-10 w-10" />
                         </div>
                     )}
+                    {cameraIssue && !value ? (
+                        <p className="text-center text-sm text-[#8a4500]">
+                            {cameraIssue === "denied" ? copy.photoCameraDenied : copy.photoCameraUnavailable}
+                        </p>
+                    ) : null}
                     <input
                         ref={inputRef}
                         type="file"
@@ -1095,7 +1154,7 @@ function PhotoPicker({ value, onChange, copy }: { value: string | null; onChange
                     <div className="flex gap-2">
                         <Button type="button" variant="outline" className="min-h-12" onClick={() => inputRef.current?.click()}>
                             <Camera className="mr-1.5 h-4 w-4" />
-                            {value ? copy.takePhoto : copy.takePhoto}
+                            {copy.takePhoto}
                         </Button>
                         {value ? (
                             <Button type="button" variant="ghost" onClick={() => onChange(null)}>
@@ -1104,6 +1163,9 @@ function PhotoPicker({ value, onChange, copy }: { value: string | null; onChange
                             </Button>
                         ) : null}
                     </div>
+                    {cameraIssue && !value ? (
+                        <p className="text-sm font-medium text-[#00703f]">{copy.askReception}</p>
+                    ) : null}
                 </CardContent>
             </Card>
         </div>
@@ -1115,12 +1177,14 @@ function SuccessPanel({
     locationName,
     onDone,
     hostName,
+    hostNotified,
     copy,
 }: {
     result: Result
     locationName: string
     onDone: () => void
     hostName: string | null
+    hostNotified: boolean
     copy: ReturnType<typeof visitorCopy>
 }) {
     return (
@@ -1143,7 +1207,7 @@ function SuccessPanel({
             <div className="flex items-start gap-2 rounded-lg border bg-card p-3 text-left text-sm leading-relaxed">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#00703f]" />
                 <span>
-                    {hostName ? fill(copy.hostTold, { host: hostName }) : copy.hostNotTold} {copy.rememberSignOut}
+                    {hostArrivalMessage({ signedIn: true, hostName, hostNotified, copy }) || copy.hostNotTold} {copy.rememberSignOut}
                 </span>
             </div>
 

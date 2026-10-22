@@ -59,8 +59,9 @@ import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-de
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
-import { fill, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
+import { fill, hostArrivalMessage, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
+import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
 import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
 
 type KioskMode = "receptionist-login" | "home" | "visitor-type" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
@@ -212,6 +213,7 @@ export default function KioskPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraIssue, setCameraIssue] = useState<CameraIssue | null>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
@@ -1584,6 +1586,7 @@ export default function KioskPage() {
           idempotency_key: signInIdempotencyKeyRef.current,
           coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
+          photo_missing: !capturedPhoto && (photoStaffOverride || Boolean(cameraIssue)),
         }),
       })
       const signInData = await signInRes.json()
@@ -1715,6 +1718,12 @@ export default function KioskPage() {
   async function startCamera() {
     try {
       setCameraError(null)
+      setCameraIssue(null)
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraIssue("unavailable")
+        setCameraError(copy.photoCameraUnavailable)
+        return
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
       })
@@ -1724,7 +1733,9 @@ export default function KioskPage() {
       }
     } catch (err) {
       console.error("Camera access error:", err)
-      setCameraError("Unable to access camera. Please allow camera access or skip photo.")
+      const issue = classifyCameraError(err)
+      setCameraIssue(issue)
+      setCameraError(issue === "denied" ? copy.photoCameraDenied : copy.photoCameraUnavailable)
     }
   }
 
@@ -1948,6 +1959,7 @@ export default function KioskPage() {
     })
     setCapturedPhoto(null)
     setVisitorPhotoUrl(null)
+    setCameraIssue(null)
     setOtherCompanyName("")
     setCompanySearch("")
     setCompanyResults([])
@@ -3455,13 +3467,6 @@ export default function KioskPage() {
                     </CardDescription>
                   </div>
                 </div>
-                {hosts.find((host) => host.id === form.hostId)?.name ? (
-                  <p className="mt-2 text-sm font-medium text-[#00703f]">
-                    {fill(copy.hostTold, { host: hosts.find((host) => host.id === form.hostId)!.name })}
-                  </p>
-                ) : form.hostId || hostNotificationsEnabled === false ? (
-                  <p className="mt-2 text-sm text-[#55625a]">{hostNotificationsEnabled ? copy.hostNotTold : copy.hostNotifyOff}</p>
-                ) : null}
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
                 <div className="relative">
@@ -3756,6 +3761,7 @@ export default function KioskPage() {
                     <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-4">
                       <Camera className="w-16 h-16 mb-4 opacity-50" />
                       <p className="text-center">{cameraError}</p>
+                      <p className="mt-2 text-sm font-medium text-[#00703f]">{copy.askReception}</p>
                       <Button variant="outline" onClick={startCamera} className="mt-4 bg-transparent">
                         Try Again
                       </Button>
@@ -3817,7 +3823,20 @@ export default function KioskPage() {
                   ) : (
                     <>
                       {typeRequiresPhoto(selectedVisitorType) ? (
-                        receptionistUser ? (
+                        cameraIssue ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setCapturedPhoto(null)
+                              stopCamera()
+                              completeSignIn()
+                            }}
+                            className="flex-1 bg-transparent"
+                            disabled={isLoading}
+                          >
+                            {copy.askReception}
+                          </Button>
+                        ) : receptionistUser ? (
                           <Button
                             variant="outline"
                             onClick={() => {
@@ -3909,11 +3928,12 @@ export default function KioskPage() {
 
                 {successData.type === "in" ? (
                   <p className="mb-2 text-sm font-medium text-[#00703f]">
-                    {successData.hostName
-                      ? fill(copy.hostTold, { host: successData.hostName })
-                      : successData.hostNotified === false
-                        ? copy.hostNotifyOff
-                        : copy.hostNotTold}
+                    {hostArrivalMessage({
+                      signedIn: true,
+                      hostName: successData.hostName,
+                      hostNotified: successData.hostNotified,
+                      copy,
+                    }) || copy.hostNotTold}
                   </p>
                 ) : null}
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
