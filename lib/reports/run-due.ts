@@ -1,4 +1,3 @@
-import { isUndefinedTable } from "@/lib/idempotency"
 import { createAdminClient } from "@/lib/supabase/server"
 import {
   advanceNextRun,
@@ -54,7 +53,7 @@ export async function runDueReports(): Promise<DueReportsResult> {
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : "claim_failed"
-      if (message.includes("42P01") || isUndefinedTable({ message })) {
+      if (message.includes("42P01")) {
         return {
           ok: true,
           success: true,
