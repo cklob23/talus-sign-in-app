@@ -10,11 +10,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { usePermissions } from "@/contexts/permissions-context"
-import { rollingWindow } from "@/lib/reports/period"
+import { startOfDayInTimezone } from "@/lib/timezone"
+import {
+  addCalendarDays,
+  dashboardPeriodLabel,
+  REPORT_VIEW_MAX_ROWS,
+  reportWindowTimezone,
+  resolveOnDemandWindow,
+  ymdInZone,
+} from "@/lib/reports/period"
+import { fetchPages } from "@/lib/reports/query"
 import { ReportFilterBar, type FilterOption } from "@/components/admin/reports/filter-bar"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
 import { ScheduledTab } from "@/components/admin/reports/scheduled-tab"
 import { downloadReportCsv } from "@/components/admin/reports/download"
+import { SendReportButton } from "@/components/admin/reports/send-dialog"
+import { ReportRowCapNotice } from "@/components/admin/reports/row-cap"
 
 interface VisitorRow {
   sign_in_time: string
@@ -59,9 +70,12 @@ const chartColors = {
   },
 }
 
-function periodLabel(period: string) {
-  if (period === "1") return "Last 24 hours"
-  return `Last ${period} days`
+function defaultCustomRange(timezone: string, now = new Date()) {
+  const todayStart = startOfDayInTimezone(timezone, now)
+  return {
+    start: ymdInZone(addCalendarDays(todayStart, -6, timezone), timezone),
+    end: ymdInZone(now, timezone),
+  }
 }
 
 export default function ReportsPage() {
@@ -72,6 +86,8 @@ export default function ReportsPage() {
 
   const [tab, setTab] = useState("sign-ins")
   const [period, setPeriod] = useState("7")
+  const [customStart, setCustomStart] = useState("")
+  const [customEnd, setCustomEnd] = useState("")
   const [locations, setLocations] = useState<(FilterOption & { timezone?: string })[]>([])
   const [visitorTypes, setVisitorTypes] = useState<(FilterOption & { locationId?: string })[]>([])
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
@@ -79,17 +95,28 @@ export default function ReportsPage() {
   const [visitors, setVisitors] = useState<VisitorRow[]>([])
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [bookings, setBookings] = useState<BookingRow[]>([])
+  const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<"visitors" | "employees" | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
 
-  const windowTz =
-    selectedLocations.length === 1
-      ? locations.find((loc) => loc.id === selectedLocations[0])?.timezone || "America/Chicago"
-      : "America/Chicago"
-  const window = useMemo(() => rollingWindow(period, windowTz), [period, windowTz])
+  const windowTz = reportWindowTimezone({ selectedLocationIds: selectedLocations, locations })
+  const window = useMemo(
+    () => resolveOnDemandWindow({ period, timezone: windowTz, customStart, customEnd }),
+    [period, windowTz, customStart, customEnd],
+  )
   const fromIso = window.start.toISOString()
   const toIso = window.end.toISOString()
+  const periodText = dashboardPeriodLabel(period, customStart, customEnd)
+
+  function changePeriod(next: string) {
+    if (next === "custom" && (!customStart || !customEnd)) {
+      const range = defaultCustomRange(windowTz)
+      setCustomStart(range.start)
+      setCustomEnd(range.end)
+    }
+    setPeriod(next)
+  }
 
   useEffect(() => {
     const supabase = createClient()
@@ -113,32 +140,47 @@ export default function ReportsPage() {
     async function load() {
       setLoading(true)
       const supabase = createClient()
-      let visitorQuery = supabase
-        .from("sign_ins")
-        .select("sign_in_time, sign_out_time, visitor_id, visitor:visitors(*), host:hosts(name), visitor_type:visitor_types(name, badge_color), location:locations(id, name, timezone)")
-        .gte("sign_in_time", fromIso)
-        .lt("sign_in_time", toIso)
-      let employeeQuery = supabase
-        .from("employee_sign_ins")
-        .select("sign_in_time, sign_out_time, auto_signed_in, profile_id, profile:profiles(full_name, email, role), location:locations(id, name, timezone)")
-        .gte("sign_in_time", fromIso)
-        .lt("sign_in_time", toIso)
-      let bookingQuery = supabase
-        .from("bookings")
-        .select("expected_arrival, status")
-        .gte("expected_arrival", fromIso)
-        .lt("expected_arrival", toIso)
-      if (selectedLocations.length) {
-        visitorQuery = visitorQuery.in("location_id", selectedLocations)
-        employeeQuery = employeeQuery.in("location_id", selectedLocations)
-        bookingQuery = bookingQuery.in("location_id", selectedLocations)
-      }
-      if (selectedVisitorTypes.length) visitorQuery = visitorQuery.in("visitor_type_id", selectedVisitorTypes)
-      const [visitorRes, employeeRes, bookingRes] = await Promise.all([visitorQuery, employeeQuery, bookingQuery])
+      const [visitorRes, employeeRes, bookingRes] = await Promise.all([
+        fetchPages<VisitorRow>(async (from, to) => {
+          let query = supabase
+            .from("sign_ins")
+            .select("sign_in_time, sign_out_time, visitor_id, visitor:visitors(*), host:hosts(name), visitor_type:visitor_types(name, badge_color), location:locations(id, name, timezone)")
+            .gte("sign_in_time", fromIso)
+            .lt("sign_in_time", toIso)
+            .order("sign_in_time", { ascending: true })
+            .range(from, to)
+          if (selectedLocations.length) query = query.in("location_id", selectedLocations)
+          if (selectedVisitorTypes.length) query = query.in("visitor_type_id", selectedVisitorTypes)
+          return query
+        }, REPORT_VIEW_MAX_ROWS),
+        fetchPages<EmployeeRow>(async (from, to) => {
+          let query = supabase
+            .from("employee_sign_ins")
+            .select("sign_in_time, sign_out_time, auto_signed_in, profile_id, profile:profiles(full_name, email, role), location:locations(id, name, timezone)")
+            .gte("sign_in_time", fromIso)
+            .lt("sign_in_time", toIso)
+            .order("sign_in_time", { ascending: true })
+            .range(from, to)
+          if (selectedLocations.length) query = query.in("location_id", selectedLocations)
+          return query
+        }, REPORT_VIEW_MAX_ROWS),
+        fetchPages<BookingRow>(async (from, to) => {
+          let query = supabase
+            .from("bookings")
+            .select("expected_arrival, status")
+            .gte("expected_arrival", fromIso)
+            .lt("expected_arrival", toIso)
+            .order("expected_arrival", { ascending: true })
+            .range(from, to)
+          if (selectedLocations.length) query = query.in("location_id", selectedLocations)
+          return query
+        }, REPORT_VIEW_MAX_ROWS),
+      ])
       if (cancelled) return
-      setVisitors((visitorRes.data || []) as VisitorRow[])
-      setEmployees((employeeRes.data || []) as EmployeeRow[])
-      setBookings((bookingRes.data || []) as BookingRow[])
+      setVisitors(visitorRes.rows)
+      setEmployees(employeeRes.rows)
+      setBookings(bookingRes.rows)
+      setTruncated(visitorRes.truncated || employeeRes.truncated || bookingRes.truncated)
       setLoading(false)
     }
     load()
@@ -262,7 +304,11 @@ export default function ReportsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <ReportFilterBar
               period={period}
-              onPeriodChange={setPeriod}
+              onPeriodChange={changePeriod}
+              customStart={customStart}
+              customEnd={customEnd}
+              onCustomStartChange={setCustomStart}
+              onCustomEndChange={setCustomEnd}
               locations={locations}
               selectedLocations={selectedLocations}
               onLocationsChange={setSelectedLocations}
@@ -271,12 +317,26 @@ export default function ReportsPage() {
               onVisitorTypesChange={setSelectedVisitorTypes}
               showVisitorTypes
             />
-            <Button variant="outline" size="sm" onClick={() => exportKind("visitors")} disabled={exporting !== null}>
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {canSchedule && (
+                <SendReportButton
+                  kind="visitors"
+                  period={period}
+                  customStart={customStart}
+                  customEnd={customEnd}
+                  timezone={windowTz}
+                  locationIds={selectedLocations}
+                  visitorTypeIds={selectedVisitorTypes}
+                />
+              )}
+              <Button variant="outline" size="sm" onClick={() => exportKind("visitors")} disabled={exporting !== null}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
           </div>
           {exportError && tab === "sign-ins" && <p className="text-sm text-destructive">{exportError}</p>}
+          <ReportRowCapNotice truncated={truncated} loaded={visitors.length} />
           {loading ? (
             <p className="text-center py-8 text-muted-foreground">Loading report data...</p>
           ) : (
@@ -288,7 +348,7 @@ export default function ReportsPage() {
                   </CardHeader>
                   <CardContent className="p-3 pt-0">
                     <div className="text-xl sm:text-2xl font-bold">{visitors.length}</div>
-                    <p className="text-xs text-muted-foreground">{periodLabel(period)}</p>
+                    <p className="text-xs text-muted-foreground">{periodText}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -409,17 +469,35 @@ export default function ReportsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <ReportFilterBar
               period={period}
-              onPeriodChange={setPeriod}
+              onPeriodChange={changePeriod}
+              customStart={customStart}
+              customEnd={customEnd}
+              onCustomStartChange={setCustomStart}
+              onCustomEndChange={setCustomEnd}
               locations={locations}
               selectedLocations={selectedLocations}
               onLocationsChange={setSelectedLocations}
             />
-            <Button variant="outline" size="sm" onClick={() => exportKind("employees")} disabled={exporting !== null}>
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {canSchedule && (
+                <SendReportButton
+                  kind="employees"
+                  period={period}
+                  customStart={customStart}
+                  customEnd={customEnd}
+                  timezone={windowTz}
+                  locationIds={selectedLocations}
+                  visitorTypeIds={[]}
+                />
+              )}
+              <Button variant="outline" size="sm" onClick={() => exportKind("employees")} disabled={exporting !== null}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
           </div>
           {exportError && tab === "employees" && <p className="text-sm text-destructive">{exportError}</p>}
+          <ReportRowCapNotice truncated={truncated} loaded={employees.length} />
           <Link href="/admin/reports/timesheets" className="group block">
             <Card className="hover:border-primary/50 transition-colors">
               <CardContent className="p-4 flex items-center justify-between">
@@ -516,7 +594,12 @@ export default function ReportsPage() {
         <TabsContent value="training" className="mt-4">
           <TrainingTab
             period={period}
-            onPeriodChange={setPeriod}
+            onPeriodChange={changePeriod}
+            customStart={customStart}
+            customEnd={customEnd}
+            onCustomStartChange={setCustomStart}
+            onCustomEndChange={setCustomEnd}
+            timezone={windowTz}
             locations={locations}
             selectedLocations={selectedLocations}
             onLocationsChange={setSelectedLocations}
@@ -525,6 +608,7 @@ export default function ReportsPage() {
             onVisitorTypesChange={setSelectedVisitorTypes}
             fromIso={fromIso}
             toIso={toIso}
+            canSend={canSchedule}
           />
         </TabsContent>
 

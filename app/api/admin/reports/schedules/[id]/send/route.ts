@@ -26,7 +26,7 @@ export async function POST(_request: Request, context: RouteContext) {
   const period = periodForSchedule(schedule)
   const runId = await insertManualRun(admin, {
     scheduleId: schedule.id,
-    periodStart: period.start.toISOString(),
+    periodStart: period.runStart.toISOString(),
     periodEnd: period.end.toISOString(),
     recipients: schedule.recipients,
   })

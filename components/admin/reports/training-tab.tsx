@@ -8,8 +8,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase/client"
 import { formatReportDateTime, trainingMethodLabel, trainingStatus } from "@/lib/reports/rows"
+import { REPORT_VIEW_MAX_ROWS } from "@/lib/reports/period"
+import { fetchPages } from "@/lib/reports/query"
 import { ReportFilterBar, type FilterOption } from "./filter-bar"
 import { downloadReportCsv } from "./download"
+import { SendReportButton } from "./send-dialog"
+import { ReportRowCapNotice } from "./row-cap"
+
+const TABLE_LIMIT = 250
 
 export interface TrainingRow {
   id: string
@@ -25,6 +31,11 @@ export interface TrainingRow {
 export function TrainingTab({
   period,
   onPeriodChange,
+  customStart,
+  customEnd,
+  onCustomStartChange,
+  onCustomEndChange,
+  timezone,
   locations,
   selectedLocations,
   onLocationsChange,
@@ -34,9 +45,15 @@ export function TrainingTab({
   fromIso,
   toIso,
   previewRows,
+  canSend = false,
 }: {
   period: string
   onPeriodChange: (value: string) => void
+  customStart?: string
+  customEnd?: string
+  onCustomStartChange?: (value: string) => void
+  onCustomEndChange?: (value: string) => void
+  timezone: string
   locations: FilterOption[]
   selectedLocations: string[]
   onLocationsChange: (next: string[]) => void
@@ -46,8 +63,10 @@ export function TrainingTab({
   fromIso: string
   toIso: string
   previewRows?: TrainingRow[]
+  canSend?: boolean
 }) {
   const [rows, setRows] = useState<TrainingRow[]>(previewRows || [])
+  const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(!previewRows)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +75,7 @@ export function TrainingTab({
   useEffect(() => {
     if (previewRows) {
       setRows(previewRows)
+      setTruncated(false)
       setLoading(false)
       return
     }
@@ -63,34 +83,38 @@ export function TrainingTab({
     async function load() {
       setLoading(true)
       const supabase = createClient()
-      let query = supabase
-        .from("training_completions")
-        .select(
-          "id, completed_at, expires_at, source, location_id, visitor:visitors(first_name, last_name, email, company), visitor_type:visitor_types(name, location_id), location:locations(name, timezone)",
-        )
-        .gte("completed_at", fromIso)
-        .lt("completed_at", toIso)
-        .order("completed_at", { ascending: false })
-        .limit(200)
-      if (selectedVisitorTypes.length) query = query.in("visitor_type_id", selectedVisitorTypes)
-      const { data, error: loadError } = await query
-      if (cancelled) return
-      if (loadError) {
-        setError(loadError.message)
-        setRows([])
-      } else {
+      try {
+        const paged = await fetchPages<TrainingRow>(async (from, to) => {
+          let query = supabase
+            .from("training_completions")
+            .select(
+              "id, completed_at, expires_at, source, location_id, visitor:visitors(first_name, last_name, email, company), visitor_type:visitor_types(name, location_id), location:locations(name, timezone)",
+            )
+            .gte("completed_at", fromIso)
+            .lt("completed_at", toIso)
+            .order("completed_at", { ascending: false })
+            .range(from, to)
+          if (selectedVisitorTypes.length) query = query.in("visitor_type_id", selectedVisitorTypes)
+          return query
+        }, REPORT_VIEW_MAX_ROWS)
+        if (cancelled) return
         setError(null)
-        const list = (data || []) as TrainingRow[]
         const allowed = new Set(selectedLocations)
         setRows(
           selectedLocations.length === 0
-            ? list
-            : list.filter((row) => {
+            ? paged.rows
+            : paged.rows.filter((row) => {
                 if (row.location_id && allowed.has(row.location_id)) return true
                 const typeLoc = row.visitor_type?.location_id
                 return !row.location_id && typeLoc && allowed.has(typeLoc)
               }),
         )
+        setTruncated(paged.truncated)
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "Could not load training data")
+        setRows([])
+        setTruncated(false)
       }
       setLoading(false)
     }
@@ -126,6 +150,10 @@ export function TrainingTab({
         <ReportFilterBar
           period={period}
           onPeriodChange={onPeriodChange}
+          customStart={customStart}
+          customEnd={customEnd}
+          onCustomStartChange={onCustomStartChange}
+          onCustomEndChange={onCustomEndChange}
           locations={locations}
           selectedLocations={selectedLocations}
           onLocationsChange={onLocationsChange}
@@ -134,10 +162,23 @@ export function TrainingTab({
           onVisitorTypesChange={onVisitorTypesChange}
           showVisitorTypes
         />
-        <Button variant="outline" size="sm" onClick={exportCsv} disabled={exporting}>
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {canSend && (
+            <SendReportButton
+              kind="training"
+              period={period}
+              customStart={customStart}
+              customEnd={customEnd}
+              timezone={timezone}
+              locationIds={selectedLocations}
+              visitorTypeIds={selectedVisitorTypes}
+            />
+          )}
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={exporting}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
@@ -168,6 +209,7 @@ export function TrainingTab({
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+      <ReportRowCapNotice truncated={truncated} loaded={rows.length} tableLimit={TABLE_LIMIT} />
 
       <Card>
         <CardHeader className="p-3 sm:p-6">
@@ -197,7 +239,7 @@ export function TrainingTab({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => {
+                  {rows.slice(0, TABLE_LIMIT).map((row) => {
                     const status = trainingStatus(row.expires_at, now)
                     const zone = row.location?.timezone
                     const name = row.visitor ? `${row.visitor.first_name} ${row.visitor.last_name}`.trim() : ""

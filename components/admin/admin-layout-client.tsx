@@ -7,6 +7,7 @@ import { RouteGuard } from "@/components/admin/route-guard"
 import { TimezoneProvider } from "@/contexts/timezone-context"
 import { TenantProvider } from "@/contexts/tenant-context"
 import { PermissionsProvider } from "@/contexts/permissions-context"
+import { Toaster } from "@/components/ui/toaster"
 import type { TenantInfo } from "@/lib/tier"
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto">
           <RouteGuard>{children}</RouteGuard>
         </main>
+        <Toaster />
       </div>
     </div>
   )

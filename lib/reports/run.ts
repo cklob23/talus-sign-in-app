@@ -1,5 +1,5 @@
 import { sendEmail } from "@/lib/email"
-import { csvFilename, csvWithBom } from "./csv.ts"
+import { csvFilename, csvWithBom, toCsv } from "./csv.ts"
 import { renderReportEmail } from "./email.ts"
 import {
   buildEmployeeCsvRows,
@@ -23,6 +23,7 @@ export interface BuiltReport {
   csv: string
   filename: string
   rowCount: number
+  truncated: boolean
 }
 
 export function csvRowsForKind(
@@ -45,7 +46,17 @@ export async function buildReport(admin: AnyClient, filter: ReportQuery, nowMs =
     csv: csvWithBom(csvRows),
     filename: csvFilename(loaded.kind, filter.from, filter.to),
     rowCount: loaded.rows.length,
+    truncated: loaded.truncated,
   }
+}
+
+export function reportCsvChunks(csvRows: Array<Array<string | number | boolean | null | undefined>>, chunkSize = 500): string[] {
+  if (csvRows.length === 0) return ["\uFEFF\n"]
+  const chunks: string[] = [`\uFEFF${toCsv([csvRows[0]])}\n`]
+  for (let i = 1; i < csvRows.length; i += chunkSize) {
+    chunks.push(`${toCsv(csvRows.slice(i, i + chunkSize))}\n`)
+  }
+  return chunks
 }
 
 export async function locationNamesForIds(admin: AnyClient, locationIds: string[]): Promise<string[]> {
@@ -71,6 +82,9 @@ export async function sendBuiltReport(args: {
   timezone: string
   locationIds: string[]
   report: BuiltReport
+  badge?: string
+  periodLabel?: string
+  extraLines?: Array<{ label: string; value: string }>
 }): Promise<{ sent: boolean; reason?: string }> {
   const attachCsv = (args.format === "csv" || args.format === "both") && args.report.rowCount > 0
   const names = await locationNamesForIds(args.admin, args.locationIds)
@@ -86,6 +100,10 @@ export async function sendBuiltReport(args: {
     format: args.format,
     csvAttached: attachCsv,
     logoUrl,
+    badge: args.badge,
+    periodLabel: args.periodLabel,
+    extraLines: args.extraLines,
+    truncated: args.report.truncated,
   })
 
   return sendEmail({

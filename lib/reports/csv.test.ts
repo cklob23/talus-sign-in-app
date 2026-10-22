@@ -9,7 +9,7 @@ import {
   trainingStatus,
 } from "./rows.ts"
 import { decideExistingRun } from "./idempotency.ts"
-import { isTalusRecipient, parseRecipientList } from "./types.ts"
+import { invalidRecipientTokens, isTalusRecipient, normalizeRecipient, parseRecipientList } from "./types.ts"
 
 describe("CSV builders", () => {
   it("quotes commas and doubled quotes", () => {
@@ -104,6 +104,21 @@ describe("recipient and idempotency helpers", () => {
       "caleb@talusag.com",
       "vendor@example.com",
     ])
+  })
+
+  it("rejects invalid recipient addresses and keeps any valid email", () => {
+    assert.equal(normalizeRecipient(""), null)
+    assert.equal(normalizeRecipient("not-an-email"), null)
+    assert.equal(normalizeRecipient("missing-domain@"), null)
+    assert.equal(normalizeRecipient("a@b"), null)
+    assert.equal(normalizeRecipient("spaces emma@talusag.com"), null)
+    assert.equal(normalizeRecipient("ops@talusag.com"), "ops@talusag.com")
+    assert.deepEqual(invalidRecipientTokens("okay@talusag.com, nope, also@bad"), ["nope", "also@bad"])
+    assert.deepEqual(parseRecipientList("okay@talusag.com, nope, OKAY@talusag.com"), ["okay@talusag.com"])
+  })
+
+  it("names all-time CSV files without a 1970 start date", () => {
+    assert.equal(csvFilename("visitors", "1970-01-01T00:00:00.000Z", "2026-10-22T18:00:00.000Z"), "visitor-sign-ins-all-time.csv")
   })
 
   it("treats a sent scheduled run as already done and reuses a failed run", () => {

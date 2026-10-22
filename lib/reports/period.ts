@@ -1,5 +1,11 @@
-import { startOfDayInTimezone, toIANATimezone, zonedTimeToUtc } from "@/lib/timezone"
+import { DEFAULT_DISPLAY_TIMEZONE, startOfDayInTimezone, toIANATimezone, zonedTimeToUtc } from "@/lib/timezone"
 import type { RangeType, ReportFrequency } from "./types.ts"
+
+export const ALL_TIME_START = new Date(0)
+export const REPORT_PAGE_SIZE = 1000
+export const REPORT_VIEW_MAX_ROWS = 10_000
+export const REPORT_EXPORT_MAX_ROWS = 50_000
+export const DEFAULT_REPORT_TIMEZONE = DEFAULT_DISPLAY_TIMEZONE
 
 const WEEKDAY_SHORT: Record<string, number> = {
   Sun: 0,
@@ -73,6 +79,39 @@ export function parseSendTime(sendTime: string): { hour: number; minute: number 
 export interface ReportPeriod {
   start: Date
   end: Date
+  /** Stored on scheduled runs for uniqueness. All-time uses today's local midnight. */
+  runStart: Date
+}
+
+function period(start: Date, end: Date, runStart = start): ReportPeriod {
+  return { start, end, runStart }
+}
+
+const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+export function parseYmd(value: string | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null
+  const match = YMD_RE.exec(value.trim())
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  const dim = daysInMonth(year, month)
+  if (day > dim) return null
+  return { year, month, day }
+}
+
+export function ymdInZone(date: Date, timezone: string): string {
+  const parts = partsInZone(date, timezone)
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`
+}
+
+export function isAllTimeStart(iso: string | Date | null | undefined): boolean {
+  if (!iso) return false
+  const ms = iso instanceof Date ? iso.getTime() : Date.parse(iso)
+  return Number.isFinite(ms) && ms <= ALL_TIME_START.getTime() + 1000
 }
 
 /**
@@ -88,33 +127,38 @@ export function resolveReportPeriod(args: {
   now?: Date
 }): ReportPeriod {
   const now = args.now ?? new Date()
-  const tz = toIANATimezone(args.timezone || "America/Chicago")
+  const tz = toIANATimezone(args.timezone || DEFAULT_REPORT_TIMEZONE)
   const todayStart = startOfDayInTimezone(tz, now)
 
+  if (args.rangeType === "all_time") {
+    return period(ALL_TIME_START, now, todayStart)
+  }
+
+  if (args.rangeType === "today") {
+    return period(todayStart, now)
+  }
+
   if (args.rangeType === "previous_day") {
-    return { start: addCalendarDays(todayStart, -1, tz), end: todayStart }
+    return period(addCalendarDays(todayStart, -1, tz), todayStart)
   }
 
   if (args.rangeType === "last_n_days") {
     const n = Math.max(1, Math.min(365, Math.round(args.lastNDays || 7)))
-    return { start: addCalendarDays(todayStart, -n, tz), end: todayStart }
+    return period(addCalendarDays(todayStart, -n, tz), todayStart)
   }
 
   if (args.rangeType === "previous_week") {
     const parts = partsInZone(now, tz)
     const daysSinceMonday = (parts.weekday + 6) % 7
     const thisMonday = addCalendarDays(todayStart, -daysSinceMonday, tz)
-    return { start: addCalendarDays(thisMonday, -7, tz), end: thisMonday }
+    return period(addCalendarDays(thisMonday, -7, tz), thisMonday)
   }
 
   const parts = partsInZone(now, tz)
   const thisMonthStart = zonedTimeToUtc(parts.year, parts.month, 1, 0, 0, 0, tz)
   const prevYear = parts.month === 1 ? parts.year - 1 : parts.year
   const prevMonth = parts.month === 1 ? 12 : parts.month - 1
-  return {
-    start: zonedTimeToUtc(prevYear, prevMonth, 1, 0, 0, 0, tz),
-    end: thisMonthStart,
-  }
+  return period(zonedTimeToUtc(prevYear, prevMonth, 1, 0, 0, 0, tz), thisMonthStart)
 }
 
 export function computeNextRunAt(
@@ -128,7 +172,7 @@ export function computeNextRunAt(
   after: Date,
 ): Date {
   const time = parseSendTime(schedule.sendTime) || { hour: 8, minute: 0 }
-  const tz = toIANATimezone(schedule.timezone || "America/Chicago")
+  const tz = toIANATimezone(schedule.timezone || DEFAULT_REPORT_TIMEZONE)
   const afterStart = startOfDayInTimezone(tz, after)
 
   for (let i = 0; i < 400; i++) {
@@ -155,14 +199,66 @@ export function computeNextRunAt(
 
 /** On-demand rolling window. End is now so today's rows are included. */
 export function rollingWindow(periodDays: string, timezone: string, now = new Date()): ReportPeriod {
-  if (periodDays === "1") {
-    return { start: new Date(now.getTime() - 24 * 60 * 60 * 1000), end: now }
-  }
-  const n = Number.parseInt(periodDays, 10)
-  const days = Number.isFinite(n) && n > 0 ? n : 7
-  const tz = toIANATimezone(timezone || "America/Chicago")
+  return resolveOnDemandWindow({ period: periodDays, timezone, now })
+}
+
+export function resolveOnDemandWindow(args: {
+  period: string
+  timezone: string
+  customStart?: string | null
+  customEnd?: string | null
+  now?: Date
+}): ReportPeriod {
+  const now = args.now ?? new Date()
+  const tz = toIANATimezone(args.timezone || DEFAULT_REPORT_TIMEZONE)
   const todayStart = startOfDayInTimezone(tz, now)
-  return { start: addCalendarDays(todayStart, -days, tz), end: now }
+
+  if (args.period === "1") {
+    return period(new Date(now.getTime() - 24 * 60 * 60 * 1000), now)
+  }
+  if (args.period === "today") {
+    return period(todayStart, now)
+  }
+  if (args.period === "all") {
+    return period(ALL_TIME_START, now, todayStart)
+  }
+  if (args.period === "custom") {
+    const startParts = parseYmd(args.customStart)
+    const endParts = parseYmd(args.customEnd)
+    if (startParts && endParts) {
+      const start = zonedTimeToUtc(startParts.year, startParts.month, startParts.day, 0, 0, 0, tz)
+      const endDay = zonedTimeToUtc(endParts.year, endParts.month, endParts.day, 0, 0, 0, tz)
+      const end = addCalendarDays(endDay, 1, tz)
+      if (end.getTime() > start.getTime()) return period(start, end)
+    }
+  }
+  const n = Number.parseInt(args.period, 10)
+  const days = Number.isFinite(n) && n > 0 ? n : 7
+  return period(addCalendarDays(todayStart, -days, tz), now)
+}
+
+export function dashboardPeriodLabel(period: string, customStart?: string | null, customEnd?: string | null): string {
+  if (period === "1") return "Last 24 hours"
+  if (period === "today") return "Today"
+  if (period === "all") return "All time"
+  if (period === "custom") {
+    if (customStart && customEnd) return `${customStart} to ${customEnd}`
+    return "Custom range"
+  }
+  const n = Number.parseInt(period, 10)
+  if (Number.isFinite(n) && n > 0) return `Last ${n} days`
+  return "Selected period"
+}
+
+export function reportWindowTimezone(args: {
+  selectedLocationIds: string[]
+  locations: Array<{ id: string; timezone?: string | null }>
+}): string {
+  if (args.selectedLocationIds.length === 1) {
+    const match = args.locations.find((loc) => loc.id === args.selectedLocationIds[0])
+    return toIANATimezone(match?.timezone || DEFAULT_REPORT_TIMEZONE)
+  }
+  return DEFAULT_REPORT_TIMEZONE
 }
 
 export function isScheduleDue(enabled: boolean, nextRunAt: string | Date | null, nowMs = Date.now()): boolean {
