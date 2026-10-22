@@ -65,6 +65,7 @@ export type AuditAction =
   | "kiosk.receptionist_login"
   | "kiosk.receptionist_logout"
   | "kiosk.geofence_override"
+  | "kiosk.location_changed"
   | "geofence.suspicious"
   | "geofence.staff_override"
   // Vendor actions
