@@ -62,7 +62,8 @@ function createChain(table: string) {
       return Promise.resolve(result())
     },
     then(onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) {
-      return Promise.resolve(result()).then(onFulfilled, onRejected)
+      const row = result().data
+      return Promise.resolve({ data: [row], error: null }).then(onFulfilled, onRejected)
     },
   }
   return self

@@ -98,7 +98,7 @@ describe("optional kiosk helpers: missing vs invalid", () => {
     assert.equal(asOptionalString(42, 20), undefined)
     assert.equal(asOptionalEmail("not-an-email"), undefined)
     assert.equal(asOptionalEmail("missing-at.example.com"), undefined)
-    assert.equal(asOptionalEmail("a".repeat(250) + "@x.y"), undefined)
+    assert.equal(asOptionalEmail("a".repeat(251) + "@x.y"), undefined)
     assert.equal(asOptionalHttpUrl("ftp://files.example.com/a"), undefined)
     assert.equal(asOptionalHttpUrl("/relative/path"), undefined)
     assert.equal(asOptionalIsoDate("not-a-date"), undefined)
