@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer"
 
-export const SMTP_CONNECTION_TIMEOUT_MS = 10_000
+export const SMTP_CONNECTION_TIMEOUT_MS = 20_000
 export const SMTP_GREETING_TIMEOUT_MS = 10_000
 export const SMTP_SOCKET_TIMEOUT_MS = 20_000
 
@@ -15,7 +15,7 @@ type MailTransporter = ReturnType<typeof nodemailer.createTransport>
 
 let cached: { key: string; transporter: MailTransporter } | null = null
 
-/** Shared nodemailer options: short timeouts so a hung SMTP host cannot pin the request. */
+/** Shared nodemailer options. Connection gets about 20s; retries cover blips. */
 export function smtpTransportOptions(cfg: SmtpAuthConfig) {
   return {
     host: cfg.host,
@@ -42,6 +42,17 @@ export function getSharedTransporter(cfg: SmtpAuthConfig): MailTransporter | nul
   const transporter = nodemailer.createTransport(smtpTransportOptions(cfg))
   cached = { key, transporter }
   return transporter
+}
+
+/** Drop a pooled transporter after a connect timeout so the next try is fresh. */
+export function resetSharedTransporter(): void {
+  if (!cached) return
+  try {
+    cached.transporter.close()
+  } catch {
+    // ignore close errors on a dead socket
+  }
+  cached = null
 }
 
 export const TWILIO_TIMEOUT_MS = 10_000

@@ -22,7 +22,6 @@ function proof(over: Partial<ReturnType<typeof parseTrainingProof>> = {}) {
     ticket: issueTrainingTicket({ visitorTypeId: TYPE, scope: SCOPE, now: T0, secret: SECRET }),
     acknowledged: true,
     videoSeconds: VIDEO_SECONDS,
-    bypass: false,
     ...over,
   }
 }
@@ -106,12 +105,11 @@ describe("training tickets", () => {
   })
 
   it("parses a loosely typed proof", () => {
-    assert.deepEqual(parseTrainingProof(undefined), { ticket: null, acknowledged: false, videoSeconds: null, bypass: false })
+    assert.deepEqual(parseTrainingProof(undefined), { ticket: null, acknowledged: false, videoSeconds: null })
     assert.deepEqual(parseTrainingProof({ ticket: "t", acknowledged: "yes", videoSeconds: "453", bypass: 1 }), {
       ticket: "t",
       acknowledged: false,
       videoSeconds: null,
-      bypass: false,
     })
   })
 })

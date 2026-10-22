@@ -189,7 +189,6 @@ export default function KioskPage() {
   const [ndaHasInk, setNdaHasInk] = useState(false)
   /** Captured when leaving the NDA step, because the canvas unmounts with it. */
   const [ndaSignature, setNdaSignature] = useState<string | null>(null)
-  const [bypassTraining, setBypassTraining] = useState(false)
   const [visitorPhotoUrl, setVisitorPhotoUrl] = useState<string | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -1386,9 +1385,9 @@ export default function KioskPage() {
       }
 
       // 3. Record training completion when applicable.
-      // The server checks the training ticket (or the group option, or an
-      // earlier valid completion) and the acknowledgement before recording it,
-      // and the sign-in below is refused without a valid completion.
+      // The server checks the training ticket (or an earlier valid completion)
+      // and the acknowledgement before recording it, and the sign-in below is
+      // refused without a valid completion.
       if (selectedVisitorType?.requires_training) {
         const trainingRes = await fetch("/api/kiosk/training", {
           method: "POST",
@@ -1400,7 +1399,6 @@ export default function KioskPage() {
             training: {
               ticket: trainingTicketRef.current,
               acknowledged: trainingAcknowledged,
-              bypass: bypassTraining,
               prior: priorTrainingValidRef.current,
             },
           }),
@@ -1578,7 +1576,6 @@ export default function KioskPage() {
     setNdaAgreed(false)
     setNdaHasInk(false)
     setNdaSignature(null)
-    setBypassTraining(false)
     setVideoProgress(0)
     setVideoStarted(false)
     if (videoTimerRef.current) {
@@ -3277,7 +3274,7 @@ export default function KioskPage() {
                 </div>
 
                 {/* Progress Bar */}
-                {videoStarted && !bypassTraining && (
+                {videoStarted && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Training Progress</span>
@@ -3292,32 +3289,8 @@ export default function KioskPage() {
                   </div>
                 )}
 
-                {/* Bypass Training Option */}
-                {!trainingWatched && !bypassTraining && (
-                  <div className="border border-dashed border-muted-foreground/30 rounded-lg p-4 bg-muted/30">
-                    <div className="flex items-start gap-3">
-                      <Checkbox
-                        id="bypass"
-                        checked={bypassTraining}
-                        onCheckedChange={(checked) => {
-                          setBypassTraining(checked === true)
-                          if (checked === true) {
-                            setTrainingWatched(true)
-                          }
-                        }}
-                        className="mt-1"
-                      />
-                      <label htmlFor="bypass" className="text-sm leading-relaxed cursor-pointer text-muted-foreground">
-                        <span className="font-medium text-foreground">Already watched this training?</span>
-                        <br />
-                        If you watched this training video with other visitors (e.g., checking in as a group), you may skip re-watching. You will still need to acknowledge the safety guidelines.
-                      </label>
-                    </div>
-                  </div>
-                )}
-
                 {/* Acknowledgment Checkbox */}
-                {(trainingWatched || bypassTraining) && (
+                {trainingWatched && (
                   <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <Checkbox
@@ -3342,11 +3315,11 @@ export default function KioskPage() {
                   onClick={proceedToPhoto}
                   className="w-full"
                   size="lg"
-                  disabled={(!trainingWatched && !bypassTraining) || !trainingAcknowledged || isLoading}
+                  disabled={!trainingWatched || !trainingAcknowledged || isLoading}
                 >
                   {isLoading ? (
                     "Processing..."
-                  ) : (!trainingWatched && !bypassTraining) ? (
+                  ) : !trainingWatched ? (
                     <>
                       <Clock className="w-4 h-4 mr-2" />
                       Complete Training to Continue

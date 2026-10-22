@@ -1,6 +1,7 @@
 import { getAdminClient } from "@/lib/supabase/server"
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
-import { getSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
+import { getSharedTransporter, resetSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
+import { HOST_NOTIFY_BUDGET_MS, sendWithNotifyRetry } from "@/lib/host-notify-retry"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -106,8 +107,10 @@ async function sendTwilioSms(sid: string, token: string, from: string, to: strin
     signal: AbortSignal.timeout(TWILIO_TIMEOUT_MS),
   })
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.message || `Twilio API error: ${response.status}`)
+    const errorData = await response.json().catch(() => ({})) as { message?: string }
+    const err = new Error(errorData.message || `Twilio API error: ${response.status}`) as Error & { httpStatus?: number }
+    err.httpStatus = response.status
+    throw err
   }
   return response.json()
 }
@@ -170,9 +173,15 @@ export async function sendResolvedHostNotification(args: {
   badgeNumber?: string | null
   visitorPhotoUrl?: string | null
   purpose?: string | null
+  signInId?: string | null
 }): Promise<{ email?: string; sms?: string; loggedOnly?: boolean }> {
   const notifSettings = await getNotificationSettings()
   const results: { email?: string; sms?: string; loggedOnly?: boolean } = {}
+  const deadlineAt = Date.now() + HOST_NOTIFY_BUDGET_MS
+  const retryContext = {
+    signInId: args.signInId ?? null,
+    notificationType: args.notificationType,
+  }
 
   const visitorName = sanitizePlainText(args.visitorName, 200)
   const visitorCompany = sanitizePlainText(args.visitorCompany, 200)
@@ -191,16 +200,20 @@ export async function sendResolvedHostNotification(args: {
         ? `${companyNameSms} Visitor Alert: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} is checking in and completing training. They'll be ready shortly.`
         : `${companyNameSms} Visitor Alert: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} has arrived${locationName ? ` at ${locationName}` : ""}.${badgeNumber ? ` Badge #${badgeNumber}.` : ""} Please proceed to reception.`
 
-      await sendTwilioSms(
-        notifSettings.twilioSid,
-        notifSettings.twilioToken,
-        notifSettings.twilioFrom,
-        args.host.phone,
-        smsBody,
+      await sendWithNotifyRetry(
+        { ...retryContext, channel: "sms" },
+        () => sendTwilioSms(
+          notifSettings.twilioSid,
+          notifSettings.twilioToken,
+          notifSettings.twilioFrom,
+          args.host.phone,
+          smsBody,
+        ),
+        { deadlineAt },
       )
       results.sms = "sent"
     } catch (smsErr) {
-      console.error("[Notify Host] SMS error:", smsErr)
+      console.error("[Host Notify] SMS error:", smsErr instanceof Error ? smsErr.message : smsErr)
       results.sms = "failed"
     }
   } else if (smsEnabled && args.host.phone) {
@@ -222,15 +235,16 @@ export async function sendResolvedHostNotification(args: {
       : "",
   }
 
-  const transporter = getSharedTransporter({
+  const smtpCfg = {
     host: notifSettings.host,
     port: notifSettings.port,
     user: notifSettings.user,
     pass: notifSettings.pass,
-  })
+  }
+  const transporter = getSharedTransporter(smtpCfg)
 
   if (!transporter || !notifSettings.fromEmail || !args.host.email) {
-    console.log("[Notify Host] SMTP not configured or host has no email, logging only")
+    console.log("[Host Notify] SMTP not configured or host has no email, logging only")
     results.loggedOnly = true
     return results
   }
@@ -329,13 +343,28 @@ export async function sendResolvedHostNotification(args: {
       </html>
     `
 
-  await transporter.sendMail({
+  const mail = {
     from: `"${notifSettings.companyName} Visitor Management" <${notifSettings.fromEmail}>`,
     to: args.host.email,
     subject: emailSubject,
     html: emailHtml,
     text: `Dear ${hostName},\n\n${mainMessage}\n\nName: ${visitorName}\nCompany: ${visitorCompany || "Not specified"}\nPurpose: ${purpose || "Not specified"}\nBadge #: ${badgeNumber || "N/A"}\n${locationName ? `Location: ${locationName}\n` : ""}\n${actionMessage}\n\n- ${sanitizePlainText(notifSettings.companyName, 80)} Visitor Management System`,
-  })
+  }
+
+  await sendWithNotifyRetry(
+    { ...retryContext, channel: "email" },
+    async () => {
+      const active = getSharedTransporter(smtpCfg)
+      if (!active) {
+        throw new Error("SMTP not configured")
+      }
+      return active.sendMail(mail)
+    },
+    {
+      deadlineAt,
+      onTransient: () => resetSharedTransporter(),
+    },
+  )
 
   results.email = "sent"
   return results

@@ -140,8 +140,6 @@ export interface TrainingProof {
   acknowledged: boolean
   /** Length of the video the visitor watched, as reported by the player. */
   videoSeconds: number | null
-  /** Kiosk only: visitor watched with a group and skipped the replay. */
-  bypass: boolean
 }
 
 /** Accept a loosely typed `training` object from a request body. */
@@ -152,7 +150,6 @@ export function parseTrainingProof(raw: unknown): TrainingProof {
     ticket: typeof value.ticket === "string" && value.ticket.length > 0 ? value.ticket : null,
     acknowledged: value.acknowledged === true,
     videoSeconds: seconds,
-    bypass: value.bypass === true,
   }
 }
 
