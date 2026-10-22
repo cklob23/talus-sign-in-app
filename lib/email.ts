@@ -1,5 +1,5 @@
-import nodemailer from "nodemailer"
 import { getAdminClient } from "@/lib/supabase/server"
+import { getSharedTransporter } from "@/lib/smtp-transport"
 
 /**
  * Shared transactional email sender.
@@ -73,12 +73,10 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ sent: boolean; r
     if (recipients.length === 0) return { sent: false, reason: "no_recipients" }
 
     try {
-        const transporter = nodemailer.createTransport({
-            host: cfg.host,
-            port: cfg.port,
-            secure: cfg.port === 465,
-            auth: { user: cfg.user, pass: cfg.pass },
-        })
+        const transporter = getSharedTransporter(cfg)
+        if (!transporter) {
+            return { sent: false, reason: "smtp_not_configured" }
+        }
 
         await transporter.sendMail({
             from: `"${cfg.companyName}" <${cfg.fromEmail}>`,

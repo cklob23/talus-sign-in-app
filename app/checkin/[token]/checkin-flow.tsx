@@ -116,6 +116,8 @@ export function CheckinFlow({
     const [mode, setMode] = useState<"signin" | "signout">("signin")
     /** Host already told this visitor started training, to avoid duplicate emails. */
     const trainingNotifiedRef = useRef<string | null>(null)
+    const trainingIdempotencyKeyRef = useRef<string | null>(null)
+    const signInIdempotencyKeyRef = useRef<string | null>(null)
 
     const selectedType = useMemo(() => visitorTypes.find((t) => t.id === typeId) ?? null, [visitorTypes, typeId])
 
@@ -134,6 +136,8 @@ export function CheckinFlow({
         setMode("signin")
         // A new visitor session must be able to notify the same host again.
         trainingNotifiedRef.current = null
+        trainingIdempotencyKeyRef.current = null
+        signInIdempotencyKeyRef.current = null
         setStep(visitorTypes.length > 0 ? "type" : "details")
     }, [visitorTypes.length])
 
@@ -180,6 +184,9 @@ export function CheckinFlow({
         if (!hostId || trainingNotifiedRef.current === hostId) return
         // Marked synchronously so a double-tap cannot send twice.
         trainingNotifiedRef.current = hostId
+        if (!trainingIdempotencyKeyRef.current) {
+            trainingIdempotencyKeyRef.current = crypto.randomUUID()
+        }
         void fetch(`/api/checkin/${token}/notify-training`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -189,7 +196,10 @@ export function CheckinFlow({
                 firstName: details.firstName,
                 lastName: details.lastName,
                 company: details.company,
+                idempotencyKey: trainingIdempotencyKeyRef.current,
             }),
+        }).then((res) => {
+            if (!res.ok) trainingNotifiedRef.current = null
         }).catch(() => {
             // Allow a retry if the request never reached the server.
             trainingNotifiedRef.current = null
@@ -272,6 +282,9 @@ export function CheckinFlow({
     async function submit() {
         setSubmitting(true)
         setError(null)
+        if (!signInIdempotencyKeyRef.current) {
+            signInIdempotencyKeyRef.current = crypto.randomUUID()
+        }
         try {
             const res = await fetch(`/api/checkin/${token}`, {
                 method: "POST",
@@ -288,6 +301,7 @@ export function CheckinFlow({
                     ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
                     coords,
+                    idempotencyKey: signInIdempotencyKeyRef.current,
                 }),
             })
             const json = await res.json()

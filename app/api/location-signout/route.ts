@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import nodemailer from "nodemailer"
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { smtpTransportOptions } from "@/lib/smtp-transport"
 
 export const maxDuration = 60
 
@@ -184,12 +185,12 @@ async function handleLocationSignout(request: Request) {
         if (!dryRun && visitorsSignedOut > 0 && activeVisitors) {
             const smtp = await getSmtpSettings(supabase)
             if (smtp.host && smtp.user && smtp.pass) {
-                const transporter = nodemailer.createTransport({
+                const transporter = nodemailer.createTransport(smtpTransportOptions({
                     host: smtp.host,
                     port: smtp.port,
-                    secure: smtp.port === 465,
-                    auth: { user: smtp.user, pass: smtp.pass },
-                })
+                    user: smtp.user,
+                    pass: smtp.pass,
+                }))
 
                 // Group visitors by host email so each host gets a single email.
                 const hostVisitors: Record<string, {

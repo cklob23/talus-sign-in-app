@@ -3,11 +3,19 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { requireKioskContext } from "@/lib/kiosk-auth"
 import { asOptionalHttpUrl, asOptionalString, asOptionalUuid } from "@/lib/kiosk-input"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
-import { resolveHostContact, sendResolvedHostNotification, type HostNotificationType } from "@/lib/host-notify-send"
+import { parseIdempotencyKey } from "@/lib/idempotency"
+import { findActiveHost } from "@/lib/active-hosts"
+import { scheduleHostNotification } from "@/lib/host-notify-once"
+import type { HostNotificationType } from "@/lib/host-notify-send"
 
 const RATE_LIMIT = 20
 const RATE_WINDOW_MS = 10 * 60 * 1000
 
+/**
+ * Training-start and legacy clients can still POST here. Arrival emails are
+ * triggered from the sign-in routes. The response returns as soon as the
+ * send is queued; SMTP/Twilio run in after().
+ */
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null)
@@ -28,8 +36,9 @@ export async function POST(request: Request) {
 
     const hostId = asOptionalUuid(raw.hostId)
     const signInId = asOptionalUuid(raw.signInId)
-    if (hostId === undefined || signInId === undefined) {
-      return NextResponse.json({ error: "Invalid host or sign-in id" }, { status: 400 })
+    const idempotencyKey = parseIdempotencyKey(raw.idempotencyKey)
+    if (hostId === undefined || signInId === undefined || idempotencyKey === undefined) {
+      return NextResponse.json({ error: "Invalid host, sign-in id, or idempotency key" }, { status: 400 })
     }
 
     const visitorName = asOptionalString(raw.visitorName, 200)
@@ -83,6 +92,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    const host = await findActiveHost(admin, resolvedHostId)
+    if (!host.ok) {
+      return NextResponse.json({ error: "Host not found" }, { status: 404 })
+    }
+
     if (auth.context.source === "qr") {
       resolvedLocationId = auth.context.locationId
     }
@@ -92,14 +106,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Too many notification requests" }, { status: 429 })
     }
 
-    const host = await resolveHostContact(resolvedHostId, resolvedLocationId)
-    if (!host) {
-      return NextResponse.json({ error: "Host not found" }, { status: 404 })
-    }
-
-    const results = await sendResolvedHostNotification({
-      host,
-      locationId: resolvedLocationId,
+    scheduleHostNotification({
+      hostId: resolvedHostId,
+      locationId: resolvedLocationId || "",
       locationName,
       notificationType,
       visitorName,
@@ -108,15 +117,17 @@ export async function POST(request: Request) {
       badgeNumber,
       visitorPhotoUrl,
       purpose,
+      signInId,
+      idempotencyKey,
     })
 
     return NextResponse.json({
       success: true,
-      message: results.loggedOnly ? "SMTP not configured - notification logged only" : "Host notification sent",
-      ...results,
+      queued: true,
+      message: "Host notification queued",
     })
   } catch (error) {
-    console.error("[Notify Host] Error sending notification:", error)
+    console.error("[Notify Host] Error queueing notification:", error)
     return NextResponse.json({ error: "Failed to send notification email" }, { status: 500 })
   }
 }

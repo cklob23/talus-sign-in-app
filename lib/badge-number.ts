@@ -18,6 +18,11 @@ export const BADGE_NUMBER_RE = /^V\d{5}$/
  */
 export const BADGE_NUMBER_INPUT_RE = /^V-?\d{4,5}$/
 
+/** Trim, strip spaces, and uppercase so kiosk and QR accept the same typing. */
+export function normalizeBadgeInput(value: string): string {
+    return value.trim().replace(/\s+/g, "").toUpperCase()
+}
+
 /** Generate a badge number. Uniqueness is not guaranteed — see `generateUniqueBadgeNumber`. */
 export function generateBadgeNumber(): string {
     return `V${Math.floor(Math.random() * 100_000)

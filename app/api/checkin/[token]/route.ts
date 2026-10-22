@@ -2,8 +2,12 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token"
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
-import { sendHostNotification } from "@/lib/host-notification"
 import { resolveAppOrigin, resolveNdaRequirement, signNda } from "@/lib/nda"
+import { findActiveHost } from "@/lib/active-hosts"
+import { asOptionalEmail } from "@/lib/kiosk-input"
+import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
+import { supabaseSignInStore } from "@/lib/sign-in-store"
+import { scheduleHostNotification } from "@/lib/host-notify-once"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -37,6 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         ndaDocumentId?: string
         ndaSignatureDataUrl?: string
         coords?: unknown
+        idempotencyKey?: string
     }
     try {
         body = await request.json()
@@ -55,12 +60,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "First and last name are required" }, { status: 400 })
     }
 
+    const visitorEmail = asOptionalEmail(body.email ?? null)
+    if (visitorEmail === undefined) {
+        return NextResponse.json({ error: "Invalid email address" }, { status: 400 })
+    }
+
+    const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
+    if (idempotencyKey === undefined) {
+        return NextResponse.json({ error: "Invalid idempotency key" }, { status: 400 })
+    }
+
     const admin = getAdminClient()
+
+    if (idempotencyKey) {
+        const { data: existing } = await admin
+            .from("sign_ins")
+            .select("id, sign_in_time, badge_number, visitor_id, host_id, photo_url")
+            .eq("idempotency_key", idempotencyKey)
+            .maybeSingle()
+        if (existing) {
+            return replayedCheckinResponse(admin, existing, location.name, location.id, idempotencyKey)
+        }
+    }
 
     // Visitor types are global (the admin UI has no location picker and the kiosk
     // offers all of them everywhere), so only existence is re-validated here.
     // Scoping to the token's location would reject types the page legitimately
-    // offers. Hosts below stay location-scoped because they really do belong to one.
+    // offers. Hosts are also global: any active host is valid at every site.
     let visitorType: {
         id: string
         name: string
@@ -85,20 +111,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "Company is required for this visitor type" }, { status: 400 })
     }
 
-    // Same for the host: it must belong to this location and be active.
+    // Any active host is valid. Do not filter on hosts.location_id.
     let hostId: string | null = null
     if (body.hostId) {
-        const { data } = await admin
-            .from("hosts")
-            .select("id")
-            .eq("id", body.hostId)
-            .eq("location_id", location.id)
-            .eq("is_active", true)
-            .maybeSingle()
-        if (!data) {
-            return NextResponse.json({ error: "Invalid host for this location" }, { status: 400 })
+        const host = await findActiveHost(admin, body.hostId)
+        if (!host.ok) {
+            return NextResponse.json({ error: host.error }, { status: host.status })
         }
-        hostId = data.id
+        hostId = host.host.id
     }
     if (visitorType?.requires_host && !hostId) {
         return NextResponse.json({ error: "A host is required for this visitor type" }, { status: 400 })
@@ -149,7 +169,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         .insert({
             first_name: firstName,
             last_name: lastName,
-            email: body.email?.trim() || null,
+            email: visitorEmail,
             phone: body.phone?.trim() || null,
             company,
             photo_url: photoUrl,
@@ -174,9 +194,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return (count ?? 0) > 0
     })
 
-    const { data: signIn, error: signInError } = await admin
-        .from("sign_ins")
-        .insert({
+    const created = await createSignInIdempotent(
+        supabaseSignInStore(admin, "id, sign_in_time, badge_number, visitor_id, host_id, photo_url"),
+        {
             visitor_id: visitor.id,
             location_id: location.id,
             visitor_type_id: visitorType?.id ?? null,
@@ -184,21 +204,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             badge_number: badgeNumber,
             photo_url: photoUrl,
             timezone: location.timezone ?? "UTC",
-        })
-        .select("id, sign_in_time")
-        .single()
+            idempotency_key: idempotencyKey || null,
+        },
+    )
 
-    if (signInError || !signIn) {
-        console.log("[v0] QR check-in sign-in insert failed:", signInError?.message)
+    if (!created.ok) {
+        console.log("[v0] QR check-in sign-in insert failed:", created.error.message)
         return NextResponse.json({ error: "Could not complete sign-in" }, { status: 500 })
     }
+
+    const signIn = created.signIn
+    const replayed = created.replayed
+    const badgeNumberForResponse = (signIn.badge_number as string | null) || badgeNumber
 
     const visitorName = `${visitor.first_name} ${visitor.last_name}`
 
     // Record the signature now that we have a sign_in to bind it to. If this
     // fails the visitor is NOT on site: an unsigned visitor must not be admitted
     // when the NDA is mandatory, so the sign-in is rolled back.
-    if (ndaRequirement.required && body.ndaSignatureDataUrl) {
+    if (!replayed && ndaRequirement.required && body.ndaSignatureDataUrl) {
         let hostName: string | null = null
         if (hostId) {
             const { data: hostRow } = await admin.from("hosts").select("name").eq("id", hostId).maybeSingle()
@@ -209,7 +233,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             ndaDocumentId: ndaRequirement.document.id,
             signatureDataUrl: body.ndaSignatureDataUrl,
             visitorId: visitor.id,
-            signInId: signIn.id,
+            signInId: String(signIn.id),
             visitorTypeId: visitorType?.id ?? null,
             visitorTypeName: visitorType?.name ?? null,
             locationId: location.id,
@@ -218,7 +242,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             hostName,
             visitorName,
             visitorCompany: company,
-            visitorEmail: body.email?.trim() || null,
+            visitorEmail,
             ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
             userAgent: request.headers.get("user-agent"),
             appOrigin: resolveAppOrigin(request),
@@ -235,32 +259,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
     }
 
-    await admin.from("audit_logs").insert({
-        user_id: null,
-        action: "visitor.sign_in",
-        entity_type: "visitor",
-        entity_id: visitor.id,
-        description: `Visitor signed in via QR code: ${visitorName}`,
-        metadata: {
-            visitor_id: visitor.id,
-            sign_in_id: signIn.id,
-            location_id: location.id,
-            badge_number: badgeNumber,
-            host_id: hostId,
-            visitor_type_id: visitorType?.id ?? null,
-            source: "qr_checkin",
-            geofence: geofence.verdict?.ok
-                ? {
-                    distance_meters: Math.round(geofence.verdict.distance),
-                    radius_meters: geofence.verdict.radius,
-                }
-                : null,
-        },
-    })
+    if (!replayed) {
+        await admin.from("audit_logs").insert({
+            user_id: null,
+            action: "visitor.sign_in",
+            entity_type: "visitor",
+            entity_id: visitor.id,
+            description: `Visitor signed in via QR code: ${visitorName}`,
+            metadata: {
+                visitor_id: visitor.id,
+                sign_in_id: signIn.id,
+                location_id: location.id,
+                badge_number: badgeNumberForResponse,
+                host_id: hostId,
+                visitor_type_id: visitorType?.id ?? null,
+                source: "qr_checkin",
+                idempotency_key: idempotencyKey,
+                geofence: geofence.verdict?.ok
+                    ? {
+                        distance_meters: Math.round(geofence.verdict.distance),
+                        radius_meters: geofence.verdict.radius,
+                    }
+                    : null,
+            },
+        })
+    }
 
-    // "arrived" is the completion email: the visitor has finished any required
-    // training and is now on site. Mirrors the kiosk's post-training notification.
-    await sendHostNotification({
+    // Arrival email is sent after the response so SMTP cannot hang the visitor.
+    scheduleHostNotification({
         hostId,
         locationId: location.id,
         locationName: location.name,
@@ -268,16 +294,64 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorName,
         visitorCompany: company,
         visitorTypeName: visitorType?.name ?? null,
-        badgeNumber,
-        visitorPhotoUrl: photoUrl,
+        badgeNumber: badgeNumberForResponse,
+        visitorPhotoUrl: (signIn.photo_url as string | null) || photoUrl,
+        signInId: String(signIn.id),
+        idempotencyKey,
     })
 
     return NextResponse.json({
         success: true,
         signInId: signIn.id,
-        badgeNumber,
+        badgeNumber: badgeNumberForResponse,
         visitorName,
         locationName: location.name,
         signInTime: signIn.sign_in_time,
+        replayed,
+    })
+}
+
+async function replayedCheckinResponse(
+    admin: ReturnType<typeof getAdminClient>,
+    existing: {
+        id: string
+        sign_in_time: string
+        badge_number: string | null
+        visitor_id: string
+        host_id: string | null
+        photo_url: string | null
+    },
+    locationName: string,
+    locationId: string,
+    idempotencyKey: string,
+) {
+    const { data: visitor } = await admin
+        .from("visitors")
+        .select("first_name, last_name, company")
+        .eq("id", existing.visitor_id)
+        .maybeSingle()
+    const visitorName = visitor ? `${visitor.first_name} ${visitor.last_name}` : "Visitor"
+
+    scheduleHostNotification({
+        hostId: existing.host_id,
+        locationId,
+        locationName,
+        notificationType: "arrived",
+        visitorName,
+        visitorCompany: visitor?.company ?? null,
+        badgeNumber: existing.badge_number,
+        visitorPhotoUrl: existing.photo_url,
+        signInId: existing.id,
+        idempotencyKey,
+    })
+
+    return NextResponse.json({
+        success: true,
+        signInId: existing.id,
+        badgeNumber: existing.badge_number,
+        visitorName,
+        locationName,
+        signInTime: existing.sign_in_time,
+        replayed: true,
     })
 }

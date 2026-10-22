@@ -21,10 +21,11 @@ async function hostNotificationsEnabled(): Promise<boolean> {
 }
 
 /**
- * Sends a host notification for a QR self sign-in.
+ * Sends a host notification.
  *
- * Host contact is resolved server-side. A notification failure must never
- * stop a visitor getting on site.
+ * Host contact is resolved server-side. Any active host is valid (P1-6);
+ * locationId is only used for per-site SMS settings. A notification
+ * failure must never stop a visitor getting on site.
  */
 export async function sendHostNotification(args: {
     hostId: string | null
@@ -45,7 +46,7 @@ export async function sendHostNotification(args: {
             return { sent: false, reason: "disabled" }
         }
 
-        const host = await resolveHostContact(args.hostId, args.locationId)
+        const host = await resolveHostContact(args.hostId)
         if (!host) return { sent: false, reason: "host_not_found" }
 
         const results = await sendResolvedHostNotification({

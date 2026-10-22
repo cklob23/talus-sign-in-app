@@ -5,6 +5,8 @@ import { useTheme } from "next-themes"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
+import { startOfDayInTimezone, toIANATimezone, zonedTimeToUtc } from "@/lib/timezone"
+import { useTimezone } from "@/contexts/timezone-context"
 
 interface DayData {
   day: string
@@ -30,6 +32,7 @@ const chartColors = {
 
 export function DashboardCharts() {
   const { resolvedTheme } = useTheme()
+  const { timezone: userTimezone } = useTimezone()
   const [chartData, setChartData] = useState<DayData[]>([])
   const [mounted, setMounted] = useState(false)
 
@@ -44,13 +47,20 @@ export function DashboardCharts() {
       const supabase = createClient()
       const data: DayData[] = []
 
+      const tz = toIANATimezone(userTimezone || "UTC")
       for (let i = 6; i >= 0; i--) {
-        const date = new Date()
-        date.setDate(date.getDate() - i)
-        const startOfDay = new Date(date)
-        startOfDay.setHours(0, 0, 0, 0)
-        const endOfDay = new Date(date)
-        endOfDay.setHours(23, 59, 59, 999)
+        const startOfToday = startOfDayInTimezone(tz)
+        const startOfDay = new Date(startOfToday.getTime() - i * 24 * 60 * 60 * 1000)
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(startOfDay)
+        const year = Number(parts.find((p) => p.type === "year")?.value)
+        const month = Number(parts.find((p) => p.type === "month")?.value)
+        const day = Number(parts.find((p) => p.type === "day")?.value)
+        const endOfDay = new Date(zonedTimeToUtc(year, month, day, 23, 59, 59, tz).getTime() + 999)
 
         // Fetch visitor sign-ins
         const { count: visitorCount } = await supabase
@@ -67,7 +77,7 @@ export function DashboardCharts() {
           .lte("sign_in_time", endOfDay.toISOString())
 
         data.push({
-          day: date.toLocaleDateString("en-US", { weekday: "short" }),
+          day: startOfDay.toLocaleDateString("en-US", { weekday: "short", timeZone: tz }),
           visitors: visitorCount || 0,
           employees: employeeCount || 0,
         })
@@ -77,7 +87,7 @@ export function DashboardCharts() {
     }
 
     loadChartData()
-  }, [])
+  }, [userTimezone])
 
   if (!mounted) {
     return (

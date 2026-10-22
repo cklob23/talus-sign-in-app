@@ -79,14 +79,89 @@ const WINDOWS_TO_IANA: Record<string, string> = {
  */
 export function toIANATimezone(timezone: string): string {
   if (!timezone) return "UTC"
-  
-  // Check if it's a Windows timezone name
+
   if (WINDOWS_TO_IANA[timezone]) {
     return WINDOWS_TO_IANA[timezone]
   }
-  
-  // It might already be an IANA timezone, return as-is
+
   return timezone
+}
+
+function timezoneParts(
+  date: Date,
+  timezone: string,
+): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  })
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]),
+  )
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  }
+}
+
+/** UTC instant for a wall-clock time in the given IANA zone. */
+export function zonedTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timezone: string,
+): Date {
+  const iana = toIANATimezone(timezone)
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second)
+  const asZone = timezoneParts(new Date(utcGuess), iana)
+  const asUTC = Date.UTC(asZone.year, asZone.month - 1, asZone.day, asZone.hour, asZone.minute, asZone.second)
+  return new Date(utcGuess - (asUTC - utcGuess))
+}
+
+/**
+ * Start of "today" in a location or display timezone, as a UTC Date.
+ * Dashboard counters and charts must use this instead of UTC midnight.
+ */
+export function startOfDayInTimezone(timezone: string, now: Date = new Date()): Date {
+  const iana = toIANATimezone(timezone)
+  try {
+    const parts = timezoneParts(now, iana)
+    return zonedTimeToUtc(parts.year, parts.month, parts.day, 0, 0, 0, iana)
+  } catch {
+    const fallback = new Date(now)
+    fallback.setUTCHours(0, 0, 0, 0)
+    return fallback
+  }
+}
+
+/** Date + time in the site timezone, with a short zone label (CST, EAT, UTC). */
+export function formatDateTimeWithZone(utcDateString: string, timezone = "UTC"): string {
+  const stamp = formatInTimezone(utcDateString, timezone, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+  return `${stamp} ${getTimezoneAbbreviation(timezone)}`
+}
+
+export function formatTimeWithZone(utcDateString: string, timezone = "UTC"): string {
+  return `${formatTime(utcDateString, timezone)} ${getTimezoneAbbreviation(timezone)}`
 }
 
 /**

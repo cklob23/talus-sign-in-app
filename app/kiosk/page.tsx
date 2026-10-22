@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { hasFeature, setCurrentTenant } from "@/lib/tier"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
 import { printVisitorBadge } from "@/lib/print-badge"
-import { generateBadgeNumber as makeBadgeNumber } from "@/lib/badge-number"
+import { BADGE_NUMBER_INPUT_RE, generateBadgeNumber as makeBadgeNumber, normalizeBadgeInput } from "@/lib/badge-number"
 import { QRCode } from "@/components/qr-code"
 import { usePreciseGeolocation } from "@/hooks/use-precise-geolocation"
 import { TalusAgLogo } from "@/components/talusag-logo"
@@ -112,6 +112,7 @@ export default function KioskPage() {
   const [receptionistError, setReceptionistError] = useState<string | null>(null)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
+  const [hostsError, setHostsError] = useState<string | null>(null)
   const [locations, setLocations] = useState<Location[]>([])
   const [hasVendors, setHasVendors] = useState(false)
   const [companySearch, setCompanySearch] = useState("")
@@ -122,7 +123,7 @@ export default function KioskPage() {
   const [selectedLocation, setSelectedLocation] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [signOutEmail, setSignOutEmail] = useState("")
+  const [signOutIdentifier, setSignOutIdentifier] = useState("")
   const [successData, setSuccessData] = useState<{
     name: string
     badge: string
@@ -203,6 +204,8 @@ export default function KioskPage() {
   const ndaSignatureRef = useRef<SignaturePadHandle>(null)
   const signInInProgressRef = useRef(false)
   const hostNotifiedRef = useRef<string | null>(null)
+  const signInIdempotencyKeyRef = useRef<string | null>(null)
+  const trainingIdempotencyKeyRef = useRef<string | null>(null)
 
   // Settings state
   const [hostNotificationsEnabled, setHostNotificationsEnabled] = useState(true)
@@ -272,6 +275,7 @@ export default function KioskPage() {
             name: data.user.name,
           })
           setMode("home")
+          void loadData()
 
           // Check if Microsoft SSO is enabled (only available with SSO add-on)
           if (hasFeature("ssoIntegration")) {
@@ -334,6 +338,7 @@ export default function KioskPage() {
       setReceptionistEmail("")
       setReceptionistPassword("")
       setMode("home")
+      void loadData()
     } catch (error: unknown) {
       setReceptionistError(error instanceof Error ? error.message : "Login failed")
     } finally {
@@ -948,10 +953,10 @@ export default function KioskPage() {
   async function loadData() {
     const supabase = createClient()
 
-    const [{ data: locData }, { data: typesData }, { data: hostsData }] = await Promise.all([
+    const [{ data: locData }, { data: typesData }, hostsRes] = await Promise.all([
       supabase.from("locations").select("*").order("name"),
       supabase.from("visitor_types").select("*").order("name"),
-      supabase.from("hosts").select("*, profile:profiles(id, full_name, email, phone, department)").eq("is_active", true).order("name"),
+      fetch("/api/kiosk/hosts"),
     ])
 
     if (locData && locData.length > 0) {
@@ -962,7 +967,21 @@ export default function KioskPage() {
       }
     }
     if (typesData) setVisitorTypes(typesData)
-    if (hostsData) setHosts(hostsData)
+
+    if (hostsRes.ok) {
+      const hostsJson = await hostsRes.json().catch(() => null)
+      if (Array.isArray(hostsJson?.hosts)) {
+        setHosts(hostsJson.hosts)
+        setHostsError(null)
+      } else {
+        setHosts([])
+        setHostsError("Could not load hosts")
+      }
+    } else if (hostsRes.status !== 401) {
+      const hostsJson = await hostsRes.json().catch(() => null)
+      setHosts([])
+      setHostsError(hostsJson?.error || "Could not load hosts")
+    }
 
     // Check if vendors exist (just fetch 1 to see if the table has data)
     try {
@@ -1094,12 +1113,11 @@ export default function KioskPage() {
 
         // Need to show training video
         // Send host notification BEFORE training starts (deduped against retaps)
-        await sendHostNotification({
+        await sendTrainingHostNotification({
           hostId: selectedBooking.host_id,
           visitorName: `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`,
           visitorCompany: selectedBooking.visitor_company,
           purpose: selectedBooking.purpose,
-          notificationType: "completing_training",
           visitorTypeName: visitorTypeData?.name,
         })
 
@@ -1158,25 +1176,24 @@ export default function KioskPage() {
   // Send a host notification at most once per visitor session and per type.
   // The dedupe key prevents the same email/SMS from being sent multiple times
   // when the kiosk button is tapped repeatedly or a handler re-runs.
-  async function sendHostNotification(opts: {
+  async function sendTrainingHostNotification(opts: {
     hostId: string | null
     visitorName: string
     visitorCompany?: string | null
     purpose?: string | null
-    badgeNumber?: string | null
-    notificationType: "arrived" | "completing_training"
     visitorTypeName?: string | null
-    visitorPhotoUrl?: string | null
   }) {
     if (!hostNotificationsEnabled || !opts.hostId) return
 
-    const dedupeKey = `${opts.hostId}:${opts.notificationType}`
+    const dedupeKey = `${opts.hostId}:completing_training`
     if (hostNotifiedRef.current === dedupeKey) return
-    // Mark immediately (synchronously) so concurrent taps can't slip through.
     hostNotifiedRef.current = dedupeKey
+    if (!trainingIdempotencyKeyRef.current) {
+      trainingIdempotencyKeyRef.current = crypto.randomUUID()
+    }
 
     try {
-      await fetch("/api/notify-host", {
+      const res = await fetch("/api/notify-host", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1184,16 +1201,17 @@ export default function KioskPage() {
           visitorName: opts.visitorName,
           visitorCompany: opts.visitorCompany,
           purpose: opts.purpose,
-          badgeNumber: opts.badgeNumber,
           locationName: currentLocation?.name,
           locationId: currentLocation?.id,
-          notificationType: opts.notificationType,
+          notificationType: "completing_training",
           visitorTypeName: opts.visitorTypeName,
-          visitorPhotoUrl: opts.visitorPhotoUrl,
+          idempotencyKey: trainingIdempotencyKeyRef.current,
         }),
       })
+      if (!res.ok) {
+        hostNotifiedRef.current = null
+      }
     } catch (err) {
-      // Reset the guard so a genuine retry is possible if the request failed.
       hostNotifiedRef.current = null
       console.error("Failed to send host notification:", err)
     }
@@ -1279,12 +1297,11 @@ export default function KioskPage() {
         }
 
         // Notify the host once that the visitor is checking in and completing training.
-        await sendHostNotification({
+        await sendTrainingHostNotification({
           hostId: form.hostId || null,
           visitorName: `${form.firstName} ${form.lastName}`,
           visitorCompany: form.company,
           purpose: form.purpose,
-          notificationType: "completing_training",
           visitorTypeName: selectedVisitorType.name,
         })
 
@@ -1379,7 +1396,11 @@ export default function KioskPage() {
         acknowledgementId = ndaJson.acknowledgementId ?? null
       }
 
-      // 4. Create the sign-in record.
+      if (!signInIdempotencyKeyRef.current) {
+        signInIdempotencyKeyRef.current = crypto.randomUUID()
+      }
+
+      // 4. Create the sign-in record. Arrival email is sent by this route.
       const signInRes = await fetch("/api/kiosk/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1387,6 +1408,9 @@ export default function KioskPage() {
           visitor_id: visitorId,
           visitor_name: visitorName,
           visitor_email: form.email || null,
+          visitor_company: form.company || null,
+          purpose: form.purpose || null,
+          visitor_type_name: selectedVisitorType?.name || null,
           location_id: selectedLocation,
           host_id: form.hostId || null,
           badge_number: badgeNumber,
@@ -1394,6 +1418,7 @@ export default function KioskPage() {
           visitor_type_id: form.visitorTypeId || null,
           booking_id: selectedBooking?.id || null,
           timezone: currentTimezone,
+          idempotency_key: signInIdempotencyKeyRef.current,
         }),
       })
       const signInData = await signInRes.json()
@@ -1412,18 +1437,6 @@ export default function KioskPage() {
           }),
         }).catch(() => { })
       }
-
-      // 5. Notify the host that the visitor has arrived (deduped).
-      await sendHostNotification({
-        hostId: form.hostId || null,
-        visitorName,
-        visitorCompany: form.company,
-        purpose: form.purpose,
-        badgeNumber,
-        notificationType: "arrived",
-        visitorTypeName: selectedVisitorType?.name,
-        visitorPhotoUrl: photoUrl,
-      })
 
       stopCamera()
       setSuccessData({
@@ -1459,6 +1472,10 @@ export default function KioskPage() {
       const badgeNumber = generateBadgeNumber()
       const visitorName = `${selectedBooking.visitor_first_name} ${selectedBooking.visitor_last_name}`
 
+      if (!signInIdempotencyKeyRef.current) {
+        signInIdempotencyKeyRef.current = crypto.randomUUID()
+      }
+
       const signInRes = await fetch("/api/kiosk/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1466,6 +1483,9 @@ export default function KioskPage() {
           visitor_id: visitorId,
           visitor_name: visitorName,
           visitor_email: selectedBooking.visitor_email || null,
+          visitor_company: selectedBooking.visitor_company || null,
+          purpose: selectedBooking.purpose || null,
+          visitor_type_name: selectedBooking.visitor_type?.name || null,
           location_id: selectedLocation,
           host_id: selectedBooking.host_id || null,
           badge_number: badgeNumber,
@@ -1473,20 +1493,11 @@ export default function KioskPage() {
           visitor_type_id: selectedBooking.visitor_type_id || selectedBooking.visitor_type?.id || null,
           booking_id: selectedBooking.id,
           timezone: currentTimezone,
+          idempotency_key: signInIdempotencyKeyRef.current,
         }),
       })
       const signInData = await signInRes.json()
       if (!signInRes.ok) throw new Error(signInData.error || "Failed to sign in")
-
-      await sendHostNotification({
-        hostId: selectedBooking.host_id,
-        visitorName,
-        visitorCompany: selectedBooking.visitor_company,
-        purpose: selectedBooking.purpose,
-        badgeNumber,
-        notificationType: "arrived",
-        visitorTypeName: selectedBooking.visitor_type?.name,
-      })
 
       setSuccessData({
         name: visitorName,
@@ -1685,22 +1696,27 @@ export default function KioskPage() {
     setError(null)
 
     try {
-      // Look up active sign-in via API (bypasses RLS)
+      const raw = signOutIdentifier.trim()
+      if (!raw) {
+        throw new Error("Enter your badge number or email")
+      }
+      const badge = normalizeBadgeInput(raw)
+      const looksLikeBadge = BADGE_NUMBER_INPUT_RE.test(badge)
+
       const findRes = await fetch("/api/kiosk/find-sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: signOutEmail }),
+        body: JSON.stringify(looksLikeBadge ? { badgeNumber: badge } : { email: raw }),
       })
 
       const findData = await findRes.json()
 
       if (!findRes.ok || !findData.sign_in) {
-        throw new Error(findData.error || "No active sign-in found for this email")
+        throw new Error(findData.error || "No active sign-in found")
       }
 
       const signIn = findData.sign_in
 
-      // Update sign-out time via API to bypass RLS
       const signOutResponse = await fetch("/api/kiosk/sign-out", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1718,12 +1734,13 @@ export default function KioskPage() {
         throw new Error(errorData.error || "Failed to sign out")
       }
 
-      // Update any checked_in bookings for this visitor to completed via API
-      await fetch("/api/kiosk/complete-bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visitor_email: signOutEmail.toLowerCase().trim() }),
-      })
+      if (signIn.visitor_email) {
+        await fetch("/api/kiosk/complete-bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visitor_email: String(signIn.visitor_email).toLowerCase().trim() }),
+        })
+      }
 
       setSuccessData({
         name: signIn.visitor_name || "",
@@ -1731,7 +1748,7 @@ export default function KioskPage() {
         type: "out",
       })
       setMode("success")
-      setSignOutEmail("")
+      setSignOutIdentifier("")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign out")
     } finally {
@@ -1765,7 +1782,7 @@ export default function KioskPage() {
     setSuccessData(null)
     resetForm()
     resetTraining()
-    setSignOutEmail("")
+    setSignOutIdentifier("")
     setEmployeeEmail("")
     setEmployeePassword("")
     // Clear booking state
@@ -1775,6 +1792,8 @@ export default function KioskPage() {
     // Clear dedupe guards so the next visitor session can sign in and notify.
     signInInProgressRef.current = false
     hostNotifiedRef.current = null
+    signInIdempotencyKeyRef.current = null
+    trainingIdempotencyKeyRef.current = null
   }
 
   async function handleEmployeeLogin(e: React.FormEvent) {
@@ -2697,8 +2716,17 @@ export default function KioskPage() {
 
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence}>
-                    {isLoading ? "Processing..." : selectedVisitorType?.requires_training ? (
+                  {hostsError && selectedVisitorType?.requires_host && (
+                    <p className="text-sm text-destructive">{hostsError}</p>
+                  )}
+
+                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence || Boolean(hostsError && selectedVisitorType?.requires_host)}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {selectedVisitorType?.requires_training ? "Starting training..." : "Signing in..."}
+                      </>
+                    ) : selectedVisitorType?.requires_training ? (
                       <>
                         <PlayCircle className="w-4 h-4 mr-2" />
                         Continue to Training
@@ -2887,19 +2915,21 @@ export default function KioskPage() {
             <Card>
               <CardHeader className="p-4 sm:p-6">
                 <CardTitle className="text-xl sm:text-2xl">Visitor Sign Out</CardTitle>
-                <CardDescription className="text-xs sm:text-sm">Enter the email you used when signing in</CardDescription>
+                <CardDescription className="text-xs sm:text-sm">Enter your badge number or the email you used when signing in</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSignOut} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="signOutEmail">Email Address</Label>
+                    <Label htmlFor="signOutIdentifier">Badge number or email</Label>
                     <Input
-                      id="signOutEmail"
-                      type="email"
+                      id="signOutIdentifier"
+                      type="text"
                       required
-                      value={signOutEmail}
-                      onChange={(e) => setSignOutEmail(e.target.value)}
-                      placeholder="john.doe@example.com"
+                      value={signOutIdentifier}
+                      onChange={(e) => setSignOutIdentifier(e.target.value)}
+                      placeholder="V04821 or name@example.com"
+                      autoCapitalize="characters"
+                      autoComplete="off"
                     />
                   </div>
 
@@ -3456,15 +3486,31 @@ export default function KioskPage() {
                         className="flex-1 bg-transparent"
                         disabled={isLoading}
                       >
-                        Skip Photo
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Signing in...
+                          </>
+                        ) : (
+                          "Skip Photo"
+                        )}
                       </Button>
                       <Button
                         onClick={capturePhoto}
                         className="flex-1"
                         disabled={!cameraStream || isLoading}
                       >
-                        <Camera className="w-4 h-4 mr-2" />
-                        Take Photo
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Please wait
+                          </>
+                        ) : (
+                          <>
+                            <Camera className="w-4 h-4 mr-2" />
+                            Take Photo
+                          </>
+                        )}
                       </Button>
                     </>
                   )}

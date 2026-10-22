@@ -1,6 +1,6 @@
-import nodemailer from "nodemailer"
 import { getAdminClient } from "@/lib/supabase/server"
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { getSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -103,6 +103,7 @@ async function sendTwilioSms(sid: string, token: string, from: string, to: strin
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: params.toString(),
+    signal: AbortSignal.timeout(TWILIO_TIMEOUT_MS),
   })
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
@@ -120,23 +121,20 @@ export interface ResolvedHost {
 /**
  * Resolve host contact details server-side. Prefer the linked profile
  * so a stale hosts.email row cannot redirect notifications.
+ *
+ * Any active host is valid (P1-6). location_id is not a filter.
  */
 export async function resolveHostContact(
   hostId: string,
-  locationId?: string | null,
+  _locationId?: string | null,
 ): Promise<ResolvedHost | null> {
   const admin = getAdminClient()
-  let query = admin
+  const { data: host } = await admin
     .from("hosts")
     .select("id, name, email, phone, profile_id, is_active, location_id")
     .eq("id", hostId)
     .eq("is_active", true)
-
-  if (locationId) {
-    query = query.eq("location_id", locationId)
-  }
-
-  const { data: host } = await query.maybeSingle()
+    .maybeSingle()
   if (!host) return null
 
   let name = host.name
@@ -224,14 +222,12 @@ export async function sendResolvedHostNotification(args: {
       : "",
   }
 
-  const transporter = (notifSettings.host && notifSettings.user && notifSettings.pass)
-    ? nodemailer.createTransport({
-      host: notifSettings.host,
-      port: notifSettings.port,
-      secure: notifSettings.port === 465,
-      auth: { user: notifSettings.user, pass: notifSettings.pass },
-    })
-    : null
+  const transporter = getSharedTransporter({
+    host: notifSettings.host,
+    port: notifSettings.port,
+    user: notifSettings.user,
+    pass: notifSettings.pass,
+  })
 
   if (!transporter || !notifSettings.fromEmail || !args.host.email) {
     console.log("[Notify Host] SMTP not configured or host has no email, logging only")
