@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react"
 import { parseTrainingMedia, type TrainingMedia } from "@/lib/training-media"
+import { clampSeek, recordWatchPosition, watchedToEnd, type WatchProgress } from "@/lib/checkin-idle"
 
 declare global {
   interface Window {
@@ -32,12 +33,16 @@ declare global {
 
 interface YtPlayer {
   getDuration: () => number
+  getCurrentTime?: () => number
+  seekTo?: (seconds: number, allowSeekAhead?: boolean) => void
   destroy?: () => void
 }
 
 interface VimeoPlayer {
-  on: (event: string, cb: () => void) => void
+  on: (event: string, cb: (data?: { seconds?: number }) => void) => void
   getDuration: () => Promise<number>
+  getCurrentTime?: () => Promise<number>
+  setCurrentTime?: (seconds: number) => Promise<number>
   destroy?: () => Promise<void>
 }
 
@@ -132,6 +137,19 @@ function ResolvedTrainingPlayer({
   )
 }
 
+function maybeUnlock(
+  ended: boolean,
+  progress: WatchProgress,
+  durationSeconds: number,
+  onEnded: (videoSeconds: number) => void,
+  unlockedRef: { current: boolean },
+) {
+  if (unlockedRef.current) return
+  if (!watchedToEnd(progress, durationSeconds, ended)) return
+  unlockedRef.current = true
+  onEnded(durationSeconds)
+}
+
 function FilePlayer({
   src,
   title,
@@ -145,6 +163,23 @@ function FilePlayer({
   onDuration?: (videoSeconds: number) => void
   onPlayingChange?: (playing: boolean) => void
 }) {
+  const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
+  const durationRef = useRef(0)
+  const unlockedRef = useRef(false)
+  const endedRef = useRef(onEnded)
+  endedRef.current = onEnded
+
+  function onTime(video: HTMLVideoElement) {
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : durationRef.current
+    durationRef.current = duration
+    const clamped = clampSeek(progressRef.current, video.currentTime)
+    if (clamped < video.currentTime) {
+      video.currentTime = clamped
+      return
+    }
+    recordWatchPosition(progressRef.current, video.currentTime)
+  }
+
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption -- captions are baked into the source video
     <video
@@ -155,14 +190,21 @@ function FilePlayer({
       className="aspect-video w-full rounded-lg bg-black"
       onLoadedMetadata={(event) => {
         const duration = event.currentTarget.duration
-        if (Number.isFinite(duration) && duration > 0) onDuration?.(duration)
+        if (Number.isFinite(duration) && duration > 0) {
+          durationRef.current = duration
+          onDuration?.(duration)
+        }
       }}
+      onTimeUpdate={(event) => onTime(event.currentTarget)}
+      onSeeking={(event) => onTime(event.currentTarget)}
+      onSeeked={(event) => onTime(event.currentTarget)}
       onPlay={() => onPlayingChange?.(true)}
       onPause={() => onPlayingChange?.(false)}
       onEnded={(event) => {
         onPlayingChange?.(false)
         const duration = event.currentTarget.duration
-        if (Number.isFinite(duration) && duration > 0) onEnded(duration)
+        if (Number.isFinite(duration) && duration > 0) durationRef.current = duration
+        maybeUnlock(true, progressRef.current, durationRef.current, endedRef.current, unlockedRef)
       }}
     />
   )
@@ -190,11 +232,28 @@ function YouTubePlayer({
   durationRef.current = onDuration
   playingRef.current = onPlayingChange
 
+  const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
+  const durationSecondsRef = useRef(0)
+  const unlockedRef = useRef(false)
+
   useEffect(() => {
     let player: YtPlayer | null = null
     let cancelled = false
+    let poll: number | null = null
     const host = mountRef.current
     if (!host || !videoId) return
+
+    const lockTime = (target: YtPlayer) => {
+      const duration = target.getDuration()
+      if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
+      const current = typeof target.getCurrentTime === "function" ? target.getCurrentTime() : 0
+      const clamped = clampSeek(progressRef.current, current)
+      if (clamped < current && typeof target.seekTo === "function") {
+        target.seekTo(clamped, true)
+        return
+      }
+      recordWatchPosition(progressRef.current, current)
+    }
 
     const start = () => {
       if (cancelled || !window.YT?.Player || !mountRef.current) return
@@ -204,16 +263,26 @@ function YouTubePlayer({
         events: {
           onReady: (event) => {
             const duration = event.target.getDuration()
-            if (Number.isFinite(duration) && duration > 0) durationRef.current?.(duration)
+            if (Number.isFinite(duration) && duration > 0) {
+              durationSecondsRef.current = duration
+              durationRef.current?.(duration)
+            }
+            if (poll == null) {
+              poll = window.setInterval(() => {
+                if (player) lockTime(player)
+              }, 400)
+            }
           },
           onStateChange: (event) => {
+            lockTime(event.target)
             const ended = window.YT?.PlayerState?.ENDED ?? 0
             if (event.data === 1) playingRef.current?.(true)
             if (event.data === 2) playingRef.current?.(false)
             if (event.data === ended) {
               playingRef.current?.(false)
               const duration = event.target.getDuration()
-              if (Number.isFinite(duration) && duration > 0) endedRef.current(duration)
+              if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
+              maybeUnlock(true, progressRef.current, durationSecondsRef.current, endedRef.current, unlockedRef)
             }
           },
         },
@@ -238,6 +307,7 @@ function YouTubePlayer({
 
     return () => {
       cancelled = true
+      if (poll != null) window.clearInterval(poll)
       try {
         player?.destroy?.()
       } catch {
@@ -274,6 +344,10 @@ function VimeoPlayer({
   durationRef.current = onDuration
   playingRef.current = onPlayingChange
 
+  const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
+  const durationSecondsRef = useRef(0)
+  const unlockedRef = useRef(false)
+
   useEffect(() => {
     let player: VimeoPlayer | null = null
     let cancelled = false
@@ -281,15 +355,36 @@ function VimeoPlayer({
       .then(() => {
         if (cancelled || !iframeRef.current || !window.Vimeo?.Player) return
         player = new window.Vimeo.Player(iframeRef.current)
+        const lockTime = (seconds?: number) => {
+          const apply = (current: number) => {
+            const clamped = clampSeek(progressRef.current, current)
+            if (clamped < current && typeof player?.setCurrentTime === "function") {
+              void player.setCurrentTime(clamped)
+              return
+            }
+            recordWatchPosition(progressRef.current, current)
+          }
+          if (typeof seconds === "number") {
+            apply(seconds)
+            return
+          }
+          void player?.getCurrentTime?.().then(apply)
+        }
         player.getDuration().then((duration) => {
-          if (Number.isFinite(duration) && duration > 0) durationRef.current?.(duration)
+          if (Number.isFinite(duration) && duration > 0) {
+            durationSecondsRef.current = duration
+            durationRef.current?.(duration)
+          }
         })
         player.on("play", () => playingRef.current?.(true))
         player.on("pause", () => playingRef.current?.(false))
+        player.on("timeupdate", (data) => lockTime(data?.seconds))
+        player.on("seeked", (data) => lockTime(data?.seconds))
         player.on("ended", () => {
           playingRef.current?.(false)
           player?.getDuration().then((duration) => {
-            if (Number.isFinite(duration) && duration > 0) endedRef.current(duration)
+            if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
+            maybeUnlock(true, progressRef.current, durationSecondsRef.current, endedRef.current, unlockedRef)
           })
         })
       })
