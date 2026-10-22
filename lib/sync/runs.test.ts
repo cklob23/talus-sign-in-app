@@ -25,10 +25,10 @@ function memoryStore(options: { failInsertCode?: string; failUpdateCode?: string
       return { data: { id }, error: null }
     },
     async update(id, patch) {
+      updates.push({ id, patch })
       if (options.failUpdateCode) {
         return { error: { code: options.failUpdateCode, message: "missing table" } }
       }
-      updates.push({ id, patch })
       const row = rows.find((item) => item.id === id)
       if (row) Object.assign(row, patch)
       return { error: null }
