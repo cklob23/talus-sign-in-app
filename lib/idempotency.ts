@@ -82,21 +82,47 @@ export async function createSignInIdempotent(
   return { ok: false, error: first.error ?? { message: "Failed to create sign-in" } }
 }
 
+export type NotificationClaimStatus = "pending" | "sent" | "failed"
+
 export interface NotificationClaim {
   signInId?: string | null
   notificationType: string
   idempotencyKey?: string | null
 }
 
+export interface NotificationClaimRecord {
+  status: NotificationClaimStatus | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
 export interface NotificationStore {
-  findExisting(claim: NotificationClaim): Promise<boolean>
+  findExisting(claim: NotificationClaim): Promise<NotificationClaimRecord | null>
   insert(claim: NotificationClaim): Promise<{ error: { code?: string; message?: string } | null }>
+  updateStatus?(
+    claim: NotificationClaim,
+    status: NotificationClaimStatus,
+    errorMessage?: string | null,
+  ): Promise<{ error: { code?: string; message?: string } | null }>
+}
+
+/** A pending claim older than this is treated as abandoned and can be retried. */
+export const PENDING_CLAIM_STALE_MS = 2 * 60 * 1000
+
+export function isRetryableClaim(existing: NotificationClaimRecord | null, now = Date.now()): boolean {
+  if (!existing) return true
+  if (existing.status === "failed") return true
+  if (existing.status === "pending") {
+    const ts = Date.parse(existing.updatedAt || existing.createdAt || "")
+    return Number.isFinite(ts) && now - ts > PENDING_CLAIM_STALE_MS
+  }
+  return false
 }
 
 /**
- * Claim the right to send one host notification. Repeat claims for the same
- * sign-in + type (or the same idempotency key) return "duplicate" and the
- * caller must not send again.
+ * Claim the right to send one host notification. A sent (or still-pending)
+ * claim returns "duplicate" and the caller must not send again. A failed
+ * claim can be reclaimed so a later after() run can retry.
  *
  * Missing table (006 not applied) returns "claimed" so the first deploy
  * still notifies; once the table exists, the unique indexes enforce at most once.
@@ -105,12 +131,39 @@ export async function claimNotificationOnce(
   store: NotificationStore,
   claim: NotificationClaim,
 ): Promise<"claimed" | "duplicate"> {
-  if (await store.findExisting(claim)) return "duplicate"
+  const existing = await store.findExisting(claim)
+  if (existing && !isRetryableClaim(existing)) return "duplicate"
+
+  if (existing && isRetryableClaim(existing) && store.updateStatus) {
+    const { error } = await store.updateStatus(claim, "pending", null)
+    if (!error) return "claimed"
+    if (isUniqueViolation(error)) return "duplicate"
+    if (isUndefinedTable(error) || isUndefinedColumn(error)) return "claimed"
+    console.error("[Host Notify] claim reclaim failed:", error.message || error)
+    return "claimed"
+  }
 
   const { error } = await store.insert(claim)
   if (!error) return "claimed"
-  if (isUniqueViolation(error)) return "duplicate"
+  if (isUniqueViolation(error)) {
+    const raced = await store.findExisting(claim)
+    if (raced && !isRetryableClaim(raced)) return "duplicate"
+    return "claimed"
+  }
   if (isUndefinedTable(error) || isUndefinedColumn(error)) return "claimed"
-  console.error("[host-notify] claim insert failed:", error.message || error)
+  console.error("[Host Notify] claim insert failed:", error.message || error)
   return "claimed"
+}
+
+export async function finalizeNotificationClaim(
+  store: NotificationStore,
+  claim: NotificationClaim,
+  status: Exclude<NotificationClaimStatus, "pending">,
+  errorMessage?: string | null,
+): Promise<void> {
+  if (!store.updateStatus) return
+  const { error } = await store.updateStatus(claim, status, errorMessage ?? null)
+  if (!error) return
+  if (isUndefinedTable(error) || isUndefinedColumn(error)) return
+  console.error("[Host Notify] claim status write failed:", error.message || error)
 }

@@ -6,7 +6,6 @@ import {
   KIOSK_TRAINING_SCOPE,
   kioskMinWatchMs,
   parseTrainingProof,
-  TRAINING_MESSAGES,
   verifyTrainingProof,
 } from "@/lib/training-gate"
 import { hasValidTrainingForEmail } from "@/lib/training-completions"
@@ -16,8 +15,8 @@ import { hasValidTrainingForEmail } from "@/lib/training-completions"
  *
  * For a visitor type that requires training the request must prove it: either
  * the signed ticket from /api/kiosk/training/start (old enough to cover the
- * video) plus the acknowledgement, the group "already watched" option plus
- * the acknowledgement, or a still-valid earlier completion for the same email.
+ * video) plus the acknowledgement, or a still-valid earlier completion for
+ * the same email.
  */
 export async function POST(request: Request) {
   try {
@@ -56,20 +55,12 @@ export async function POST(request: Request) {
       .eq("id", visitor_type_id)
       .maybeSingle()
 
-    let method: "video" | "group_bypass" | "prior_completion" | "not_required" = "not_required"
+    let method: "video" | "prior_completion" | "not_required" = "not_required"
     if (visitorType?.requires_training) {
       const proof = parseTrainingProof(raw.training)
       const priorRequested = (raw.training as { prior?: unknown } | undefined)?.prior === true
       if (priorRequested && (await hasValidTrainingForEmail(adminClient, email, visitor_type_id))) {
         method = "prior_completion"
-      } else if (proof.bypass) {
-        if (!proof.acknowledged) {
-          return NextResponse.json(
-            { error: TRAINING_MESSAGES.training_not_acknowledged, code: "training_not_acknowledged" },
-            { status: 409 },
-          )
-        }
-        method = "group_bypass"
       } else {
         const check = verifyTrainingProof(proof, {
           visitorTypeId: visitor_type_id,

@@ -2,12 +2,16 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
   claimNotificationOnce,
+  finalizeNotificationClaim,
   createSignInIdempotent,
   parseIdempotencyKey,
   PG_UNDEFINED_COLUMN,
   PG_UNDEFINED_TABLE,
   PG_UNIQUE_VIOLATION,
   type NotificationClaim,
+  type NotificationClaimRecord,
+  type NotificationClaimStatus,
+  type NotificationStore,
   type SignInIdempotencyStore,
   type SignInRow,
 } from "./idempotency.ts"
@@ -116,47 +120,82 @@ describe("createSignInIdempotent", () => {
   })
 })
 
+type StoredClaim = NotificationClaim & { status: NotificationClaimStatus; errorMessage?: string | null }
+
+function memoryNotifyStore(seed: StoredClaim[] = []): NotificationStore & { rows: StoredClaim[] } {
+  const rows = [...seed]
+  const match = (claim: NotificationClaim, row: StoredClaim) =>
+    (claim.signInId && row.signInId === claim.signInId && row.notificationType === claim.notificationType) ||
+    (claim.idempotencyKey && row.idempotencyKey === claim.idempotencyKey)
+
+  const store: NotificationStore & { rows: StoredClaim[] } = {
+    rows,
+    async findExisting(claim: NotificationClaim): Promise<NotificationClaimRecord | null> {
+      const row = rows.find((existing) => match(claim, existing))
+      return row ? { status: row.status } : null
+    },
+    async insert(claim: NotificationClaim) {
+      if (rows.some((existing) => match(claim, existing))) {
+        return { error: { code: PG_UNIQUE_VIOLATION, message: "duplicate key" } }
+      }
+      rows.push({ ...claim, status: "pending" })
+      return { error: null }
+    },
+    async updateStatus(claim: NotificationClaim, status: NotificationClaimStatus, errorMessage?: string | null) {
+      const row = rows.find((existing) => match(claim, existing))
+      if (!row) return { error: { message: "missing claim" } }
+      row.status = status
+      row.errorMessage = errorMessage ?? null
+      return { error: null }
+    },
+  }
+  return store
+}
+
 describe("claimNotificationOnce", () => {
   it("sends one email for a repeated sign-in id and type", async () => {
-    const claims: NotificationClaim[] = []
-    const store = {
-      async findExisting(claim: NotificationClaim) {
-        return claims.some(
-          (row) =>
-            (claim.signInId && row.signInId === claim.signInId && row.notificationType === claim.notificationType) ||
-            (claim.idempotencyKey && row.idempotencyKey === claim.idempotencyKey),
-        )
-      },
-      async insert(claim: NotificationClaim) {
-        if (await store.findExisting(claim)) {
-          return { error: { code: PG_UNIQUE_VIOLATION, message: "duplicate key" } }
-        }
-        claims.push(claim)
-        return { error: null }
-      },
-    }
-
+    const store = memoryNotifyStore()
     const emails: string[] = []
     async function sendOnce(signInId: string) {
-      const claim = await claimNotificationOnce(store, {
-        signInId,
-        notificationType: "arrived",
-        idempotencyKey: KEY,
-      })
-      if (claim === "duplicate") return
+      const claim = { signInId, notificationType: "arrived", idempotencyKey: KEY }
+      const outcome = await claimNotificationOnce(store, claim)
+      if (outcome === "duplicate") return
       emails.push(signInId)
+      await finalizeNotificationClaim(store, claim, "sent")
     }
 
     await sendOnce("sign-1")
     await sendOnce("sign-1")
     assert.deepEqual(emails, ["sign-1"])
-    assert.equal(claims.length, 1)
+    assert.equal(store.rows.length, 1)
+    assert.equal(store.rows[0]?.status, "sent")
+  })
+
+  it("allows a retry after a failed claim, and does not resend a success", async () => {
+    const store = memoryNotifyStore()
+    const claim = { signInId: "sign-1", notificationType: "arrived", idempotencyKey: KEY }
+    const sends: string[] = []
+
+    assert.equal(await claimNotificationOnce(store, claim), "claimed")
+    sends.push("first")
+    await finalizeNotificationClaim(store, claim, "failed", "ETIMEDOUT CONN Timeout")
+    assert.equal(store.rows[0]?.status, "failed")
+    assert.equal(store.rows[0]?.errorMessage, "ETIMEDOUT CONN Timeout")
+
+    assert.equal(await claimNotificationOnce(store, claim), "claimed")
+    sends.push("retry")
+    await finalizeNotificationClaim(store, claim, "sent")
+    assert.equal(store.rows[0]?.status, "sent")
+
+    assert.equal(await claimNotificationOnce(store, claim), "duplicate")
+    assert.deepEqual(sends, ["first", "retry"])
+    assert.equal(store.rows.length, 1)
   })
 
   it("allows a send when the notifications table is not created yet", async () => {
-    const store = {
+    const store: NotificationStore = {
       async findExisting() {
-        return false
+        return null
       },
       async insert() {
         return { error: { code: PG_UNDEFINED_TABLE, message: "relation host_notifications does not exist" } }

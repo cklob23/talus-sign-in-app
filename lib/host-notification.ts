@@ -38,6 +38,7 @@ export async function sendHostNotification(args: {
     badgeNumber?: string | null
     visitorPhotoUrl?: string | null
     purpose?: string | null
+    signInId?: string | null
 }): Promise<{ sent: boolean; reason?: string }> {
     if (!args.hostId) return { sent: false, reason: "no_host" }
 
@@ -60,6 +61,7 @@ export async function sendHostNotification(args: {
             badgeNumber: args.badgeNumber ?? null,
             visitorPhotoUrl: args.visitorPhotoUrl ?? null,
             purpose: args.purpose ?? null,
+            signInId: args.signInId ?? null,
         })
 
         if (results.email === "sent" || results.sms === "sent" || results.loggedOnly) {
@@ -67,7 +69,10 @@ export async function sendHostNotification(args: {
         }
         return { sent: false, reason: "notify_failed" }
     } catch (error) {
-        console.log("[v0] host notification error:", args.notificationType, error)
+        console.log(
+            `[Host Notify] sign_in=${args.signInId || "none"} type=${args.notificationType} error:`,
+            error instanceof Error ? error.message : error,
+        )
         return { sent: false, reason: "error" }
     }
 }

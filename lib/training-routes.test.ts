@@ -204,25 +204,34 @@ describe("kiosk training enforcement", () => {
     assert.equal((await res.json()).method, "video")
   })
 
-  it("keeps the group 'already watched' option, but still needs the acknowledgement", async () => {
+  it("ignores the old group bypass and requires a signed ticket", async () => {
     trainingType()
-    const noAck = await kioskTrainingPost(
-      jsonRequest("/api/kiosk/training", {
-        visitor_id: VISITOR_ID,
-        visitor_type_id: TYPE_ID,
-        training: { bypass: true },
-      }),
-    )
-    assert.equal(noAck.status, 409)
-    const withAck = await kioskTrainingPost(
+    const res = await kioskTrainingPost(
       jsonRequest("/api/kiosk/training", {
         visitor_id: VISITOR_ID,
         visitor_type_id: TYPE_ID,
         training: { bypass: true, acknowledged: true },
       }),
     )
-    assert.equal(withAck.status, 200)
-    assert.equal((await withAck.json()).method, "group_bypass")
+    assert.equal(res.status, 409)
+    assert.equal((await res.json()).code, "training_ticket_missing")
+    assert.equal(writes.some((w) => w.table === "training_completions"), false)
+  })
+
+  it("records training from a still-valid prior completion", async () => {
+    trainingType()
+    setOverride("visitors", { list: [{ id: VISITOR_ID }] })
+    setOverride("training_completions", { list: [{ visitor_id: VISITOR_ID, expires_at: null }] })
+    const res = await kioskTrainingPost(
+      jsonRequest("/api/kiosk/training", {
+        visitor_id: VISITOR_ID,
+        visitor_type_id: TYPE_ID,
+        email: "jane.doe@talusag.com",
+        training: { prior: true, acknowledged: true },
+      }),
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+    assert.equal((await res.json()).method, "prior_completion")
   })
 
   it("refuses a kiosk sign-in for a training type with no valid completion", async () => {
