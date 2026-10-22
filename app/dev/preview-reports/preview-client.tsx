@@ -1,5 +1,6 @@
 "use client"
 
+import { ScheduleForm } from "@/components/admin/reports/schedule-form"
 import { ScheduledTab } from "@/components/admin/reports/scheduled-tab"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
 import { renderReportEmail } from "@/lib/reports/email"
@@ -153,12 +154,18 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
       ) : null}
 
       {show("schedule-form") ? (
-        <section id="schedule-form" className="mx-auto max-w-5xl rounded-xl bg-background p-6 shadow-sm">
-          <ScheduledTab
+        <section id="schedule-form" className="mx-auto max-w-lg rounded-xl bg-background p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">New schedule</h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Reports include personal data. A warning appears if a recipient is not @talusag.com.
+          </p>
+          <ScheduleForm
+            initial={schedules[0]}
             locations={locations}
             visitorTypes={visitorTypes}
-            previewSchedules={schedules}
-            previewFormOpen
+            submitting={false}
+            onSubmit={() => {}}
+            onCancel={() => {}}
           />
         </section>
       ) : null}
