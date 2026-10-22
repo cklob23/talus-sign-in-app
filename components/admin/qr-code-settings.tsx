@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { BrandedQrCode, useQrDownloads } from "@/components/branded-qr-code"
 import { hasGeofence, effectiveRadius } from "@/lib/checkin-geofence"
+import { formatRadiusMeters } from "@/lib/location-radius"
 import {
     QrCode,
     Copy,
@@ -365,7 +366,7 @@ function LocationQrRow({
                         fenced ? (
                             <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
                                 <MapPin className="h-3 w-3" />
-                                {`${effectiveRadius(target)} m radius`}
+                                {`${formatRadiusMeters(effectiveRadius(target))} radius`}
                             </Badge>
                         ) : (
                             <Badge

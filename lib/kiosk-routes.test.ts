@@ -34,7 +34,10 @@ const { POST: trainingStatusPost } = await import("../app/api/kiosk/training-sta
 const { POST: findSignInPost } = await import("../app/api/kiosk/find-sign-in/route.ts")
 const { POST: completeBookingsPost } = await import("../app/api/kiosk/complete-bookings/route.ts")
 const { POST: employeeSignoutPost } = await import("../app/api/kiosk/employee-signout/route.ts")
-const { writes, resetWrites } = await import("./test-mocks/supabase-server.ts")
+const { POST: employeeAutoSignInPost } = await import("../app/api/kiosk/employee-auto-signin/route.ts")
+const { writes, resetWrites, setOverride, clearOverrides } = await import("./test-mocks/supabase-server.ts")
+const { resetGeofenceSightings } = await import("./geofence-guard.ts")
+const { resetRateLimits } = await import("./rate-limit.ts")
 
 before(() => {
   assert.equal(process.env.KIOSK_ROUTE_TEST_MOCKS, "1")
@@ -42,6 +45,9 @@ before(() => {
 
 beforeEach(() => {
   resetWrites()
+  clearOverrides()
+  resetGeofenceSightings()
+  resetRateLimits()
 })
 
 describe("kiosk walk-in payloads through route handlers", () => {
@@ -407,5 +413,146 @@ describe("current kiosk client payloads", () => {
     assert.equal("email" in body, false)
     const res = await findSignInPost(jsonRequest("/api/kiosk/find-sign-in", body))
     assert.equal(res.status, 200, await res.clone().text())
+  })
+})
+
+const FENCED_SITE = {
+  id: LOCATION_ID,
+  name: "Test Location",
+  latitude: 34.0113025,
+  longitude: -85.0682674,
+  auto_signin_radius_meters: 200,
+}
+
+function freshOnSiteCoords() {
+  return {
+    lat: 34.0113475,
+    lng: -85.0682674,
+    accuracy: 10,
+    timestamp: Date.now(),
+  }
+}
+
+function walkInBody(extra: Record<string, unknown> = {}) {
+  return wire({
+    visitor_id: VISITOR_ID,
+    visitor_name: "Jane Doe",
+    visitor_email: null,
+    location_id: LOCATION_ID,
+    host_id: HOST_ID,
+    badge_number: "V04821",
+    photo_url: null,
+    visitor_type_id: TYPE_ID,
+    booking_id: null,
+    timezone: "Pacific Standard Time",
+    ...extra,
+  })
+}
+
+describe("kiosk server geofence enforcement", () => {
+  it("allows sign-in when the site has no coordinates (fence cannot run)", async () => {
+    setOverride("locations", {
+      single: { id: LOCATION_ID, name: "No pin", latitude: null, longitude: null, auto_signin_radius_meters: 200 },
+    })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", walkInBody()))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("allows sign-in when the admin turned the fence off with radius 0", async () => {
+    setOverride("locations", {
+      single: { ...FENCED_SITE, auto_signin_radius_meters: 0, geofence_enabled: false },
+    })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", walkInBody()))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("rejects a missing reading when the fence is on", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", walkInBody()))
+    assert.equal(res.status, 403)
+    assert.equal((await res.json()).code, "geofence_no_coords")
+  })
+
+  it("rejects spoofed off-site coordinates", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    const res = await signInPost(
+      jsonRequest(
+        "/api/kiosk/sign-in",
+        walkInBody({
+          coords: { lat: 51.5, lng: -0.12, accuracy: 5, timestamp: Date.now() },
+        }),
+      ),
+    )
+    assert.equal(res.status, 403)
+    assert.equal((await res.json()).code, "geofence_outside")
+    const audit = writes.find((w) => w.table === "audit_logs" && w.op === "insert")
+    assert.ok(audit)
+    assert.equal((audit?.payload as { action?: string }).action, "geofence.suspicious")
+  })
+
+  it("rejects a stale timestamp even at the site point", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    const res = await signInPost(
+      jsonRequest(
+        "/api/kiosk/sign-in",
+        walkInBody({
+          coords: { lat: 34.0113475, lng: -85.0682674, accuracy: 10, timestamp: Date.now() - 120_000 },
+        }),
+      ),
+    )
+    assert.equal(res.status, 403)
+    assert.equal((await res.json()).code, "geofence_stale_coords")
+  })
+
+  it("accepts a fresh on-site reading", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    const res = await signInPost(
+      jsonRequest("/api/kiosk/sign-in", walkInBody({ coords: freshOnSiteCoords() })),
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("accepts a receptionist staff override and writes an audit row", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    const res = await signInPost(
+      jsonRequest("/api/kiosk/sign-in", walkInBody({ staff_override: true })),
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+    const audit = writes.find((w) => w.table === "audit_logs" && w.op === "insert")
+    assert.ok(audit)
+    assert.equal((audit?.payload as { action?: string }).action, "geofence.staff_override")
+  })
+
+  it("enforces the same fence on employee auto sign-in", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    setOverride("profiles", {
+      single: {
+        id: VISITOR_ID,
+        email: "pat@talusag.com",
+        full_name: "Pat",
+        role: "employee",
+        avatar_url: null,
+        location_id: LOCATION_ID,
+      },
+    })
+    const blocked = await employeeAutoSignInPost(
+      jsonRequest("/api/kiosk/employee-auto-signin", {
+        profile_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        location_id: LOCATION_ID,
+        coords: { lat: 51.5, lng: -0.12, accuracy: 5, timestamp: Date.now() },
+      }),
+    )
+    assert.equal(blocked.status, 403)
+
+    resetGeofenceSightings()
+    resetRateLimits()
+    const allowed = await employeeAutoSignInPost(
+      jsonRequest("/api/kiosk/employee-auto-signin", {
+        profile_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        location_id: LOCATION_ID,
+        coords: freshOnSiteCoords(),
+      }),
+    )
+    assert.equal(allowed.status, 200, await allowed.clone().text())
   })
 })

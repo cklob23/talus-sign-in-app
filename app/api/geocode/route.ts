@@ -26,12 +26,23 @@ export async function GET(request: NextRequest) {
         if (data.status === "OK" && data.results?.length > 0) {
             const result = data.results[0]
             const { lat, lng } = result.geometry.location
+            const locationType = result.geometry.location_type
+
+            if (locationType === "APPROXIMATE") {
+                return NextResponse.json(
+                    {
+                        error: "Google only found an approximate point. Type coordinates or use your location instead.",
+                        location_type: locationType,
+                    },
+                    { status: 422 },
+                )
+            }
 
             return NextResponse.json({
                 lat,
                 lng,
                 formatted_address: result.formatted_address,
-                location_type: result.geometry.location_type, // ROOFTOP, RANGE_INTERPOLATED, GEOMETRIC_CENTER, APPROXIMATE
+                location_type: locationType, // ROOFTOP, RANGE_INTERPOLATED, GEOMETRIC_CENTER
             })
         }
 

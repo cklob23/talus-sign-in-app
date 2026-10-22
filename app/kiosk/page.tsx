@@ -54,6 +54,8 @@ import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUn
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
+import { kioskClientGate } from "@/lib/checkin-geofence"
+import { LocationBlockedPanel, type KioskBlockReason } from "@/components/kiosk/location-blocked"
 
 type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
@@ -602,14 +604,52 @@ export default function KioskPage() {
   const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
   const currentTimezone = currentLocation?.timezone || "UTC"
 
-  // Geofence enforcement
+  // Geofence enforcement (same rules as QR, via lib/checkin-geofence)
+  const [staffOverride, setStaffOverride] = useState(false)
   const geofenceRadius = currentLocation?.auto_signin_radius_meters
-  // If no radius is set (null/0), geofencing is disabled — allow everyone
-  // If user denied geolocation (no coords), we can't enforce — allow but warn
-  const isOutsideGeofence = Boolean(
-    geofenceRadius && geofenceRadius > 0 && selectedLocationDistance && selectedLocationDistance > geofenceRadius
-  )
+  const deviceCoords = userCoords
+    ? {
+        lat: userCoords.lat,
+        lng: userCoords.lng,
+        accuracy: userCoords.accuracy,
+        timestamp: userCoords.timestamp,
+      }
+    : null
+  const clientGate = kioskClientGate({
+    target: currentLocation,
+    coords: deviceCoords,
+    geoError,
+    isDetecting: isDetectingLocation,
+    staffOverride,
+  })
+  const isOutsideGeofence = clientGate.blocked
   const isWithinGeofence = !isOutsideGeofence
+  const geofenceBlockReason = clientGate.reason as KioskBlockReason | "off" | "ok"
+
+  function kioskCoordsPayload() {
+    if (!deviceCoords) return null
+    return deviceCoords
+  }
+
+  async function handleStaffOverride() {
+    if (!currentLocation) return
+    const confirmed = window.confirm(
+      "Override only if you have confirmed this person is on site. The override is written to the audit log.",
+    )
+    if (!confirmed) return
+    setStaffOverride(true)
+    await logAuditViaApi({
+      action: "kiosk.geofence_override",
+      entityType: "location",
+      entityId: currentLocation.id,
+      description: `Staff overrode the on-site check at ${currentLocation.name}`,
+      metadata: {
+        location_id: currentLocation.id,
+        reason: clientGate.reason,
+        distance_meters: clientGate.verdict?.distance != null ? Math.round(clientGate.verdict.distance) : null,
+      },
+    })
+  }
 
   // Auto sign-in countdown for remembered employees within geofence
   const [autoSignInCountdown, setAutoSignInCountdown] = useState<number | null>(null)
@@ -685,12 +725,9 @@ export default function KioskPage() {
       }
     }
 
-    const radius = currentLocation?.auto_signin_radius_meters
-    const hasGeofence = radius && radius > 0
+    if (clientGate.blocked && clientGate.reason === "checking") return
 
-    // If geofence is configured, we need a distance to check against
-    if (hasGeofence && selectedLocationDistance && selectedLocationDistance > radius) {
-      // Outside geofence — clear any running countdown
+    if (clientGate.blocked) {
       if (autoSignInTimerRef.current) {
         clearInterval(autoSignInTimerRef.current)
         autoSignInTimerRef.current = null
@@ -698,10 +735,6 @@ export default function KioskPage() {
       setAutoSignInCountdown(null)
       return
     }
-
-    // If geofence is configured but we don't have distance yet (geo still loading),
-    // wait — don't start countdown until we know
-    if (hasGeofence && !selectedLocationDistance) return
 
     // Either no geofence (auto-sign-in always allowed) or within geofence
     // Start a 5-second countdown, then auto sign-in
@@ -726,7 +759,7 @@ export default function KioskPage() {
         autoSignInTimerRef.current = null
       }
     }
-  }, [rememberedEmployee, employeeSignedIn, mode, selectedLocation, selectedLocationDistance, currentLocation?.auto_signin_radius_meters])
+  }, [rememberedEmployee, employeeSignedIn, mode, selectedLocation, clientGate.blocked, clientGate.reason])
 
   // Fire auto sign-in when countdown reaches 0
   useEffect(() => {
@@ -855,6 +888,8 @@ export default function KioskPage() {
         body: JSON.stringify({
           profile_id: employee.id,
           location_id: selectedLocation,
+          coords: kioskCoordsPayload(),
+          staff_override: staffOverride || undefined,
         }),
       })
 
@@ -1527,6 +1562,8 @@ export default function KioskPage() {
           booking_id: selectedBooking?.id || null,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
+          coords: kioskCoordsPayload(),
+          staff_override: staffOverride || undefined,
         }),
       })
       const signInData = await signInRes.json()
@@ -1602,6 +1639,8 @@ export default function KioskPage() {
           booking_id: selectedBooking.id,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
+          coords: kioskCoordsPayload(),
+          staff_override: staffOverride || undefined,
         }),
       })
       const signInData = await signInRes.json()
@@ -2386,19 +2425,14 @@ export default function KioskPage() {
               <p className="text-sm sm:text-lg text-muted-foreground">Welcome to {branding.companyName}. Please sign in or sign out below.</p>
             </div>
 
-            {/* Geofence warning banner */}
-            {isOutsideGeofence && selectedLocationDistance && geofenceRadius && (
-              <div className="mb-4 sm:mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 sm:p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-amber-800">
-                    You are {formatDistance(selectedLocationDistance, "")} from {currentLocation?.name || "this location"}
-                  </p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Sign-in is only available within {formatDistance(geofenceRadius, "")} of this location. Please move closer to sign in.
-                  </p>
-                </div>
-              </div>
+            {isOutsideGeofence && geofenceBlockReason !== "off" && geofenceBlockReason !== "ok" && (
+              <LocationBlockedPanel
+                reason={geofenceBlockReason}
+                locationName={currentLocation?.name || "this location"}
+                distance={clientGate.verdict?.distance ?? selectedLocationDistance}
+                radius={clientGate.verdict?.radius ?? geofenceRadius ?? null}
+                onOverride={handleStaffOverride}
+              />
             )}
 
             {/* Visitor options - always shown */}

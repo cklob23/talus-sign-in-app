@@ -7,6 +7,8 @@ export interface Location {
   longitude: number | null
   auto_signin_radius_meters: number | null
   auto_signout_minutes: number | null
+  /** Present after 011-geofence.sql. false means the admin turned the fence off. */
+  geofence_enabled?: boolean | null
   created_at: string
   updated_at: string
 }
