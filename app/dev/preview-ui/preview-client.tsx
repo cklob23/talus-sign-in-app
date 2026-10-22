@@ -346,7 +346,7 @@ export function PreviewUiScreens({ screen }: { screen?: string }) {
   const only = screen?.trim() || "all"
   const show = (id: string) => only === "all" || only === id
   return (
-    <div className="space-y-16 bg-[#eef4f0] p-6">
+    <div className="space-y-16 bg-[#eef4f0] p-6" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
       {show("kiosk-welcome-before") ? (
         <Frame id="kiosk-welcome-before" title="Kiosk welcome before" width={1024} height={768}>
           <BeforeWelcome />
