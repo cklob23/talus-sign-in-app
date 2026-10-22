@@ -87,6 +87,12 @@ function createChain(table: string) {
     lte() {
       return self
     },
+    lt() {
+      return self
+    },
+    gt() {
+      return self
+    },
     order() {
       return self
     },

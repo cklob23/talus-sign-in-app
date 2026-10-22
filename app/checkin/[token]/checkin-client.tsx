@@ -15,6 +15,7 @@ export function CheckinClient({
   hosts,
   geofence,
   ndaEnabled,
+  bookingId,
 }: {
   token: string
   companyName: string
@@ -24,6 +25,7 @@ export function CheckinClient({
   hosts: CheckinHost[]
   geofence: CheckinGeofence | null
   ndaEnabled?: boolean
+  bookingId?: string
 }) {
   const [lang, setLang] = useState<VisitorLang>("en")
   useEffect(() => {
@@ -49,6 +51,7 @@ export function CheckinClient({
         geofence={geofence}
         ndaEnabled={ndaEnabled}
         lang={lang}
+        bookingId={bookingId}
       />
     </CheckinShell>
   )

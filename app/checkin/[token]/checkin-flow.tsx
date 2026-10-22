@@ -93,6 +93,7 @@ export function CheckinFlow({
     geofence,
     ndaEnabled = false,
     lang = "en",
+    bookingId,
 }: {
     token: string
     locationName: string
@@ -103,8 +104,10 @@ export function CheckinFlow({
     /** Server-passed NDA_ENABLED. Off skips the NDA step and keeps training order. */
     ndaEnabled?: boolean
     lang?: VisitorLang
+    bookingId?: string
 }) {
     const copy = visitorCopy(lang)
+    const bookingIdFromUrl = bookingId || null
     // Runs as soon as the page opens so a visitor who is not on site finds out
     // before typing anything. The server re-checks the same coordinates.
     const gate = useLocationGate(geofence)
@@ -433,6 +436,7 @@ export function CheckinFlow({
                     ndaDocumentId: ndaInfo?.ndaDocumentId ?? null,
                     ndaSignatureDataUrl: ndaInfo ? ndaSignature : null,
                     coords: postCoords,
+                    bookingId: bookingIdFromUrl || undefined,
                     idempotencyKey: signInIdempotencyKeyRef.current,
                     training: trainingInFlow
                         ? {

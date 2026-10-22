@@ -27,6 +27,8 @@ export type AuditAction =
   | "booking.updated"
   | "booking.cancelled"
   | "booking.checked_in"
+  | "booking.invite_sent"
+  | "booking.invite_failed"
   // Host actions
   | "host.created"
   | "host.updated"
