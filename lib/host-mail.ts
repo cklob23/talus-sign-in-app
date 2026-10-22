@@ -113,7 +113,8 @@ export function renderHostTrainingEmail(args: HostMailVisitor & { readyAbout?: s
   const ready = sanitizePlainText(args.readyAbout, 80)
   const first = visitor.split(" ")[0] || visitor
   const subject = `${visitor} is arriving: safety training in progress`
-  const preheader = `Started${clock ? ` at ${clock}` : ""} at ${site}. Ready in about 3 minutes.`
+  const readyPhrase = ready ? ` Ready in ${ready}.` : ""
+  const preheader = `Started${clock ? ` at ${clock}` : ""} at ${site}.${readyPhrase}`
   const visitUrl = sanitizeAppUrl(args.visitUrl, args.appOrigin || undefined)
 
   const rows = [

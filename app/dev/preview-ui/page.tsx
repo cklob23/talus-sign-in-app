@@ -18,7 +18,7 @@ export default async function PreviewUiPage({
   return (
     <>
       <style>{`nextjs-portal { display: none !important; } html, body, button, input, select, textarea { font-family: Arial, Helvetica, sans-serif !important; letter-spacing: 0 !important; }`}</style>
-      <PreviewUiScreens screen={params.screen} />
+      <PreviewUiScreens screen={params.screen} full={params.full === "1"} />
     </>
   )
 }

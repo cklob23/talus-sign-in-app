@@ -84,7 +84,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 visitorName: `${firstName} ${lastName}`,
                 visitorCompany: body.company?.trim() || null,
                 visitorTypeName: visitorType.name,
+                visitorTypeId: visitorType.id,
                 idempotencyKey,
+                entrySource: "qr",
             })
         }
     }
