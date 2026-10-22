@@ -412,7 +412,7 @@ const HEADER_PREVIEWS: Record<string, Parameters<typeof WelcomePreview>[0]> = {
   "kiosk-welcome-after": {},
   "kiosk-welcome": {},
   "kiosk-header-normal": { siteName: "Test Location", meters: 52 },
-  "kiosk-header-noloc": { siteName: "Test Location", meters: null, unavailable: true, visitorBlocked: true },
+  "kiosk-header-noloc": { siteName: "Test Location", meters: null, unavailable: true, visitorBlocked: true, outside: true },
   "kiosk-header-outside": { siteName: "Test Location", meters: 1200, visitorBlocked: true, outside: true },
   "kiosk-header-nosites": { noSites: true, visitorBlocked: true },
 }
