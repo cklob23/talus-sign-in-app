@@ -7,6 +7,7 @@ interface Coords {
     lat: number
     lng: number
     accuracy: number
+    timestamp: number
 }
 
 export interface PreciseGeolocationResult {
@@ -180,13 +181,12 @@ export function usePreciseGeolocation(
     )
 
     // ---------------------------------------------------
-    // 3️⃣ Get High Precision Location (Best-Accuracy)
+    // 3️⃣ Get a recent location reading
     // ---------------------------------------------------
-    // Keep watching for the most accurate GPS reading. The browser often
-    // starts with a coarse WiFi/cell fix (100-300m) then refines to GPS
-    // (3-15m) over several seconds. We keep watching for up to 20s,
-    // replacing coords each time a more accurate reading arrives.
-    // A retry function is exposed so the user can re-trigger if needed.
+    // The browser often starts with a coarse WiFi/cell fix (100-300m) then
+    // refines to GPS (3-15m) over several seconds. We keep watching for up
+    // to 20s and always use the newest reading, not the best-accuracy one
+    // ever seen. A retry function is exposed so the user can re-trigger.
     const [geoRetryCount, setGeoRetryCount] = useState(0)
 
     const retryGeolocation = useCallback(() => {
@@ -203,11 +203,10 @@ export function usePreciseGeolocation(
             return
         }
 
-        let bestAccuracy = Infinity
         let done = false
         let readingCount = 0
 
-        // Keep watching for up to 20s to get the best possible fix.
+        // Keep watching for up to 20s so the first coarse fix can refine.
         // Indoor kiosks/tablets may need the full duration.
         const timer = setTimeout(() => {
             if (!done) {
@@ -222,11 +221,12 @@ export function usePreciseGeolocation(
                 const { latitude, longitude, accuracy } = position.coords
                 readingCount++
 
-                // Always accept if this reading is more accurate than our current best
-                if (accuracy < bestAccuracy) {
-                    bestAccuracy = accuracy
-                    setUserCoords({ lat: latitude, lng: longitude, accuracy })
-                }
+                setUserCoords({
+                    lat: latitude,
+                    lng: longitude,
+                    accuracy,
+                    timestamp: position.timestamp,
+                })
 
                 // Show the UI as ready after the first reading, but keep refining
                 setIsDetectingLocation(false)
@@ -243,7 +243,7 @@ export function usePreciseGeolocation(
                 if (!done) {
                     done = true
                     clearTimeout(timer)
-                    setGeoError(err.message)
+                    setGeoError(err.code === err.PERMISSION_DENIED ? "permission_denied" : err.message)
                     setIsDetectingLocation(false)
                 }
             },

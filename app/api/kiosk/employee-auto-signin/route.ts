@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { requireKioskContext } from "@/lib/kiosk-auth"
 import { asRequiredUuid } from "@/lib/kiosk-input"
+import { enforceServerGeofence, loadLocationFence } from "@/lib/geofence-enforce"
 
 export async function POST(request: Request) {
     try {
@@ -13,8 +14,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
         }
 
-        const profile_id = asRequiredUuid((body as { profile_id?: unknown }).profile_id)
-        const location_id = asRequiredUuid((body as { location_id?: unknown }).location_id)
+        const raw = body as Record<string, unknown>
+        const profile_id = asRequiredUuid(raw.profile_id)
+        const location_id = asRequiredUuid(raw.location_id)
 
         if (!profile_id || !location_id) {
             return NextResponse.json(
@@ -22,6 +24,24 @@ export async function POST(request: Request) {
                 { status: 400 },
             )
         }
+
+        const locationRow = await loadLocationFence(location_id)
+        if (!locationRow) {
+            return NextResponse.json({ error: "Location not found" }, { status: 404 })
+        }
+
+        const staffOverride = raw.staff_override === true && auth.context.source === "receptionist"
+        const geofence = await enforceServerGeofence({
+            location: locationRow,
+            globallyRequired: true,
+            rawCoords: raw.coords,
+            request,
+            source: "kiosk",
+            scopeId: location_id,
+            staffOverride,
+            actorUserId: auth.context.source === "receptionist" ? auth.context.session.id : null,
+        })
+        if (geofence.blocked) return geofence.blocked
 
         const adminClient = getAdminClient()
 

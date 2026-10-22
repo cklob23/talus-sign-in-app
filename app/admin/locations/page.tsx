@@ -18,9 +18,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, Trash2, Building2, MapPin, Loader2, Crosshair } from "lucide-react"
+import { Plus, Pencil, Trash2, Building2, MapPin, Loader2, Crosshair, Search } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import type { Location } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import {
+  DEFAULT_RADIUS_METERS,
+  MAX_RADIUS_METERS,
+  MIN_RADIUS_METERS,
+  formatRadiusMeters,
+  parseLocationRadius,
+  radiusOverCap,
+} from "@/lib/location-radius"
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([])
@@ -35,9 +44,15 @@ export default function LocationsPage() {
     timezone: "America/New_York",
     latitude: null as number | null,
     longitude: null as number | null,
-    auto_signin_radius_meters: 500,
+    auto_signin_radius_meters: DEFAULT_RADIUS_METERS,
     auto_signout_minutes: 30,
+    geofence_enabled: true,
   })
+  const [radiusError, setRadiusError] = useState<string | null>(null)
+  const [geocodeError, setGeocodeError] = useState<string | null>(null)
+  const [geocodeType, setGeocodeType] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   async function loadData() {
     setIsLoading(true)
@@ -103,25 +118,41 @@ export default function LocationsPage() {
     }, 10000)
   }
 
-  // Geocode address using Google Maps Geocoding API (via server-side route)
-  async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-    if (!address.trim()) return null
+  // Only runs when the admin asks. Save never calls this.
+  async function lookupAddress() {
+    if (!form.address.trim()) {
+      setGeocodeError("Enter an address first.")
+      return
+    }
 
     setIsGeocoding(true)
+    setGeocodeError(null)
+    setGeocodeType(null)
     try {
       const response = await fetch(
-        `/api/geocode?address=${encodeURIComponent(address)}`
+        `/api/geocode?address=${encodeURIComponent(form.address)}`
       )
       const data = await response.json()
 
-      if (response.ok && data.lat != null && data.lng != null) {
-        return { lat: data.lat, lng: data.lng }
+      if (!response.ok || data.lat == null || data.lng == null) {
+        setGeocodeError(typeof data.error === "string" ? data.error : "Address lookup failed.")
+        return
       }
-      console.error("Geocoding failed:", data.error)
-      return null
+
+      const locationType = typeof data.location_type === "string" ? data.location_type : ""
+      if (locationType === "APPROXIMATE") {
+        setGeocodeError(
+          "Google only found an approximate point (town or region). Type coordinates or use your location instead.",
+        )
+        setGeocodeType(locationType)
+        return
+      }
+
+      setForm((prev) => ({ ...prev, latitude: data.lat, longitude: data.lng }))
+      setGeocodeType(locationType || "OK")
     } catch (error) {
       console.error("Geocoding error:", error)
-      return null
+      setGeocodeError("Address lookup failed.")
     } finally {
       setIsGeocoding(false)
     }
@@ -135,9 +166,14 @@ export default function LocationsPage() {
       timezone: "America/New_York",
       latitude: null,
       longitude: null,
-      auto_signin_radius_meters: 500,
+      auto_signin_radius_meters: DEFAULT_RADIUS_METERS,
       auto_signout_minutes: 30,
+      geofence_enabled: true,
     })
+    setRadiusError(null)
+    setGeocodeError(null)
+    setGeocodeType(null)
+    setSaveError(null)
     setIsDialogOpen(true)
   }
 
@@ -149,64 +185,65 @@ export default function LocationsPage() {
       timezone: location.timezone,
       latitude: location.latitude,
       longitude: location.longitude,
-      auto_signin_radius_meters: location.auto_signin_radius_meters || 500,
+      auto_signin_radius_meters:
+        location.auto_signin_radius_meters === 0
+          ? 0
+          : location.auto_signin_radius_meters ?? DEFAULT_RADIUS_METERS,
       auto_signout_minutes: location.auto_signout_minutes ?? 30,
+      geofence_enabled: location.geofence_enabled !== false && location.auto_signin_radius_meters !== 0,
     })
+    setRadiusError(null)
+    setGeocodeError(null)
+    setGeocodeType(null)
+    setSaveError(null)
     setIsDialogOpen(true)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const supabase = createClient()
+    setSaveError(null)
 
-    // Try to geocode if address changed and no coords set
-    let latitude = form.latitude
-    let longitude = form.longitude
+    const radius = parseLocationRadius(
+      form.geofence_enabled ? form.auto_signin_radius_meters : 0,
+      editingLocation?.auto_signin_radius_meters,
+    )
+    if (!radius.ok) {
+      setRadiusError(radius.error)
+      return
+    }
+    setRadiusError(null)
+    setIsSaving(true)
 
-    if (form.address && (
-      !editingLocation ||
-      editingLocation.address !== form.address ||
-      !latitude || !longitude
-    )) {
-      const coords = await geocodeAddress(form.address)
-      if (coords) {
-        latitude = coords.lat
-        longitude = coords.lng
+    try {
+      const payload = {
+        id: editingLocation?.id,
+        name: form.name,
+        address: form.address || null,
+        timezone: form.timezone,
+        latitude: form.latitude,
+        longitude: form.longitude,
+        auto_signin_radius_meters: radius.meters,
+        auto_signout_minutes: form.auto_signout_minutes,
+        geofence_enabled: radius.enabled,
       }
-    }
-
-    const data = {
-      name: form.name,
-      address: form.address || null,
-      timezone: form.timezone,
-      latitude,
-      longitude,
-      auto_signin_radius_meters: form.auto_signin_radius_meters,
-      auto_signout_minutes: form.auto_signout_minutes,
-    }
-
-    if (editingLocation) {
-      await supabase.from("locations").update(data).eq("id", editingLocation.id)
-      await logAudit({
-        action: "location.updated",
-        entityType: "location",
-        entityId: editingLocation.id,
-        description: `Location updated: ${data.name}`,
-        metadata: { name: data.name, address: data.address }
+      const response = await fetch("/api/admin/locations", {
+        method: editingLocation ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
-    } else {
-      const { data: newLocation } = await supabase.from("locations").insert(data).select().single()
-      await logAudit({
-        action: "location.created",
-        entityType: "location",
-        entityId: newLocation?.id,
-        description: `Location created: ${data.name}`,
-        metadata: { name: data.name, address: data.address }
-      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setSaveError(typeof json.error === "string" ? json.error : "Could not save location.")
+        return
+      }
+      setIsDialogOpen(false)
+      loadData()
+    } catch (error) {
+      console.error("Location save failed:", error)
+      setSaveError("Could not save location.")
+    } finally {
+      setIsSaving(false)
     }
-
-    setIsDialogOpen(false)
-    loadData()
   }
 
   async function handleDelete(id: string) {
@@ -227,7 +264,7 @@ export default function LocationsPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Locations</h1>
+          <h1 className="text-24 font-bold sm:text-32">Locations</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Manage facility locations</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -237,7 +274,7 @@ export default function LocationsPage() {
               Add Location
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto" data-testid="location-edit-dialog">
             <DialogHeader>
               <DialogTitle className="text-lg">{editingLocation ? "Edit Location" : "Add Location"}</DialogTitle>
               <DialogDescription className="text-sm">
@@ -257,16 +294,35 @@ export default function LocationsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  placeholder="123 Main Street, City, State"
-                />
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  Coordinates will be auto-detected from address
+                <div className="flex gap-2">
+                  <Input
+                    id="address"
+                    value={form.address}
+                    onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    placeholder="123 Main Street, City, State"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={lookupAddress}
+                    disabled={isGeocoding}
+                    className="shrink-0"
+                  >
+                    {isGeocoding ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Search className="w-4 h-4" />
+                    )}
+                    <span className="ml-1.5 hidden sm:inline">Look up address</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Looking up an address only fills coordinates when you click the button. Saving never overwrites a GPS or typed point.
                 </p>
+                {geocodeError && <p className="text-xs text-destructive">{geocodeError}</p>}
+                {geocodeType && !geocodeError && (
+                  <p className="text-xs text-muted-foreground">Google match type: {geocodeType}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="timezone">Timezone</Label>
@@ -278,17 +334,60 @@ export default function LocationsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="radius">Auto Sign-In Radius (meters)</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label htmlFor="geofenceEnabled">Enforce on-site check</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Off only when you turn this switch off. A blank radius uses {formatRadiusMeters(DEFAULT_RADIUS_METERS)}.
+                    </p>
+                  </div>
+                  <Switch
+                    id="geofenceEnabled"
+                    checked={form.geofence_enabled}
+                    onCheckedChange={(checked) => {
+                      setForm({
+                        ...form,
+                        geofence_enabled: checked,
+                        auto_signin_radius_meters: checked
+                          ? form.auto_signin_radius_meters || DEFAULT_RADIUS_METERS
+                          : 0,
+                      })
+                      setRadiusError(null)
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="radius">On-site radius</Label>
                 <Input
                   id="radius"
                   type="number"
-                  value={form.auto_signin_radius_meters}
-                  onChange={(e) => setForm({ ...form, auto_signin_radius_meters: parseInt(e.target.value) || 500 })}
+                  min={MIN_RADIUS_METERS}
+                  max={MAX_RADIUS_METERS}
+                  disabled={!form.geofence_enabled}
+                  value={form.geofence_enabled ? form.auto_signin_radius_meters : 0}
+                  onChange={(e) => {
+                    const raw = e.target.value === "" ? DEFAULT_RADIUS_METERS : parseInt(e.target.value, 10)
+                    setForm({ ...form, auto_signin_radius_meters: Number.isFinite(raw) ? raw : DEFAULT_RADIUS_METERS })
+                    const parsed = parseLocationRadius(
+                      Number.isFinite(raw) ? raw : DEFAULT_RADIUS_METERS,
+                      editingLocation?.auto_signin_radius_meters,
+                    )
+                    setRadiusError(parsed.ok ? null : parsed.error)
+                  }}
                   placeholder="500"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Employees within this distance can auto sign-in
+                  {form.geofence_enabled
+                    ? `${formatRadiusMeters(form.auto_signin_radius_meters || DEFAULT_RADIUS_METERS)}. Allowed range ${MIN_RADIUS_METERS} m to ${formatRadiusMeters(MAX_RADIUS_METERS)}. Used for QR and kiosk sign-in.`
+                    : "On-site check is off for this location."}
                 </p>
+                {radiusOverCap(form.auto_signin_radius_meters) && (
+                  <p className="text-xs text-warning">
+                    This stored radius is {formatRadiusMeters(form.auto_signin_radius_meters)}. Tighten it to {formatRadiusMeters(MAX_RADIUS_METERS)} or less before the fence is useful.
+                  </p>
+                )}
+                {radiusError && <p className="text-xs text-destructive">{radiusError}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="autoSignout">Auto Sign-Out Time (minutes)</Label>
@@ -347,23 +446,24 @@ export default function LocationsPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Auto-filled from address, or use GPS/manual entry for best precision.
+                  Use your location or type the point. Save keeps these values. Address lookup only runs when you ask.
                 </p>
+                {saveError && <p className="text-sm text-destructive">{saveError}</p>}
                 {form.latitude && form.longitude && (
-                  <div className="p-2.5 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg text-sm">
-                    <p className="font-medium flex items-center gap-1 text-green-700 dark:text-green-400">
-                      <MapPin className="w-3.5 h-3.5" />
+                  <div className="rounded-xl border border-success/30 bg-success-soft p-2.5 text-sm">
+                    <p className="flex items-center gap-1 font-medium text-success">
+                      <MapPin className="h-3.5 w-3.5" />
                       Coordinates Set
                     </p>
-                    <p className="text-xs text-green-600 dark:text-green-500 font-mono mt-0.5">
+                    <p className="mt-0.5 font-mono text-xs text-success">
                       {form.latitude.toFixed(7)}, {form.longitude.toFixed(7)}
                     </p>
                   </div>
                 )}
               </div>
               <DialogFooter>
-                <Button type="submit" disabled={isGeocoding}>
-                  {isGeocoding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                <Button type="submit" disabled={isGeocoding || isSaving || Boolean(radiusError)}>
+                  {(isGeocoding || isSaving) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   {editingLocation ? "Save Changes" : "Add Location"}
                 </Button>
               </DialogFooter>
@@ -399,10 +499,17 @@ export default function LocationsPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>TZ: {location.timezone}</span>
-                      <span>Auto SI Radius (meters): {location.auto_signin_radius_meters || "-"}</span>
+                      <span>
+                        Radius:{" "}
+                        {location.auto_signin_radius_meters === 0 || location.geofence_enabled === false
+                          ? "Off"
+                          : location.auto_signin_radius_meters != null
+                            ? formatRadiusMeters(location.auto_signin_radius_meters)
+                            : "default 500 m"}
+                      </span>
                       <span>Auto SO Time (minutes): {location.auto_signout_minutes || "-"}</span>
                       {location.latitude && location.longitude ? (
-                        <span className="text-green-600 flex items-center gap-1">
+                        <span className="flex items-center gap-1 text-success">
                           <MapPin className="w-3 h-3" />
                           {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                         </span>
@@ -432,7 +539,7 @@ export default function LocationsPage() {
                       <TableHead>Address</TableHead>
                       <TableHead>Coordinates</TableHead>
                       <TableHead>Timezone</TableHead>
-                      <TableHead>Auto Sign-In Radius (meters)</TableHead>
+                      <TableHead>On-site radius</TableHead>
                       <TableHead>Auto Sign-Out Time (minutes)</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -444,7 +551,7 @@ export default function LocationsPage() {
                         <TableCell>{location.address || "-"}</TableCell>
                         <TableCell>
                           {location.latitude && location.longitude ? (
-                            <span className="text-xs font-mono text-green-600 flex items-center gap-1">
+                            <span className="flex items-center gap-1 font-mono text-xs text-success">
                               <MapPin className="w-3 h-3" />
                               {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                             </span>
@@ -453,7 +560,13 @@ export default function LocationsPage() {
                           )}
                         </TableCell>
                         <TableCell>{location.timezone}</TableCell>
-                        <TableCell>{location.auto_signin_radius_meters || "-"}</TableCell>
+                        <TableCell>
+                          {location.auto_signin_radius_meters === 0 || location.geofence_enabled === false
+                            ? "Off"
+                            : location.auto_signin_radius_meters != null
+                              ? formatRadiusMeters(location.auto_signin_radius_meters)
+                              : "500 m"}
+                        </TableCell>
                         <TableCell>{location.auto_signout_minutes || "-"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">

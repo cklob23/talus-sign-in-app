@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import nodemailer from "nodemailer"
-import { toIANATimezone } from "@/lib/timezone"
 import { smtpTransportOptions } from "@/lib/smtp-transport"
-import { sanitizePlainText } from "@/lib/html-escape"
+import { isUndefinedColumn, isUndefinedTable } from "@/lib/idempotency"
+import {
+  asBool,
+  autoSignoutEmailKey,
+  getLocalTimeParts,
+  isWithinTriggerWindow,
+  parseTimeToMinutes,
+  selectDueVisitorIds,
+} from "@/lib/auto-signout"
 import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock } from "@/lib/email-shell"
@@ -44,64 +51,6 @@ async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
 }
 
 /**
- * Get the current local time in a timezone.
- * Returns { hour, minute } in the location's local time.
- */
-function getLocalTime(timezone: string): { hour: number; minute: number } {
-  try {
-    // Locations may store Windows timezone names (e.g. "E. Africa Standard
-    // Time"), which Intl.DateTimeFormat rejects. Convert to IANA first.
-    const ianaTimezone = toIANATimezone(timezone)
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: ianaTimezone,
-      hour: "numeric",
-      minute: "numeric",
-      hour12: false,
-    })
-    const parts = formatter.formatToParts(new Date())
-    let hour = Number(parts.find(p => p.type === "hour")?.value ?? 0)
-    const minute = Number(parts.find(p => p.type === "minute")?.value ?? 0)
-    // Intl can emit "24" for midnight in hour12:false mode; normalize to 0.
-    if (hour === 24) hour = 0
-    return { hour, minute }
-  } catch {
-    // Invalid timezone — return a time that won't trigger sign-out
-    return { hour: 12, minute: 0 }
-  }
-}
-
-/**
- * Parse a stored "HH:MM" setting value into minutes-of-day.
- * Returns null if the value is missing/invalid.
- */
-function parseTimeToMinutes(value: unknown): number | null {
-  if (typeof value !== "string") return null
-  const match = value.match(/^(\d{1,2}):(\d{2})$/)
-  if (!match) return null
-  const h = Number(match[1])
-  const m = Number(match[2])
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null
-  return h * 60 + m
-}
-
-/**
- * The cron fires every 15 minutes. Returns true when the current local time
- * falls within the 15-minute window that starts at the configured target time,
- * so a daily target reliably triggers exactly once around that time.
- */
-function isWithinTriggerWindow(localMinutes: number, targetMinutes: number): boolean {
-  const diff = (localMinutes - targetMinutes + 1440) % 1440
-  return diff < 15
-}
-
-/** Coerce a stored boolean setting (JSON true or "true") to a boolean. */
-function asBool(value: unknown, fallback: boolean): boolean {
-  if (value === true || value === "true") return true
-  if (value === false || value === "false") return false
-  return fallback
-}
-
-/**
  * Core auto-signout logic. Called by both GET (Vercel Cron) and POST (manual).
  *
  * The cron runs every 15 minutes. For each location where auto_sign_out is
@@ -125,7 +74,8 @@ async function runAutoSignout(request: Request) {
     }
 
     const supabase = createAdminClient()
-    const now = new Date().toISOString()
+    const nowDate = new Date()
+    const now = nowDate.toISOString()
 
     // Get all locations with their timezone
     const { data: locations } = await supabase
@@ -203,8 +153,7 @@ async function runAutoSignout(request: Request) {
 
     for (const location of locations) {
       const tz = location.timezone || "UTC"
-      const { hour, minute } = getLocalTime(tz)
-      const localMinutes = hour * 60 + minute
+      const { hour, minute, localMinutes } = getLocalTimeParts(tz, nowDate)
       const localTimeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
 
       // =====================================================
@@ -264,18 +213,20 @@ async function runAutoSignout(request: Request) {
       }
 
       // =====================================================
-      // VISITOR AUTO-SIGNOUT at the configured end-of-day time (when enabled)
+      // VISITOR AUTO-SIGNOUT after the configured end-of-day time
       // =====================================================
-      // Only sign out visitors if enabled AND local time is within the
-      // configured trigger window.
-      if (!visitorAutoEnabled || !isWithinTriggerWindow(localMinutes, visitorTargetMinutes)) {
+      // Sign out anyone still signed in after today's sign-out time, or left
+      // over from an earlier day. A missed cron run is picked up on the next
+      // run. The update is limited to rows that are still open so a second
+      // run cannot send duplicate emails.
+      if (!visitorAutoEnabled) {
         results.push({
           locationId: location.id,
           locationName: location.name,
           timezone: tz,
           localTime: localTimeStr,
           signedOut: 0,
-          enabled: visitorAutoEnabled,
+          enabled: false,
           emailsSent: 0,
         })
         continue
@@ -287,6 +238,7 @@ async function runAutoSignout(request: Request) {
         .from("sign_ins")
         .select(`
           id,
+          sign_in_time,
           visitor_id,
           badge_number,
           sign_in_time,
@@ -302,7 +254,14 @@ async function runAutoSignout(request: Request) {
         continue
       }
 
-      if (!activeSignIns || activeSignIns.length === 0) {
+      const dueIds = selectDueVisitorIds(
+        (activeSignIns ?? []).map((row) => ({ id: row.id as string, sign_in_time: String(row.sign_in_time) })),
+        nowDate,
+        tz,
+        visitorTargetMinutes,
+      )
+
+      if (dueIds.length === 0) {
         results.push({
           locationId: location.id,
           locationName: location.name,
@@ -315,15 +274,32 @@ async function runAutoSignout(request: Request) {
         continue
       }
 
-      // Sign out all active visitors at this location
-      const { error: updateError } = await supabase
+      const dueSignIns = (activeSignIns ?? []).filter((row) => dueIds.includes(row.id as string))
+
+      const { data: updatedRows, error: updateError } = await supabase
         .from("sign_ins")
         .update({ sign_out_time: now })
-        .eq("location_id", location.id)
+        .in("id", dueIds)
         .is("sign_out_time", null)
+        .select("id")
 
       if (updateError) {
         console.error(`[Auto Sign-out] Error signing out visitors at ${location.name}:`, updateError)
+        continue
+      }
+
+      const updatedIds = new Set((updatedRows ?? []).map((row) => row.id as string))
+      const signedOutNow = dueSignIns.filter((row) => updatedIds.has(row.id as string))
+      if (signedOutNow.length === 0) {
+        results.push({
+          locationId: location.id,
+          locationName: location.name,
+          timezone: tz,
+          localTime: localTimeStr,
+          signedOut: 0,
+          enabled: true,
+          emailsSent: 0,
+        })
         continue
       }
 
@@ -331,10 +307,27 @@ async function runAutoSignout(request: Request) {
       await supabase.from("audit_logs").insert({
         action: "visitor.auto_sign_out",
         entity_type: "system",
-        description: `Auto sign-out: ${activeSignIns.length} visitor(s) signed out at ${location.name} (${tz}, local time ${localTimeStr})`,
+        description: `Auto sign-out: ${signedOutNow.length} visitor(s) signed out at ${location.name} (${tz}, local time ${localTimeStr})`,
       })
 
-      totalSignedOut += activeSignIns.length
+      totalSignedOut += signedOutNow.length
+
+      const emailable: typeof signedOutNow = []
+      for (const signIn of signedOutNow) {
+        const key = autoSignoutEmailKey(String(signIn.id))
+        const insert = await supabase.from("host_notifications").insert({
+          sign_in_id: signIn.id,
+          notification_type: "auto_signed_out",
+          idempotency_key: key,
+          status: "pending",
+        })
+        if (insert.error && insert.error.code === "23505") continue
+        if (insert.error && (isUndefinedTable(insert.error) || isUndefinedColumn(insert.error))) {
+          emailable.push(signIn)
+          continue
+        }
+        if (!insert.error) emailable.push(signIn)
+      }
 
       // Email hosts about auto-signed-out visitors
       let emailsSent = 0
@@ -346,7 +339,7 @@ async function runAutoSignout(request: Request) {
           visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null }[]
         }> = {}
 
-        for (const signIn of activeSignIns) {
+        for (const signIn of emailable) {
           const host = (Array.isArray(signIn.hosts) ? signIn.hosts[0] : signIn.hosts) as
             | { name: string; email: string }
             | null
@@ -409,7 +402,7 @@ async function runAutoSignout(request: Request) {
         locationName: location.name,
         timezone: tz,
         localTime: localTimeStr,
-        signedOut: activeSignIns.length,
+        signedOut: signedOutNow.length,
         enabled: true,
         emailsSent,
       })

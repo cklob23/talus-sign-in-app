@@ -15,6 +15,7 @@ export interface CheckinGeofence {
     latitude: number
     longitude: number
     auto_signin_radius_meters: number | null
+    geofence_enabled?: boolean | null
 }
 
 export type GateStatus =
@@ -29,14 +30,14 @@ export type GateStatus =
 const SETTLE_MS = 12_000
 /** Stop early once the fix is this good and we've seen a few readings. */
 const GOOD_ENOUGH_METERS = 25
-
 /**
  * Watches the device position and evaluates it against the site's fence.
  *
  * The first reading from a phone is usually a coarse Wi-Fi fix that sharpens
- * over a few seconds, so we keep the best reading for up to SETTLE_MS. If the
- * device is clearly inside the fence we resolve immediately; if it is outside
- * we wait for the fix to settle before saying so, to avoid false rejections.
+ * over a few seconds, so we watch for up to SETTLE_MS. We use the most recent
+ * reading, not the best-accuracy one ever seen. If the device is clearly inside
+ * the fence we resolve immediately; if it is outside we wait for the fix to
+ * settle before saying so.
  */
 export function useLocationGate(geofence: CheckinGeofence | null) {
     const [status, setStatus] = useState<GateStatus>(() => (geofence ? { state: "checking" } : { state: "unsupported" }))
@@ -54,7 +55,7 @@ export function useLocationGate(geofence: CheckinGeofence | null) {
             return
         }
 
-        let best: DeviceCoords | null = null
+        let latest: DeviceCoords | null = null
         let readings = 0
         let finished = false
         let watchId: number | null = null
@@ -68,13 +69,13 @@ export function useLocationGate(geofence: CheckinGeofence | null) {
         }
 
         const decide = () => {
-            if (!best) {
+            if (!latest) {
                 finish({ state: "error", message: "We could not determine your location." })
                 return
             }
-            const verdict = evaluateGeofence(geofence, best)
-            if (verdict.ok) finish({ state: "verified", coords: best, verdict })
-            else finish({ state: "rejected", coords: best, verdict })
+            const verdict = evaluateGeofence(geofence, latest)
+            if (verdict.ok) finish({ state: "verified", coords: latest, verdict })
+            else finish({ state: "rejected", coords: latest, verdict })
         }
 
         const timer = window.setTimeout(decide, SETTLE_MS)
@@ -82,18 +83,24 @@ export function useLocationGate(geofence: CheckinGeofence | null) {
         watchId = navigator.geolocation.watchPosition(
             (position) => {
                 const { latitude, longitude, accuracy } = position.coords
-                readings += 1
-                if (!best || accuracy < best.accuracy) {
-                    best = { lat: latitude, lng: longitude, accuracy }
+                const reading: DeviceCoords = {
+                    lat: latitude,
+                    lng: longitude,
+                    accuracy,
+                    timestamp: position.timestamp,
                 }
-                const verdict = evaluateGeofence(geofence, best)
+                readings += 1
+                // Always take the newest reading. An early sharp-but-wrong fix
+                // must not stick for the whole page load.
+                latest = reading
+                const verdict = evaluateGeofence(geofence, latest)
                 // Inside the fence: no reason to make the visitor wait.
                 if (verdict.ok) {
-                    finish({ state: "verified", coords: best, verdict })
+                    finish({ state: "verified", coords: latest, verdict })
                     return
                 }
                 // Outside but with a sharp, stable fix: the answer will not change.
-                if (best.accuracy <= GOOD_ENOUGH_METERS && readings >= 3) decide()
+                if (latest.accuracy <= GOOD_ENOUGH_METERS && readings >= 3) decide()
             },
             (err) => {
                 if (err.code === err.PERMISSION_DENIED) finish({ state: "denied" })
@@ -201,14 +208,14 @@ function GateFrame({
 }) {
     return (
         <section
-            className="flex flex-1 flex-col items-center justify-center gap-5 text-center"
+            className="v2-card mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 p-6 text-center sm:p-8"
             role="status"
             aria-live="polite"
         >
             {icon}
             <div className="space-y-2">
-                <h1 className="text-xl font-semibold text-balance">{title}</h1>
-                <p className="max-w-sm text-sm leading-relaxed text-muted-foreground text-pretty">{body}</p>
+                <h1 className="text-24 font-semibold text-balance">{title}</h1>
+                <p className="max-w-sm text-15 leading-relaxed text-muted-foreground text-pretty">{body}</p>
             </div>
             {action}
         </section>
@@ -217,7 +224,7 @@ function GateFrame({
 
 function RetryButton({ onClick }: { onClick: () => void }) {
     return (
-        <Button size="lg" variant="outline" onClick={onClick} className="gap-2">
+        <Button size="lg" variant="outline" onClick={onClick} className="min-h-12 gap-2">
             <RefreshCw className="h-4 w-4" />
             Try again
         </Button>

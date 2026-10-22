@@ -9,6 +9,10 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>()
 
+export function resetRateLimits(): void {
+  buckets.clear()
+}
+
 export function rateLimit(key: string, limit: number, windowMs: number): {
   allowed: boolean
   remaining: number

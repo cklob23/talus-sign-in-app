@@ -54,6 +54,7 @@ import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUn
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
+import { kioskClientGate } from "@/lib/checkin-geofence"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
@@ -619,14 +620,48 @@ export default function KioskPage() {
   const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
   const currentTimezone = currentLocation?.timezone || "UTC"
 
-  // Geofence enforcement
+  // Geofence enforcement (same rules as QR, via lib/checkin-geofence).
+  // Visitor unlock is PR #9's geofenceOverride ("Allow sign-in anyway").
   const geofenceRadius = currentLocation?.auto_signin_radius_meters
-  // If no radius is set (null/0), geofencing is disabled — allow everyone
-  // If user denied geolocation (no coords), we can't enforce — allow but warn
-  const isOutsideGeofence = Boolean(
-    geofenceRadius && geofenceRadius > 0 && selectedLocationDistance && selectedLocationDistance > geofenceRadius
-  )
-  const isWithinGeofence = !isOutsideGeofence
+  const deviceCoords = userCoords
+    ? {
+        lat: userCoords.lat,
+        lng: userCoords.lng,
+        accuracy: userCoords.accuracy,
+        timestamp: userCoords.timestamp,
+      }
+    : null
+  const clientGate = kioskClientGate({
+    target: currentLocation,
+    coords: deviceCoords,
+    geoError,
+    isDetecting: isDetectingLocation,
+    staffOverride: false,
+  })
+  const isOutsideGeofence = clientGate.blocked && clientGate.reason !== "checking"
+  const fenceRadius = clientGate.verdict?.radius ?? geofenceRadius ?? null
+  const fenceDistance = clientGate.verdict?.distance ?? selectedLocationDistance
+
+  function kioskCoordsPayload() {
+    if (!deviceCoords) return null
+    return deviceCoords
+  }
+
+  async function allowSignInAnyway() {
+    if (!currentLocation || geofenceOverride) return
+    setGeofenceOverride(true)
+    await logAuditViaApi({
+      action: "kiosk.geofence_override",
+      entityType: "location",
+      entityId: currentLocation.id,
+      description: `Staff overrode the on-site check at ${currentLocation.name}`,
+      metadata: {
+        location_id: currentLocation.id,
+        reason: clientGate.reason,
+        distance_meters: fenceDistance != null ? Math.round(fenceDistance) : null,
+      },
+    })
+  }
 
   // Auto sign-in countdown for remembered employees within geofence
   const [autoSignInCountdown, setAutoSignInCountdown] = useState<number | null>(null)
@@ -702,12 +737,9 @@ export default function KioskPage() {
       }
     }
 
-    const radius = currentLocation?.auto_signin_radius_meters
-    const hasGeofence = radius && radius > 0
+    if (clientGate.blocked && clientGate.reason === "checking") return
 
-    // If geofence is configured, we need a distance to check against
-    if (hasGeofence && selectedLocationDistance && selectedLocationDistance > radius) {
-      // Outside geofence — clear any running countdown
+    if (clientGate.blocked) {
       if (autoSignInTimerRef.current) {
         clearInterval(autoSignInTimerRef.current)
         autoSignInTimerRef.current = null
@@ -715,10 +747,6 @@ export default function KioskPage() {
       setAutoSignInCountdown(null)
       return
     }
-
-    // If geofence is configured but we don't have distance yet (geo still loading),
-    // wait — don't start countdown until we know
-    if (hasGeofence && !selectedLocationDistance) return
 
     // Either no geofence (auto-sign-in always allowed) or within geofence
     // Start a 5-second countdown, then auto sign-in
@@ -743,7 +771,7 @@ export default function KioskPage() {
         autoSignInTimerRef.current = null
       }
     }
-  }, [rememberedEmployee, employeeSignedIn, mode, selectedLocation, selectedLocationDistance, currentLocation?.auto_signin_radius_meters])
+  }, [rememberedEmployee, employeeSignedIn, mode, selectedLocation, clientGate.blocked, clientGate.reason])
 
   // Fire auto sign-in when countdown reaches 0
   useEffect(() => {
@@ -872,6 +900,8 @@ export default function KioskPage() {
         body: JSON.stringify({
           profile_id: employee.id,
           location_id: selectedLocation,
+          coords: kioskCoordsPayload(),
+          staff_override: geofenceOverride || undefined,
         }),
       })
 
@@ -1547,6 +1577,8 @@ export default function KioskPage() {
           booking_id: selectedBooking?.id || null,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
+          coords: kioskCoordsPayload(),
+          staff_override: geofenceOverride || undefined,
         }),
       })
       const signInData = await signInRes.json()
@@ -1624,6 +1656,8 @@ export default function KioskPage() {
           booking_id: selectedBooking.id,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
+          coords: kioskCoordsPayload(),
+          staff_override: geofenceOverride || undefined,
         }),
       })
       const signInData = await signInRes.json()
@@ -2179,7 +2213,8 @@ export default function KioskPage() {
 
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
   const copy = visitorCopy(lang)
-  const visitorBlockedByGeofence = isOutsideGeofence && !geofenceOverride
+  const visitorBlockedByGeofence =
+    (clientGate.blocked && clientGate.reason === "checking") || (isOutsideGeofence && !geofenceOverride)
 
   useEffect(() => {
     setLang(readVisitorLang())
@@ -2476,19 +2511,21 @@ export default function KioskPage() {
 
         {mode === "home" && (
           <div className="mx-auto max-w-5xl">
-            {isOutsideGeofence && selectedLocationDistance && geofenceRadius && (
+            {isOutsideGeofence && !geofenceOverride && (
               <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
                 <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
                 {receptionistUser && (
                   <div className="mt-2 space-y-2 text-sm text-warning">
-                    <p>
-                      {fill(copy.geofenceStaff, {
-                        distance: formatDistance(selectedLocationDistance, ""),
-                        site: currentLocation?.name || "this site",
-                        radius: formatDistance(geofenceRadius, ""),
-                      })}
-                    </p>
-                    <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                    {fenceDistance != null && fenceRadius != null ? (
+                      <p>
+                        {fill(copy.geofenceStaff, {
+                          distance: formatDistance(fenceDistance, ""),
+                          site: currentLocation?.name || "this site",
+                          radius: formatDistance(fenceRadius, ""),
+                        })}
+                      </p>
+                    ) : null}
+                    <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                       {copy.geofenceOverride}
                     </Button>
                   </div>
@@ -2553,7 +2590,7 @@ export default function KioskPage() {
 
               {/* Remembered employee - only show quick sign-in option if NOT already signed in */}
               {rememberedEmployee && !employeeSignedIn && (
-                <Card className={`mb-4 sm:mb-6 ${isOutsideGeofence ? "border-amber-200 bg-amber-50/50" : autoSignInCountdown !== null && autoSignInCountdown > 0 ? "border-green-300 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
+                <Card className={`mb-4 sm:mb-6 ${isOutsideGeofence ? "border-warning/40 bg-warning-soft" : autoSignInCountdown !== null && autoSignInCountdown > 0 ? "border-green-300 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 sm:gap-4">
@@ -2567,8 +2604,8 @@ export default function KioskPage() {
                           <h3 className="font-semibold text-sm sm:text-base truncate">{rememberedEmployee.fullName || rememberedEmployee.email}</h3>
                           <p className="text-xs sm:text-sm text-muted-foreground">
                             {isOutsideGeofence ? (
-                              <span className="text-amber-700">
-                                {selectedLocationDistance ? formatDistance(selectedLocationDistance, "away") : "Too far away"} — move closer to sign in
+                              <span className="text-warning">
+                                {selectedLocationDistance ? formatDistance(selectedLocationDistance, "away") : "Too far away"}. Move closer to sign in
                               </span>
                             ) : autoSignInCountdown !== null && autoSignInCountdown > 0 ? (
                               <span className="text-green-700">
@@ -2646,16 +2683,18 @@ export default function KioskPage() {
             {visitorBlockedByGeofence && (
               <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-warning/40 bg-warning-soft p-4">
                 <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                {receptionistUser && (
                   <div className="mt-2 space-y-2 text-sm text-warning">
-                    <p>
-                      {fill(copy.geofenceStaff, {
-                        distance: formatDistance(selectedLocationDistance, ""),
-                        site: currentLocation?.name || "this site",
-                        radius: formatDistance(geofenceRadius, ""),
-                      })}
-                    </p>
-                    <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                    {fenceDistance != null && fenceRadius != null ? (
+                      <p>
+                        {fill(copy.geofenceStaff, {
+                          distance: formatDistance(fenceDistance, ""),
+                          site: currentLocation?.name || "this site",
+                          radius: formatDistance(fenceRadius, ""),
+                        })}
+                      </p>
+                    ) : null}
+                    <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                       {copy.geofenceOverride}
                     </Button>
                   </div>
@@ -2906,16 +2945,18 @@ export default function KioskPage() {
                   {isOutsideGeofence && (
                     <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
                       <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                      {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                      {receptionistUser && (
                         <div className="mt-2 space-y-2 text-sm text-warning">
-                          <p>
-                            {fill(copy.geofenceStaff, {
-                              distance: formatDistance(selectedLocationDistance, ""),
-                              site: currentLocation?.name || "this site",
-                              radius: formatDistance(geofenceRadius, ""),
-                            })}
-                          </p>
-                          <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                          {fenceDistance != null && fenceRadius != null ? (
+                            <p>
+                              {fill(copy.geofenceStaff, {
+                                distance: formatDistance(fenceDistance, ""),
+                                site: currentLocation?.name || "this site",
+                                radius: formatDistance(fenceRadius, ""),
+                              })}
+                            </p>
+                          ) : null}
+                          <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                             {copy.geofenceOverride}
                           </Button>
                         </div>
@@ -3072,16 +3113,18 @@ export default function KioskPage() {
                     {isOutsideGeofence && (
                       <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
                         <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                        {receptionistUser && selectedLocationDistance && geofenceRadius && (
+                        {receptionistUser && (
                           <div className="mt-2 space-y-2 text-sm text-warning">
-                            <p>
-                              {fill(copy.geofenceStaff, {
-                                distance: formatDistance(selectedLocationDistance, ""),
-                                site: currentLocation?.name || "this site",
-                                radius: formatDistance(geofenceRadius, ""),
-                              })}
-                            </p>
-                            <Button type="button" variant="outline" className="min-h-12" onClick={() => setGeofenceOverride(true)}>
+                            {fenceDistance != null && fenceRadius != null ? (
+                              <p>
+                                {fill(copy.geofenceStaff, {
+                                  distance: formatDistance(fenceDistance, ""),
+                                  site: currentLocation?.name || "this site",
+                                  radius: formatDistance(fenceRadius, ""),
+                                })}
+                              </p>
+                            ) : null}
+                            <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
                               {copy.geofenceOverride}
                             </Button>
                           </div>
@@ -3249,9 +3292,9 @@ export default function KioskPage() {
                   )}
 
                   {isOutsideGeofence && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-700">
+                    <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning-soft p-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                      <p className="text-xs text-warning">
                         You are too far from {currentLocation?.name || "this location"}.
                         Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to sign in.
                       </p>
