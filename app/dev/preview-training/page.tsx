@@ -2,7 +2,11 @@ import { PreviewScreens } from "./preview-client"
 
 export const dynamic = "force-dynamic"
 
-export default function PreviewTrainingPage() {
+export default async function PreviewTrainingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ screen?: string }>
+}) {
   if (process.env.NODE_ENV === "production") {
     return (
       <main className="p-8">
@@ -10,5 +14,11 @@ export default function PreviewTrainingPage() {
       </main>
     )
   }
-  return <PreviewScreens />
+  const params = await searchParams
+  return (
+    <>
+      <style>{`nextjs-portal { display: none !important; }`}</style>
+      <PreviewScreens screen={params.screen} />
+    </>
+  )
 }
