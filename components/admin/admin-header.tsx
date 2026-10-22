@@ -24,6 +24,7 @@ import { useRouter } from "next/navigation"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { formatDistanceToNow } from "date-fns"
 import { MobileSidebar } from "./admin-sidebar"
+import { ThemeToggle } from "./theme-toggle"
 import { useBranding } from "@/hooks/use-branding"
 import { ProfileModal } from "./profile-modal"
 
@@ -65,7 +66,13 @@ interface UserProfile {
   avatar_url: string | null
 }
 
-export function AdminHeader() {
+export function AdminHeader({
+  mobileOpen,
+  onMobileOpenChange,
+}: {
+  mobileOpen?: boolean
+  onMobileOpenChange?: (open: boolean) => void
+} = {}) {
   const [user, setUser] = useState<SupabaseUser | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [notifications, setNotifications] = useState<CombinedActivity[]>([])
@@ -241,12 +248,13 @@ export function AdminHeader() {
     : user?.email?.slice(0, 2).toUpperCase() || "AD"
 
   return (
-    <header className="h-14 sm:h-16 border-b bg-background flex items-center justify-between px-3 sm:px-6">
+    <header className="flex h-14 items-center justify-between border-b border-border bg-background px-3 sm:h-16 sm:px-6">
       <div className="flex items-center gap-2">
-        <MobileSidebar />
+        <MobileSidebar open={mobileOpen} onOpenChange={onMobileOpenChange} />
         <h2 className="text-base sm:text-lg font-semibold">{branding?.companyName || "Talus"} Admin</h2>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
+        <ThemeToggle className="min-h-11 min-w-11" />
         <Popover open={isOpen} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">

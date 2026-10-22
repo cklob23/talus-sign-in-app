@@ -167,7 +167,7 @@ export default function CurrentVisitorsPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Currently On-Site</h1>
+          <h1 className="text-24 font-bold sm:text-32">On site now</h1>
           <p className="text-sm sm:text-base text-muted-foreground">
             {visitors.length} visitor(s) and {employees.length} employee(s) currently on-site
           </p>
@@ -209,7 +209,7 @@ export default function CurrentVisitorsPage() {
                   {/* Mobile card view */}
                   <div className="space-y-3 md:hidden">
                     {visitors.map((signIn) => (
-                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                      <div key={signIn.id} className="v2-card space-y-3 p-4">
                         <button
                           type="button"
                           onClick={() => openBlade({ kind: "visitor", data: signIn })}
@@ -310,7 +310,7 @@ export default function CurrentVisitorsPage() {
                   {/* Mobile card view */}
                   <div className="space-y-3 md:hidden">
                     {employees.map((signIn) => (
-                      <div key={signIn.id} className="border rounded-lg p-3 space-y-2">
+                      <div key={signIn.id} className="v2-card space-y-3 p-4">
                         <button
                           type="button"
                           onClick={() => openBlade({ kind: "employee", data: signIn })}
@@ -481,7 +481,7 @@ function VisitorDesktopTable({
                   >
                     <Avatar className="h-9 w-9 shrink-0">
                       <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={name} />
-                      <AvatarFallback className="bg-primary/10 text-xs text-[#00703f]">
+                      <AvatarFallback className="bg-accent text-xs text-primary-text">
                         {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
                       </AvatarFallback>
                     </Avatar>
@@ -498,7 +498,7 @@ function VisitorDesktopTable({
                   {signIn.visitor_type ? (
                     <Badge
                       variant="outline"
-                      className="max-w-full truncate text-[#00703f]"
+                      className="max-w-full truncate text-primary-text"
                       style={{ borderColor: signIn.visitor_type.badge_color }}
                     >
                       {signIn.visitor_type.name}

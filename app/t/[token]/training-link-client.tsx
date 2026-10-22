@@ -129,26 +129,26 @@ export function TrainingLinkClient({
       lang={lang}
       onLang={setLang}
     >
-      <p className="text-sm font-semibold text-[#00703f]">
+      <p className="text-sm font-semibold text-primary-text">
         {firstName} {lastName}
       </p>
-      <h1 className="mt-1 text-3xl font-bold">{copy.title}</h1>
-      <p className="mt-2 text-[#55625a]">{copy.intro}</p>
+      <h1 className="mt-1 text-32 font-bold">{copy.title}</h1>
+      <p className="mt-2 text-muted-foreground">{copy.intro}</p>
 
       {done && !ticket ? (
-        <div className="mt-6 rounded-2xl border-2 border-[#00854c] bg-white p-6">
-          <p className="text-sm font-semibold text-[#00703f]">{copy.cleared}</p>
+        <div className="v2-card mt-6 border-2 border-primary p-6">
+          <p className="text-sm font-semibold text-primary-text">{copy.cleared}</p>
           <p className="mt-2 text-lg font-medium">{lang === "es" ? doneMessageEs : doneMessage}</p>
-          <p className="mt-3 text-sm text-[#55625a]">{copy.hint}</p>
+          <p className="mt-3 text-sm text-muted-foreground">{copy.hint}</p>
           <p className="mt-1 text-sm font-medium">{copy.email}</p>
-          <Button className="mt-4 bg-[#00854c] hover:bg-[#00703f]" onClick={() => setDone(false)}>
+          <Button className="mt-4" onClick={() => setDone(false)}>
             {copy.watchAnyway}
           </Button>
         </div>
       ) : (
         <div className="mt-6 space-y-4">
           {!ticket ? (
-            <Button className="h-14 w-full bg-[#00854c] text-base hover:bg-[#00703f]" onClick={() => void start()} disabled={starting}>
+            <Button className="h-14 w-full text-base" onClick={() => void start()} disabled={starting}>
               {starting ? copy.saving : copy.start}
             </Button>
           ) : (
@@ -164,18 +164,18 @@ export function TrainingLinkClient({
           )}
 
           {ended ? (
-            <label className="flex items-start gap-3 rounded-xl border bg-white p-4">
+            <label className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
               <Checkbox checked={acked} onCheckedChange={(value) => setAcked(value === true)} className="mt-1" />
               <span>{copy.ack}</span>
             </label>
           ) : ticket ? (
-            <p className="text-sm text-[#55625a]">
+            <p className="text-sm text-muted-foreground">
               {lang === "es" ? "La casilla se activa al terminar el video." : "The checkbox unlocks when the video ends."}
             </p>
           ) : null}
 
           <Button
-            className="h-14 w-full bg-[#00854c] text-base hover:bg-[#00703f]"
+            className="h-14 w-full text-base"
             disabled={!ticket || !ended || !acked || saving}
             onClick={() => void complete()}
           >
@@ -184,7 +184,7 @@ export function TrainingLinkClient({
         </div>
       )}
 
-      {error ? <p className="mt-4 text-sm text-[#b3000a]">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
     </PublicVisitorChrome>
   )
 }

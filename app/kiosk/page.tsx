@@ -57,6 +57,8 @@ import { TrainingPlayer } from "@/components/training-player"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
+import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
+import { StatusPill } from "@/components/v2/status-pill"
 import { fill, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
@@ -2225,7 +2227,7 @@ export default function KioskPage() {
   }, [mode, videoStarted, trainingWatched, isLoading])
 
   return (
-    <div className="kiosk-touch min-h-screen bg-[#f5f8f6]">
+    <div className="kiosk-touch min-h-screen bg-background text-foreground">
       {mode === "receptionist-login" ? (
         <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
           <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-center">
@@ -2235,7 +2237,7 @@ export default function KioskPage() {
           </div>
         </header>
       ) : (
-        <header className="sticky top-0 z-50 border-b border-[#dce6df] bg-white">
+        <header className="sticky top-0 z-50 border-b border-border bg-card">
           <div className="container mx-auto flex items-center justify-between gap-2 px-3 py-3 sm:px-4">
             <div className="shrink-0">
               <Link href="/">
@@ -2244,7 +2246,7 @@ export default function KioskPage() {
             </div>
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <div className="hidden items-center gap-2 text-sm lg:flex">
-                <MapPin className="h-4 w-4 text-[#00703f]" />
+                <MapPin className="h-4 w-4 text-primary-text" />
                 <span className="font-medium">{currentLocation?.name || "Select location"}</span>
               </div>
               <div className="hidden items-center gap-2 border-r pr-4 text-sm md:flex portrait:hidden">
@@ -2363,7 +2365,7 @@ export default function KioskPage() {
         {idleSeconds !== null && (
           <button
             type="button"
-            className="mb-4 w-full rounded-xl border border-[#8a4500] bg-[#fff3df] px-4 py-3 text-left text-[#8a4500]"
+            className="mb-4 w-full rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-left text-warning"
             onClick={() => {
               lastActivityRef.current = Date.now()
               setIdleSeconds(null)
@@ -2475,10 +2477,10 @@ export default function KioskPage() {
         {mode === "home" && (
           <div className="mx-auto max-w-5xl">
             {isOutsideGeofence && selectedLocationDistance && geofenceRadius && (
-              <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-                <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+              <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
+                <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
                 {receptionistUser && (
-                  <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                  <div className="mt-2 space-y-2 text-sm text-warning">
                     <p>
                       {fill(copy.geofenceStaff, {
                         distance: formatDistance(selectedLocationDistance, ""),
@@ -2527,7 +2529,7 @@ export default function KioskPage() {
                               </span>
                             </p>
                           ) : (
-                            <p className="flex items-center gap-1 text-xs text-[#00703f] sm:text-sm">
+                            <p className="flex items-center gap-1 text-xs text-primary-text sm:text-sm">
                               <CheckCircle className="w-3 h-3" />
                               Currently signed in
                             </p>
@@ -2642,10 +2644,10 @@ export default function KioskPage() {
         {mode === "visitor-type" && (
           <div>
             {visitorBlockedByGeofence && (
-              <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-                <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+              <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-warning/40 bg-warning-soft p-4">
+                <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
                 {receptionistUser && selectedLocationDistance && geofenceRadius && (
-                  <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                  <div className="mt-2 space-y-2 text-sm text-warning">
                     <p>
                       {fill(copy.geofenceStaff, {
                         distance: formatDistance(selectedLocationDistance, ""),
@@ -2676,6 +2678,7 @@ export default function KioskPage() {
 
         {mode === "sign-in" && (
           <div className="max-w-xl mx-auto">
+            <KioskStepper current={1} includeTraining={Boolean(selectedVisitorType?.requires_training)} copy={copy} />
             <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => setMode("visitor-type")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               {copy.back}
@@ -2683,21 +2686,19 @@ export default function KioskPage() {
 
             <Card>
               <CardHeader className="p-4 sm:p-6">
-                <p className="mb-2 text-sm text-[#55625a]">{fill(copy.stepOf, { current: 2, total: selectedVisitorType?.requires_training ? 4 : 3 })}</p>
-                <CardTitle className="text-xl sm:text-2xl">{copy.yourDetails}</CardTitle>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <CardTitle className="text-xl sm:text-2xl">{copy.yourDetails}</CardTitle>
+                  <StatusPill tone="warn">
+                    {selectedVisitorType?.name || copy.whyHere}
+                    <button type="button" className="underline" onClick={() => setMode("visitor-type")}>
+                      {copy.changeType}
+                    </button>
+                  </StatusPill>
+                </div>
                 <CardDescription className="text-xs sm:text-sm">{copy.welcomeSubtitle}</CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
                 <form onSubmit={handleSignInSubmit} className="space-y-3 sm:space-y-4">
-                  <div className="flex items-center justify-between gap-3 rounded-xl border bg-[#f5f8f6] p-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: selectedVisitorType?.badge_color || "#00854c" }} />
-                      <span className="truncate font-semibold">{selectedVisitorType?.name || copy.whyHere}</span>
-                    </div>
-                    <Button type="button" variant="ghost" className="shrink-0" onClick={() => setMode("visitor-type")}>
-                      {copy.changeType}
-                    </Button>
-                  </div>
                   {fieldErrors.visitorType ? (
                     <p id="visitor-type-error" className="text-sm text-destructive" role="alert">{fieldErrors.visitorType}</p>
                   ) : null}
@@ -2748,7 +2749,7 @@ export default function KioskPage() {
                       onChange={(e) => setForm({ ...form, email: e.target.value })}
                       aria-describedby="email-hint"
                     />
-                    <p id="email-hint" className="text-xs text-[#55625a]">{copy.emailHint}</p>
+                    <p id="email-hint" className="text-xs text-muted-foreground">{copy.emailHint}</p>
                   </div>
 
                   <div className="space-y-2">
@@ -2858,7 +2859,7 @@ export default function KioskPage() {
                       {fieldErrors.company ? (
                         <p id="company-error" className="text-sm text-destructive" role="alert">{fieldErrors.company}</p>
                       ) : (
-                        <p id="company-hint" className="text-xs text-[#55625a]">{copy.companyHint}</p>
+                        <p id="company-hint" className="text-xs text-muted-foreground">{copy.companyHint}</p>
                       )}
                     </div>
                   )}
@@ -2887,7 +2888,7 @@ export default function KioskPage() {
                       {fieldErrors.host ? (
                         <p id="host-error" className="text-sm text-destructive" role="alert">{fieldErrors.host}</p>
                       ) : (
-                        <p id="host-hint" className="text-xs text-[#55625a]">{copy.hostHint}</p>
+                        <p id="host-hint" className="text-xs text-muted-foreground">{copy.hostHint}</p>
                       )}
                     </div>
                   )}
@@ -2903,10 +2904,10 @@ export default function KioskPage() {
                   </div>
 
                   {isOutsideGeofence && (
-                    <div className="rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-                      <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                    <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
+                      <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
                       {receptionistUser && selectedLocationDistance && geofenceRadius && (
-                        <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                        <div className="mt-2 space-y-2 text-sm text-warning">
                           <p>
                             {fill(copy.geofenceStaff, {
                               distance: formatDistance(selectedLocationDistance, ""),
@@ -3069,10 +3070,10 @@ export default function KioskPage() {
                     )}
 
                     {isOutsideGeofence && (
-                      <div className="rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-                        <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
+                      <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
+                        <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
                         {receptionistUser && selectedLocationDistance && geofenceRadius && (
-                          <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
+                          <div className="mt-2 space-y-2 text-sm text-warning">
                             <p>
                               {fill(copy.geofenceStaff, {
                                 distance: formatDistance(selectedLocationDistance, ""),
@@ -3384,7 +3385,8 @@ export default function KioskPage() {
         )}
 
         {mode === "training" && selectedVisitorType && (
-          <div className="max-w-3xl mx-auto">
+          <div className="mx-auto max-w-5xl">
+            <KioskStepper current={2} copy={copy} />
             <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => setMode("sign-in")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               {copy.back}
@@ -3393,8 +3395,8 @@ export default function KioskPage() {
             <Card>
               <CardHeader className="p-4 sm:p-6">
                 <div className="flex items-start sm:items-center gap-3 mb-2">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-warning-soft flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-warning" />
                   </div>
                   <div>
                     <CardTitle className="text-lg sm:text-2xl">
@@ -3406,11 +3408,11 @@ export default function KioskPage() {
                   </div>
                 </div>
                 {hosts.find((host) => host.id === form.hostId)?.name ? (
-                  <p className="mt-2 text-sm font-medium text-[#00703f]">
+                  <p className="mt-2 text-sm font-medium text-primary-text">
                     {fill(copy.hostTold, { host: hosts.find((host) => host.id === form.hostId)!.name })}
                   </p>
                 ) : form.hostId || hostNotificationsEnabled === false ? (
-                  <p className="mt-2 text-sm text-[#55625a]">{hostNotificationsEnabled ? copy.hostNotTold : copy.hostNotifyOff}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{hostNotificationsEnabled ? copy.hostNotTold : copy.hostNotifyOff}</p>
                 ) : null}
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
@@ -3460,7 +3462,7 @@ export default function KioskPage() {
                 )}
 
                 {trainingWatched && (
-                  <div className="rounded-lg border border-[#dce6df] bg-[#e2f4e9] p-4">
+                  <div className="rounded-lg border border-border bg-success-soft p-4">
                     <label htmlFor="acknowledge" className="flex min-h-12 cursor-pointer items-start gap-3">
                       <Checkbox
                         id="acknowledge"
@@ -3499,17 +3501,18 @@ export default function KioskPage() {
 
         {mode === "cleared" && selectedVisitorType && (
           <div className="max-w-3xl mx-auto space-y-4">
+            <KioskStepper current={2} copy={copy} />
             <Button variant="ghost" className="bg-transparent" onClick={() => setMode("sign-in")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
-            <Card className="border-2 border-[#00854c]">
+            <Card className="border-2 border-primary">
               <CardContent className="p-8 space-y-3">
-                <p className="inline-flex items-center gap-2 rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
+                <StatusPill tone="ok">
                   <Shield className="w-4 h-4" />
                   Safety training done
-                </p>
-                <h2 className="text-3xl font-bold">You are cleared, {form.firstName || "visitor"}</h2>
+                </StatusPill>
+                <h2 className="text-32 font-bold">You are cleared, {form.firstName || "visitor"}</h2>
                 <p className="text-lg">{clearanceMessage || "You did the safety video. You are cleared."}</p>
                 <p className="text-muted-foreground">You watched the safety video from your training link. No video and no code today.</p>
               </CardContent>
@@ -3518,7 +3521,7 @@ export default function KioskPage() {
               <Button variant="outline" className="h-14" onClick={() => setMode("training")}>
                 Watch it anyway
               </Button>
-              <Button className="h-14 flex-1 bg-[#00854c] hover:bg-[#00703f]" onClick={() => proceedToPhoto()}>
+              <Button className="h-14 flex-1" onClick={() => proceedToPhoto()}>
                 Next: photo
               </Button>
             </div>
@@ -3527,6 +3530,7 @@ export default function KioskPage() {
 
         {mode === "code" && selectedVisitorType && (
           <div className="max-w-3xl mx-auto space-y-4">
+            <KioskStepper current={2} copy={copy} />
             <Button variant="ghost" className="bg-transparent" onClick={() => setMode("sign-in")}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
@@ -3534,9 +3538,7 @@ export default function KioskPage() {
             <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
               <Card>
                 <CardContent className="p-8 space-y-4">
-                  <p className="inline-flex items-center gap-2 rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
-                    Training on file
-                  </p>
+                  <StatusPill tone="ok">Training on file</StatusPill>
                   <h2 className="text-3xl font-bold">Type the 6 digit code</h2>
                   <p className="text-muted-foreground">
                     Welcome back. This email finished safety training before. To skip the video, type the code we sent to{" "}
@@ -3547,7 +3549,7 @@ export default function KioskPage() {
                     {Array.from({ length: 6 }).map((_, index) => (
                       <div
                         key={index}
-                        className="flex h-16 w-12 items-center justify-center rounded-xl border-2 border-[#7b8b7f] font-mono text-3xl font-bold"
+                        className="flex h-16 w-12 items-center justify-center rounded-xl border-2 border-field font-mono text-3xl font-bold"
                       >
                         {codeDigits[index] || ""}
                       </div>
@@ -3566,7 +3568,7 @@ export default function KioskPage() {
                       Watch the video instead
                     </Button>
                     <Button
-                      className="h-14 bg-[#00854c] hover:bg-[#00703f]"
+                      className="h-14"
                       disabled={codeDigits.length !== 6 || isLoading}
                       onClick={() => void verifyKioskCode()}
                     >
@@ -3676,6 +3678,7 @@ export default function KioskPage() {
 
         {mode === "photo" && (
           <div className="max-w-xl mx-auto">
+            <KioskStepper current={selectedVisitorType?.requires_training ? 3 : 2} includeTraining={Boolean(selectedVisitorType?.requires_training)} copy={copy} />
             <Button variant="ghost" className="mb-4 sm:mb-6 bg-transparent" onClick={() => {
               stopCamera()
               setCapturedPhoto(null)
@@ -3782,7 +3785,7 @@ export default function KioskPage() {
                             {copy.skipPhotoStaff}
                           </Button>
                         ) : (
-                          <p className="flex-1 text-sm text-[#55625a]">{copy.photoStaffHelp}</p>
+                          <p className="flex-1 text-sm text-muted-foreground">{copy.photoStaffHelp}</p>
                         )
                       ) : (
                         <Button
@@ -3826,26 +3829,27 @@ export default function KioskPage() {
         )}
 
         {mode === "success" && successData && (
-          <div className="max-w-md mx-auto text-center">
+          <div className="mx-auto max-w-2xl text-center">
             <Card className="border-primary/20">
               <CardContent className="p-4 sm:p-6 py-6 sm:py-8">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                  <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_0_12px_var(--success-soft)] sm:mb-6 sm:h-20 sm:w-20">
+                  <CheckCircle className="h-8 w-8 sm:h-10 sm:w-10" />
                 </div>
 
-                <h2 className="text-xl sm:text-2xl font-bold mb-2">{successData.type === "in" ? copy.signedInTitle : copy.signedOutTitle}</h2>
-                <p className="text-base sm:text-lg text-muted-foreground mb-4 sm:mb-6">{successData.name}</p>
+                <h2 className="mb-2 text-24 font-bold sm:text-32">{successData.type === "in" ? copy.signedInTitle : copy.signedOutTitle}{successData.type === "in" && successData.name ? `, ${successData.name.split(" ")[0]}` : ""}</h2>
+                <p className="mb-4 text-17 text-muted-foreground sm:mb-6">{successData.name}</p>
 
                 {successData.type === "in" && (
-                  <div className="bg-secondary rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
-                    <p className="text-xs sm:text-sm text-muted-foreground mb-1">{copy.badgeNumber}</p>
-                    <p className="text-2xl sm:text-3xl font-mono font-bold text-foreground">{successData.badge}</p>
+                  <div className="mb-4 rounded-2xl bg-secondary p-4 text-left sm:mb-6 sm:p-6">
+                    <p className="mb-1 text-sm text-muted-foreground">{copy.badgeNumber}</p>
+                    <p className="font-mono text-40 font-bold tracking-wide text-foreground">{successData.badge}</p>
+                    <p className="mt-1 text-13 text-muted-foreground">{copy.rememberSignOut}</p>
                   </div>
                 )}
 
                 {successData.type === "in" && successData.signInId && (
                   <div className="mb-4 sm:mb-6">
-                    <div className="bg-white rounded-lg p-3 inline-block mx-auto">
+                    <div className="inline-block mx-auto rounded-lg bg-card p-3">
                       <QRCode
                         value={`${typeof window !== "undefined" ? window.location.origin : ""}/badge/${successData.signInId}`}
                         size={140}
@@ -3858,7 +3862,7 @@ export default function KioskPage() {
                 )}
 
                 {successData.type === "in" ? (
-                  <p className="mb-2 text-sm font-medium text-[#00703f]">
+                  <p className="mb-2 text-sm font-medium text-primary-text">
                     {successData.hostName
                       ? fill(copy.hostTold, { host: successData.hostName })
                       : successData.hostNotified === false

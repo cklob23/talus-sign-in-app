@@ -1,8 +1,10 @@
 "use client"
 
+import { Check, LogOut, X } from "lucide-react"
 import { useState } from "react"
 import { PublicVisitorChrome } from "@/lib/public-visitor-chrome"
 import { Button } from "@/components/ui/button"
+import { StatusPill } from "@/components/v2/status-pill"
 import { formatDateTimeWithZone } from "@/lib/timezone"
 import { visitActionsVisible, visitDepartureStamp, visitLinkFooter } from "@/lib/visit-page"
 
@@ -91,28 +93,29 @@ export function VisitPageClient({
       logoUrl={logoUrl}
       footer={visitLinkFooter(hostName, expiresAt, timezone)}
     >
-      <p className="text-sm text-[#55625a]">For {hostName}</p>
-      <div className="mt-2 inline-flex items-center gap-2 self-start rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
+      <p className="text-sm text-muted-foreground">For {hostName}</p>
+      <StatusPill tone={status === "on_site" ? "ok" : status === "signed_out" ? "neu" : "warn"} className="mt-2 self-start">
+        {status === "on_site" ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
         {status === "on_site" ? "On site" : status === "signed_out" ? "Signed out" : "Flagged"}
-      </div>
+      </StatusPill>
       <div className="mt-4 flex items-center gap-4">
         {photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={photoUrl} alt="" className="h-[72px] w-[72px] rounded-full object-cover" />
         ) : (
-          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#e2f4e9] text-xl font-semibold text-[#00703f]">
+          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-accent text-xl font-semibold text-primary-text">
             {visitorName.slice(0, 1)}
           </div>
         )}
         <div>
-          <h1 className="text-2xl font-bold">{visitorName}</h1>
-          <p className="text-[#55625a]">
+          <h1 className="text-24 font-bold">{visitorName}</h1>
+          <p className="text-muted-foreground">
             {[company, visitorType].filter(Boolean).join(" · ")}
           </p>
         </div>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-[#dce6df] bg-white">
+      <div className="v2-card mt-6 overflow-hidden px-[18px]">
         <Row label="Site" value={siteName} />
         <Row label="Arrived" value={formatDateTimeWithZone(arrivalTime, timezone)} />
         {departure ? <Row label="Departed" value={departure} /> : null}
@@ -122,21 +125,23 @@ export function VisitPageClient({
           label="Training"
           value={trainingDone ? trainingMessage || "Done" : "Not cleared"}
           last
+          emphasis={trainingDone}
         />
       </div>
 
       {status === "disputed" ? (
-        <p className="mt-6 rounded-xl bg-[#fff3df] p-4 text-[#8a4500]">
+        <p className="mt-6 rounded-xl bg-warning-soft p-4 text-warning">
           Reception and admins have been told this is not your visitor.
         </p>
       ) : null}
 
       {readOnly ? (
-        <p className="mt-6 rounded-xl bg-[#e2f4e9] p-4 text-[#00703f]">
+        <p className="mt-6 rounded-xl bg-success-soft p-4 text-success">
           {visitorName} is signed out.
         </p>
       ) : (
-        <Button className="mt-6 h-14 w-full bg-[#00854c] text-base hover:bg-[#00703f]" onClick={() => void signOut()} disabled={busy}>
+        <Button className="mt-6 h-14 w-full text-base" onClick={() => void signOut()} disabled={busy}>
+          <LogOut className="h-5 w-5" />
           Sign out visitor
         </Button>
       )}
@@ -144,24 +149,37 @@ export function VisitPageClient({
       {!readOnly && status !== "disputed" ? (
         <Button
           variant="outline"
-          className="mt-3 h-14 w-full border-[#b3000a] text-[#b3000a] hover:bg-[#fdecec]"
+          className="mt-3 h-14 w-full border-danger text-danger hover:bg-danger-soft"
           onClick={() => void dispute()}
           disabled={busy}
         >
+          <X className="h-5 w-5" />
           Not my visitor
         </Button>
       ) : null}
 
-      {error ? <p className="mt-4 text-sm text-[#b3000a]">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
     </PublicVisitorChrome>
   )
 }
 
-function Row({ label, value, last, mono }: { label: string; value: string; last?: boolean; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  last,
+  mono,
+  emphasis,
+}: {
+  label: string
+  value: string
+  last?: boolean
+  mono?: boolean
+  emphasis?: boolean
+}) {
   return (
-    <div className={`flex min-h-12 items-center justify-between gap-4 px-4 ${last ? "" : "border-b border-[#dce6df]"}`}>
-      <span className="text-[#55625a]">{label}</span>
-      <b className={`text-right ${mono ? "font-mono" : ""}`}>{value}</b>
+    <div className={`flex min-h-12 items-center justify-between gap-4 ${last ? "" : "border-b border-border"}`}>
+      <span className="text-muted-foreground">{label}</span>
+      <b className={`text-right ${mono ? "font-mono" : ""} ${emphasis ? "text-primary-text" : ""}`}>{value}</b>
     </div>
   )
 }

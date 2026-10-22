@@ -78,65 +78,65 @@ export default async function AdminDashboardPage() {
     .gte("expected_arrival", new Date().toISOString())
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Overview of visitor activity at {branding.companyName} facilities</p>
+        <h1 className="text-24 font-bold sm:text-32">Dashboard</h1>
+        <p className="mt-1 text-sm text-muted-foreground sm:text-base">Overview of visitor activity at {branding.companyName} facilities</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Current Visitors</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Card className="p-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 sm:p-5 sm:pb-2">
+            <CardTitle className="text-13 font-medium text-muted-foreground">On site now</CardTitle>
+            <Users className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-xl sm:text-2xl font-bold">{currentVisitors || 0}</div>
-            <p className="text-xs text-muted-foreground hidden sm:block">On-site right now</p>
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="text-32 font-bold tracking-tight">{(currentVisitors || 0) + (currentEmployees || 0)}</div>
+            <p className="text-13 text-muted-foreground">{currentVisitors || 0} visitors, {currentEmployees || 0} staff</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Current Employees</CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Card className="p-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 sm:p-5 sm:pb-2">
+            <CardTitle className="text-13 font-medium text-muted-foreground">Signed in today</CardTitle>
+            <UserCheck className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-xl sm:text-2xl font-bold">{currentEmployees || 0}</div>
-            <p className="text-xs text-muted-foreground hidden sm:block">Employees on-site</p>
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="text-32 font-bold tracking-tight">{(todayVisitors || 0) + (todayEmployees || 0)}</div>
+            <p className="text-13 text-muted-foreground">{todayVisitors || 0} visitors, {todayEmployees || 0} staff</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Today{"'"}s Sign-Ins</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Card className="p-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 sm:p-5 sm:pb-2">
+            <CardTitle className="text-13 font-medium text-muted-foreground">Staff on site</CardTitle>
+            <Briefcase className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-xl sm:text-2xl font-bold">{(todayVisitors || 0) + (todayEmployees || 0)}</div>
-            <p className="text-xs text-muted-foreground hidden sm:block">{todayVisitors || 0} visitors, {todayEmployees || 0} employees</p>
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="text-32 font-bold tracking-tight">{currentEmployees || 0}</div>
+            <p className="text-13 text-muted-foreground">Employees signed in</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Avg. Duration</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Card className="p-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 sm:p-5 sm:pb-2">
+            <CardTitle className="text-13 font-medium text-muted-foreground">Avg. duration</CardTitle>
+            <Clock className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-xl sm:text-2xl font-bold">{avgDuration} min</div>
-            <p className="text-xs text-muted-foreground hidden sm:block">Last 7 days</p>
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="text-32 font-bold tracking-tight">{avgDuration} min</div>
+            <p className="text-13 text-muted-foreground">Last 7 days</p>
           </CardContent>
         </Card>
 
-        <Card className="col-span-2 lg:col-span-1">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Pending Bookings</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Card className="col-span-2 p-0 lg:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4 pb-2 sm:p-5 sm:pb-2">
+            <CardTitle className="text-13 font-medium text-muted-foreground">Expected today</CardTitle>
+            <AlertTriangle className="hidden h-5 w-5 text-muted-foreground sm:block" />
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            <div className="text-xl sm:text-2xl font-bold">{pendingBookings || 0}</div>
-            <p className="text-xs text-muted-foreground hidden sm:block">Upcoming visits</p>
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="text-32 font-bold tracking-tight">{pendingBookings || 0}</div>
+            <p className="text-13 text-muted-foreground">Bookings not here yet</p>
           </CardContent>
         </Card>
       </div>
