@@ -5,6 +5,7 @@ import { TrainingPlayer } from "@/components/training-player"
 import { PublicVisitorChrome } from "@/lib/public-visitor-chrome"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { parseTrainingCompleteResponse, trainingLinkShowsCleared } from "@/lib/training-watch"
 
 export function TrainingLinkClient({
   token,
@@ -109,11 +110,12 @@ export function TrainingLinkClient({
           videoSeconds,
         }),
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error || "Could not save your training.")
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      const parsed = parseTrainingCompleteResponse(res, json, copy.cleared)
+      if (!parsed.ok) throw new Error(parsed.error)
       setDone(true)
-      setDoneMessage(typeof json.message === "string" ? json.message : copy.cleared)
-      setDoneMessageEs(typeof json.messageEs === "string" ? json.messageEs : copy.cleared)
+      setDoneMessage(parsed.message)
+      setDoneMessageEs(parsed.messageEs)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save your training.")
     } finally {
@@ -135,13 +137,18 @@ export function TrainingLinkClient({
       <h1 className="mt-1 text-3xl font-bold">{copy.title}</h1>
       <p className="mt-2 text-[#55625a]">{copy.intro}</p>
 
-      {done && !ticket ? (
+      {trainingLinkShowsCleared(done) ? (
         <div className="mt-6 rounded-2xl border-2 border-[#00854c] bg-white p-6">
           <p className="text-sm font-semibold text-[#00703f]">{copy.cleared}</p>
           <p className="mt-2 text-lg font-medium">{lang === "es" ? doneMessageEs : doneMessage}</p>
           <p className="mt-3 text-sm text-[#55625a]">{copy.hint}</p>
           <p className="mt-1 text-sm font-medium">{copy.email}</p>
-          <Button className="mt-4 bg-[#00854c] hover:bg-[#00703f]" onClick={() => setDone(false)}>
+          <Button className="mt-4 bg-[#00854c] hover:bg-[#00703f]" onClick={() => {
+            setDone(false)
+            setTicket(null)
+            setEnded(false)
+            setAcked(false)
+          }}>
             {copy.watchAnyway}
           </Button>
         </div>

@@ -17,6 +17,7 @@ export type AuditAction =
   | "visitor.auto_sign_out"
   | "visitor.not_my_visitor"
   | "visitor.training_link_sent"
+  | "visitor.photo_missing"
   // Employee actions
   | "employee.sign_in"
   | "employee.sign_out"

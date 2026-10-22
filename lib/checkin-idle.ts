@@ -78,8 +78,12 @@ export function clampSeek(progress: WatchProgress, requested: number): number {
   return requested > progress.maxWatched + SEEK_TOLERANCE_SECONDS ? progress.maxWatched : requested
 }
 
+/** Unlock only after a native ended event and at least 95 percent genuinely watched. */
+export const WATCH_COMPLETE_RATIO = 0.95
+
 /** True when the furthest-watched point reaches the end of the video. */
-export function watchedToEnd(progress: WatchProgress, duration: number): boolean {
+export function watchedToEnd(progress: WatchProgress, duration: number, ended = true): boolean {
+  if (!ended) return false
   if (!Number.isFinite(duration) || duration <= 0) return false
-  return progress.maxWatched >= duration - SEEK_TOLERANCE_SECONDS - 1
+  return progress.maxWatched / duration >= WATCH_COMPLETE_RATIO
 }

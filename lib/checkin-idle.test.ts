@@ -76,4 +76,10 @@ describe("training watch progress", () => {
     assert.equal(watchedToEnd(progress, 453), true)
     assert.equal(watchedToEnd(progress, Number.NaN), false)
   })
+
+  it("does not unlock from a seek-to-end without 95 percent watched", () => {
+    assert.equal(watchedToEnd({ maxWatched: 12 }, 180, true), false)
+    assert.equal(watchedToEnd({ maxWatched: 171 }, 180, true), true)
+    assert.equal(watchedToEnd({ maxWatched: 180 }, 180, false), false)
+  })
 })
