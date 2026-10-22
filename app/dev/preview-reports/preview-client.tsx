@@ -7,7 +7,7 @@ import { SendReportDialog } from "@/components/admin/reports/send-dialog"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
 import { Toaster } from "@/components/ui/toaster"
 import { renderReportEmail } from "@/lib/reports/email"
-import type { ReportRun, ReportSchedule } from "@/lib/reports/types"
+import { DASHBOARD_PERIODS, type ReportRun, type ReportSchedule } from "@/lib/reports/types"
 
 const locations = [
   { id: "loc-houston", name: "Houston HQ", timezone: "America/Chicago" },
@@ -141,6 +141,7 @@ const email = renderReportEmail({
   periodLabel: "All time",
   extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
 })
+const emailHtml = email.html.replaceAll("Geist,'Segoe UI',Helvetica,Arial,sans-serif", "Liberation Sans,DejaVu Sans,Arial,sans-serif")
 
 export function PreviewReportsScreens({ screen }: { screen?: string }) {
   const only = screen?.trim() || "all"
@@ -155,18 +156,29 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
           <p className="text-sm text-muted-foreground mb-4">
             Sign-in logs, training completions, and scheduled email reports. Times use each site timezone.
           </p>
-          <ReportFilterBar
-            period="all"
-            onPeriodChange={() => {}}
-            locations={locations}
-            selectedLocations={[]}
-            onLocationsChange={() => {}}
-            visitorTypes={visitorTypes}
-            selectedVisitorTypes={[]}
-            onVisitorTypesChange={() => {}}
-            showVisitorTypes
-            previewOpen
-          />
+          <div className="flex flex-wrap items-start gap-6">
+            <ReportFilterBar
+              period="all"
+              onPeriodChange={() => {}}
+              locations={locations}
+              selectedLocations={[]}
+              onLocationsChange={() => {}}
+              visitorTypes={visitorTypes}
+              selectedVisitorTypes={[]}
+              onVisitorTypesChange={() => {}}
+              showVisitorTypes
+            />
+            <div className="w-48 rounded-md border bg-popover p-1 shadow-md">
+              {DASHBOARD_PERIODS.map((item) => (
+                <div
+                  key={item.value}
+                  className={`rounded-sm px-2 py-1.5 text-sm ${item.value === "all" ? "bg-accent font-medium" : ""}`}
+                >
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
       ) : null}
 
@@ -182,6 +194,7 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
             locationIds={[]}
             visitorTypeIds={[]}
             previewRecipients="caleb@talusag.com, ops@partner.com"
+            previewInline
           />
         </section>
       ) : null}
@@ -240,7 +253,7 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
           <iframe
             title="Report email"
             className="h-[880px] w-full rounded-xl border bg-white"
-            srcDoc={email.html}
+            srcDoc={emailHtml}
           />
         </section>
       ) : null}

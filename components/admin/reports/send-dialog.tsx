@@ -38,6 +38,7 @@ export function SendReportDialog({
   locationIds,
   visitorTypeIds,
   previewRecipients,
+  previewInline = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -49,6 +50,7 @@ export function SendReportDialog({
   locationIds: string[]
   visitorTypeIds: string[]
   previewRecipients?: string
+  previewInline?: boolean
 }) {
   const [recipientText, setRecipientText] = useState(previewRecipients || "")
   const [format, setFormat] = useState<ReportFormat>("both")
@@ -105,6 +107,75 @@ export function SendReportDialog({
     }
   }
 
+  const fields = (
+    <>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="adhoc-recipients">Recipients</Label>
+          <Textarea
+            id="adhoc-recipients"
+            value={recipientText}
+            onChange={(event) => setRecipientText(event.target.value)}
+            placeholder="caleb@talusag.com, operations@talusag.com"
+            rows={3}
+          />
+          <p className="text-xs text-muted-foreground">Any email. Separate with commas. @talusag.com is most common.</p>
+          {invalid.length > 0 && (
+            <p className="text-sm text-destructive">These addresses are not valid: {invalid.join(", ")}</p>
+          )}
+          {outside.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {outside.map((email) => (
+                <Badge key={email} variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-900">
+                  <AlertTriangle className="w-3 h-3" />
+                  {email} is outside @talusag.com
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label>Attachment</Label>
+          <Select value={format} onValueChange={(value) => setFormat(value as ReportFormat)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(FORMAT_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button type="button" onClick={send} disabled={!canSend}>
+          <Send className="w-4 h-4 mr-2" />
+          {sending ? "Sending..." : "Send now"}
+        </Button>
+      </div>
+    </>
+  )
+
+  if (previewInline) {
+    return (
+      <div className="mx-auto w-full max-w-lg space-y-4 rounded-lg border bg-background p-6 shadow-lg">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">Send report</h2>
+          <p className="text-sm text-muted-foreground">
+            Email {REPORT_KIND_LABELS[kind].toLowerCase()} for {periodLabel} once. This does not create a schedule.
+          </p>
+        </div>
+        {fields}
+      </div>
+    )
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -114,56 +185,7 @@ export function SendReportDialog({
             Email {REPORT_KIND_LABELS[kind].toLowerCase()} for {periodLabel} once. This does not create a schedule.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="adhoc-recipients">Recipients</Label>
-            <Textarea
-              id="adhoc-recipients"
-              value={recipientText}
-              onChange={(event) => setRecipientText(event.target.value)}
-              placeholder="caleb@talusag.com, operations@talusag.com"
-              rows={3}
-            />
-            <p className="text-xs text-muted-foreground">Any email. Separate with commas. @talusag.com is most common.</p>
-            {invalid.length > 0 && (
-              <p className="text-sm text-destructive">These addresses are not valid: {invalid.join(", ")}</p>
-            )}
-            {outside.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {outside.map((email) => (
-                  <Badge key={email} variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-900">
-                    <AlertTriangle className="w-3 h-3" />
-                    {email} is outside @talusag.com
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label>Attachment</Label>
-            <Select value={format} onValueChange={(value) => setFormat(value as ReportFormat)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(FORMAT_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={send} disabled={!canSend}>
-            <Send className="w-4 h-4 mr-2" />
-            {sending ? "Sending..." : "Send now"}
-          </Button>
-        </DialogFooter>
+        {fields}
       </DialogContent>
     </Dialog>
   )
