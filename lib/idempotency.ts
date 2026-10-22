@@ -1,3 +1,5 @@
+import { asOptionalUuid } from "@/lib/kiosk-input"
+
 export const PG_UNIQUE_VIOLATION = "23505"
 export const PG_UNDEFINED_COLUMN = "42703"
 export const PG_UNDEFINED_TABLE = "42P01"
@@ -14,16 +16,9 @@ export function isUndefinedTable(error: { code?: string } | null | undefined): b
   return error?.code === PG_UNDEFINED_TABLE
 }
 
+/** Missing (`undefined`) → `null`. Present-but-invalid → `undefined`. */
 export function parseIdempotencyKey(value: unknown): string | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null || value === "") return null
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
-    return undefined
-  }
-  return trimmed
+  return asOptionalUuid(value)
 }
 
 export interface SignInRow {

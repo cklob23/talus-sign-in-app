@@ -273,3 +273,139 @@ describe("kiosk sign-in / training / notify-host / sign-out payloads", () => {
     assert.equal((await res.json()).error, "Invalid field value")
   })
 })
+
+describe("current kiosk client payloads", () => {
+  const IDEMPOTENCY_KEY = "11111111-1111-4111-8111-111111111111"
+
+  it("accepts the walk-in sign-in body the kiosk posts today", async () => {
+    const body = wire({
+      visitor_id: VISITOR_ID,
+      visitor_name: "Jane Doe",
+      visitor_email: "jane.doe@talusag.com",
+      visitor_company: "Talus Ag",
+      purpose: "Meeting",
+      visitor_type_name: "Contractor",
+      location_id: LOCATION_ID,
+      host_id: HOST_ID,
+      badge_number: "V04821",
+      photo_url: PHOTO_URL,
+      visitor_type_id: TYPE_ID,
+      booking_id: null,
+      timezone: "Pacific Standard Time",
+      idempotency_key: IDEMPOTENCY_KEY,
+    })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", body))
+    assert.equal(res.status, 200, await res.clone().text())
+    const json = await res.json()
+    assert.equal(json.success, true)
+  })
+
+  it("accepts the booking sign-in body with a null photo and omitted extras treated as null", async () => {
+    const body = wire({
+      visitor_id: VISITOR_ID,
+      visitor_name: "Jane Doe",
+      visitor_email: "jane.doe@talusag.com",
+      visitor_company: "Talus Ag",
+      purpose: "Site walk",
+      visitor_type_name: "Contractor",
+      location_id: LOCATION_ID,
+      host_id: HOST_ID,
+      badge_number: "V04821",
+      photo_url: null,
+      visitor_type_id: TYPE_ID,
+      booking_id: "99999999-9999-4999-8999-999999999999",
+      timezone: "Pacific Standard Time",
+      idempotency_key: IDEMPOTENCY_KEY,
+    })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", body))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("accepts a walk-in sign-in when idempotency_key and extra fields are omitted", async () => {
+    const body = wire({
+      visitor_id: VISITOR_ID,
+      visitor_name: "Jane Doe",
+      visitor_email: null,
+      location_id: LOCATION_ID,
+      host_id: HOST_ID,
+      badge_number: "V04821",
+      photo_url: null,
+      visitor_type_id: TYPE_ID,
+      booking_id: null,
+      timezone: "Pacific Standard Time",
+    })
+    assert.equal("idempotency_key" in body, false)
+    assert.equal("visitor_company" in body, false)
+    assert.equal("purpose" in body, false)
+    assert.equal("visitor_type_name" in body, false)
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", body))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("rejects a present-but-invalid idempotency_key on sign-in", async () => {
+    const res = await signInPost(
+      jsonRequest("/api/kiosk/sign-in", {
+        visitor_id: VISITOR_ID,
+        location_id: LOCATION_ID,
+        idempotency_key: "not-a-uuid",
+      }),
+    )
+    assert.equal(res.status, 400)
+    assert.equal((await res.json()).error, "Invalid field value")
+  })
+
+  it("accepts the training notify-host body the kiosk posts today", async () => {
+    const body = wire({
+      hostId: HOST_ID,
+      visitorName: "Jane Doe",
+      visitorCompany: "Talus Ag",
+      purpose: "Meeting",
+      locationName: "Headquarters",
+      locationId: LOCATION_ID,
+      notificationType: "completing_training",
+      visitorTypeName: "Contractor",
+      idempotencyKey: IDEMPOTENCY_KEY,
+    })
+    assert.equal("badgeNumber" in body, false)
+    assert.equal("visitorPhotoUrl" in body, false)
+    assert.equal("signInId" in body, false)
+    const res = await notifyHostPost(jsonRequest("/api/notify-host", body))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("accepts notify-host training when idempotencyKey is omitted", async () => {
+    const body = wire({
+      hostId: HOST_ID,
+      visitorName: "Jane Doe",
+      visitorCompany: "Talus Ag",
+      purpose: "Meeting",
+      locationName: "Headquarters",
+      locationId: LOCATION_ID,
+      notificationType: "completing_training",
+      visitorTypeName: "Contractor",
+    })
+    assert.equal("idempotencyKey" in body, false)
+    const res = await notifyHostPost(jsonRequest("/api/notify-host", body))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+
+  it("rejects a present-but-invalid notify-host idempotencyKey", async () => {
+    const res = await notifyHostPost(
+      jsonRequest("/api/notify-host", {
+        hostId: HOST_ID,
+        visitorName: "Jane Doe",
+        locationId: LOCATION_ID,
+        idempotencyKey: "not-a-uuid",
+      }),
+    )
+    assert.equal(res.status, 400)
+    assert.equal((await res.json()).error, "Invalid host, sign-in id, or idempotency key")
+  })
+
+  it("finds an active sign-in by badge number without email", async () => {
+    const body = wire({ badgeNumber: "V04821" })
+    assert.equal("email" in body, false)
+    const res = await findSignInPost(jsonRequest("/api/kiosk/find-sign-in", body))
+    assert.equal(res.status, 200, await res.clone().text())
+  })
+})

@@ -36,11 +36,16 @@ function memorySignInStore(seed: SignInRow[] = []): SignInIdempotencyStore & { i
 }
 
 describe("parseIdempotencyKey", () => {
-  it("accepts a UUID and rejects junk", () => {
-    assert.equal(parseIdempotencyKey(KEY), KEY)
+  it("treats a missing or empty key as omitted, not invalid", () => {
+    assert.equal(parseIdempotencyKey(undefined), null)
     assert.equal(parseIdempotencyKey(""), null)
     assert.equal(parseIdempotencyKey(null), null)
+  })
+
+  it("accepts a UUID and rejects junk", () => {
+    assert.equal(parseIdempotencyKey(KEY), KEY)
     assert.equal(parseIdempotencyKey("not-a-uuid"), undefined)
+    assert.equal(parseIdempotencyKey(123), undefined)
   })
 })
 

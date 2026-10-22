@@ -9,3 +9,6 @@ export class NextResponse extends Response {
 }
 
 export class NextRequest extends Request {}
+
+/** Tests assert the HTTP response, not the after() SMTP/Twilio work. */
+export function after(_fn: () => unknown) {}
