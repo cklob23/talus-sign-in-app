@@ -73,22 +73,25 @@ export async function PUT(request: Request) {
     }
 
     const id = asRequiredUuid((body as { id?: unknown }).id)
-    const photo_url = asOptionalHttpUrl((body as { photo_url?: unknown }).photo_url)
+    const hasPhotoUrl = Object.prototype.hasOwnProperty.call(body, "photo_url")
+    const photo_url = hasPhotoUrl
+      ? asOptionalHttpUrl((body as { photo_url?: unknown }).photo_url)
+      : null
 
     if (!id) {
       return NextResponse.json({ error: "Missing required field: id" }, { status: 400 })
+    }
+    if (!hasPhotoUrl) {
+      return NextResponse.json({ error: "Missing required field: photo_url" }, { status: 400 })
     }
     if (photo_url === undefined) {
       return NextResponse.json({ error: "Invalid photo_url" }, { status: 400 })
     }
 
     const adminClient = getAdminClient()
-    const updateData: Record<string, string | null> = {}
-    if (photo_url !== undefined) updateData.photo_url = photo_url
-
     const { data: visitor, error: updateError } = await adminClient
       .from("visitors")
-      .update(updateData)
+      .update({ photo_url })
       .eq("id", id)
       .select()
       .single()

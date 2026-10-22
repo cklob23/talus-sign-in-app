@@ -5,8 +5,9 @@ export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value)
 }
 
+/** Missing (`undefined`) → `null`. Present-but-invalid → `undefined`. */
 export function asOptionalUuid(value: unknown): string | null | undefined {
-  if (value === undefined) return undefined
+  if (value === undefined) return null
   if (value === null || value === "") return null
   if (!isUuid(value)) return undefined
   return value
@@ -24,7 +25,7 @@ export function asTrimmedString(value: unknown, max: number): string | null {
 }
 
 export function asOptionalString(value: unknown, max: number): string | null | undefined {
-  if (value === undefined) return undefined
+  if (value === undefined) return null
   if (value === null) return null
   if (typeof value !== "string") return undefined
   const trimmed = value.trim()
@@ -34,7 +35,7 @@ export function asOptionalString(value: unknown, max: number): string | null | u
 }
 
 export function asOptionalEmail(value: unknown): string | null | undefined {
-  if (value === undefined) return undefined
+  if (value === undefined) return null
   if (value === null || value === "") return null
   if (typeof value !== "string") return undefined
   const email = value.trim().toLowerCase()
@@ -50,7 +51,7 @@ export function asRequiredEmail(value: unknown): string | null {
 }
 
 export function asOptionalHttpUrl(value: unknown, max = 2000): string | null | undefined {
-  if (value === undefined) return undefined
+  if (value === undefined) return null
   if (value === null || value === "") return null
   if (typeof value !== "string") return undefined
   const trimmed = value.trim()
@@ -61,7 +62,7 @@ export function asOptionalHttpUrl(value: unknown, max = 2000): string | null | u
 }
 
 export function asOptionalIsoDate(value: unknown): string | null | undefined {
-  if (value === undefined) return undefined
+  if (value === undefined) return null
   if (value === null || value === "") return null
   if (typeof value !== "string") return undefined
   const time = Date.parse(value)
