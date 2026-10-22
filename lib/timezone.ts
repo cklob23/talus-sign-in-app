@@ -73,6 +73,9 @@ const WINDOWS_TO_IANA: Record<string, string> = {
   "Coordinated Universal Time": "UTC",
 }
 
+/** Used for host emails and the /visit page when a location has no timezone. */
+export const DEFAULT_DISPLAY_TIMEZONE = "America/New_York"
+
 /**
  * Convert a Windows timezone name to an IANA timezone identifier
  * Returns the original string if it's already an IANA identifier or unknown
@@ -85,6 +88,13 @@ export function toIANATimezone(timezone: string): string {
   }
 
   return timezone
+}
+
+/** Location timezone for display. Empty/missing values use America/New_York, not UTC. */
+export function resolveDisplayTimeZone(timezone?: string | null): string {
+  const raw = typeof timezone === "string" ? timezone.trim() : ""
+  if (!raw) return DEFAULT_DISPLAY_TIMEZONE
+  return toIANATimezone(raw)
 }
 
 function timezoneParts(

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
+  DEFAULT_DISPLAY_TIMEZONE,
   formatDateTimeWithZone,
   formatTimeWithZone,
   getTimezoneAbbreviation,
+  resolveDisplayTimeZone,
   startOfDayInTimezone,
   toIANATimezone,
   zonedTimeToUtc,
@@ -21,6 +23,16 @@ describe("toIANATimezone", () => {
     assert.equal(toIANATimezone("America/Chicago"), "America/Chicago")
     assert.equal(toIANATimezone("Africa/Nairobi"), "Africa/Nairobi")
     assert.equal(toIANATimezone(""), "UTC")
+  })
+})
+
+describe("resolveDisplayTimeZone", () => {
+  it("falls back to America/New_York when a location has no timezone", () => {
+    assert.equal(resolveDisplayTimeZone(null), DEFAULT_DISPLAY_TIMEZONE)
+    assert.equal(resolveDisplayTimeZone(""), "America/New_York")
+    assert.equal(resolveDisplayTimeZone("   "), "America/New_York")
+    assert.equal(resolveDisplayTimeZone("America/Chicago"), "America/Chicago")
+    assert.equal(resolveDisplayTimeZone("Eastern Standard Time"), "America/New_York")
   })
 })
 

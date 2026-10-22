@@ -5,6 +5,7 @@ import { getBrandingSettings } from "@/lib/branding"
 import { getHostTrainingSnapshot } from "@/lib/training-clearance"
 import { rateLimit } from "@/lib/rate-limit"
 import { formatHostTrainingLine, visitorFullName } from "@/lib/visit-page"
+import { resolveDisplayTimeZone } from "@/lib/timezone"
 
 export const dynamic = "force-dynamic"
 
@@ -63,7 +64,7 @@ export default async function VisitPage({ params }: { params: Promise<{ token: s
       company={visitor?.company || ""}
       visitorType={visitorType?.name || ""}
       siteName={location?.name || ""}
-      timezone={location?.timezone || "UTC"}
+      timezone={resolveDisplayTimeZone(location?.timezone)}
       arrivalTime={signIn.sign_in_time}
       signedOutAt={signIn.sign_out_time}
       badgeNumber={signIn.badge_number || ""}

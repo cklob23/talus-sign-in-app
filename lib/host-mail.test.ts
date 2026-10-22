@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
+import { formatMailClock, formatMailTime } from "./email-shell.ts"
 import { renderHostArrivalEmail, renderHostTrainingEmail } from "./host-mail.ts"
 import { renderSignoutSummaryEmail } from "./signout-mail.ts"
 import { renderPasswordResetEmail } from "./password-mail.ts"
@@ -34,6 +35,30 @@ describe("host arrival email", () => {
     assert.match(arrival.html, /color-scheme/)
     assert.match(arrival.html, /role="presentation"/)
     assert.match(arrival.html, /#00854c/)
+    assert.match(arrival.subject, /9:05 AM CDT/)
+    assert.equal(arrival.subject.includes("UTC"), false)
+    assert.match(arrival.html, /9:05 AM CDT/)
+    assert.match(arrival.text, /9:05 AM CDT/)
+    assert.match(arrival.html, /Arrived/)
+  })
+
+  it("uses America/New_York when the location timezone is missing", () => {
+    const mail = renderHostArrivalEmail({
+      visitorName: "QA TEST Link11",
+      locationName: "Test Location",
+      arrivedAt: "2026-10-22T13:13:00.000Z",
+    })
+    const clock = formatMailClock("2026-10-22T13:13:00.000Z")
+    assert.equal(mail.subject, `QA TEST Link11 is here (Test Location, ${clock})`)
+    assert.match(clock, /9:13/)
+    assert.match(clock, /EDT/)
+    assert.equal(clock.includes("UTC"), false)
+    assert.match(mail.html, /9:13/)
+    assert.match(mail.text, /9:13/)
+    assert.equal(mail.subject.includes("UTC"), false)
+    assert.equal(formatMailClock("2026-10-22T13:13:00.000Z", null), formatMailClock("2026-10-22T13:13:00.000Z", "America/New_York"))
+    assert.match(formatMailTime("2026-10-22T13:13:00.000Z"), /EDT/)
+    assert.equal(formatMailTime("2026-10-22T13:13:00.000Z").includes("UTC"), false)
   })
 })
 
@@ -42,6 +67,7 @@ describe("training, sign-out, and reset emails", () => {
     const training = renderHostTrainingEmail({
       visitorName: "Carlos Mendoza",
       locationName: "Houston HQ",
+      arrivedAt: "2026-10-22T13:13:00.000Z",
       visitUrl: "https://signin.talusag.com/visit/abc",
       appOrigin: "https://signin.talusag.com",
     })
