@@ -180,6 +180,10 @@ export function qrTrainingScope(locationId: string): string {
   return `qr:${locationId}`
 }
 
+export function trainingLinkScope(visitorTypeId: string): string {
+  return `link:${visitorTypeId}`
+}
+
 export const KIOSK_TRAINING_SCOPE = "kiosk"
 
 export function kioskMinWatchMs(): number {

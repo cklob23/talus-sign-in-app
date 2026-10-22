@@ -9,6 +9,8 @@ import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
 import { parseTrainingProof, qrTrainingScope, requiredWatchMs, verifyTrainingProof } from "@/lib/training-gate"
+import { getTrainingClearance, recordTrainingCompletion } from "@/lib/training-clearance"
+import { readTrainingCodeProof } from "@/lib/training-codes"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -121,16 +123,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // The page only shows the video step when a URL is set, so a type with no
     // video has nothing to enforce.
     const trainingRequired = visitorType?.requires_training === true && !!visitorType.training_video_url
+    let trainingMethod: "video" | "link" | "code" | null = null
     if (trainingRequired && visitorType) {
-        const proof = parseTrainingProof(body.training)
-        const check = verifyTrainingProof(proof, {
-            visitorTypeId: visitorType.id,
-            scope: qrTrainingScope(location.id),
-            minWatchMs: requiredWatchMs(proof.videoSeconds),
-        })
-        if (!check.ok) {
-            console.log("[QR check-in] training check failed:", check.code)
-            return NextResponse.json({ error: check.message, code: check.code }, { status: 409 })
+        const training = (body.training && typeof body.training === "object" ? body.training : {}) as Record<string, unknown>
+        const via = training.via === "link" || training.via === "code" ? training.via : null
+        const clearance = await getTrainingClearance(admin, visitorEmail, visitorType.id)
+        if (via === "link" && clearance.skipKind === "link") {
+            trainingMethod = "link"
+        } else if (via === "code") {
+            const codeCheck = readTrainingCodeProof(training.codeToken, {
+                email: visitorEmail || undefined,
+                visitorTypeId: visitorType.id,
+            })
+            if (!codeCheck.ok || !clearance.cleared) {
+                return NextResponse.json(
+                    { error: "Enter the code from your email, or watch the video.", code: "training_code_required" },
+                    { status: 409 },
+                )
+            }
+            trainingMethod = "code"
+        } else {
+            const proof = parseTrainingProof(body.training)
+            const check = verifyTrainingProof(proof, {
+                visitorTypeId: visitorType.id,
+                scope: qrTrainingScope(location.id),
+                minWatchMs: requiredWatchMs(proof.videoSeconds),
+            })
+            if (!check.ok) {
+                console.log("[QR check-in] training check failed:", check.code)
+                return NextResponse.json({ error: check.message, code: check.code }, { status: 409 })
+            }
+            trainingMethod = "video"
         }
     }
 
@@ -285,14 +308,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Record the completion so admins can see it and returning visitors are
     // tracked the same way as kiosk visitors. Failure is logged, not fatal:
     // the visitor did watch the video and is already signed in.
-    if (!replayed && trainingRequired && visitorType) {
-        const { error: trainingError } = await admin.from("training_completions").insert({
-            visitor_id: visitor.id,
-            visitor_type_id: visitorType.id,
-            expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    if (!replayed && trainingRequired && visitorType && trainingMethod === "video") {
+        const recorded = await recordTrainingCompletion(admin, {
+            visitorId: visitor.id,
+            visitorTypeId: visitorType.id,
+            source: "qr",
         })
-        if (trainingError) {
-            console.log("[QR check-in] training completion insert failed:", trainingError.message)
+        if (!recorded.ok) {
+            console.log("[QR check-in] training completion insert failed:", recorded.error)
         }
     }
 

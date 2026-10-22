@@ -78,6 +78,15 @@ function createChain(table: string) {
     in() {
       return self
     },
+    ilike() {
+      return self
+    },
+    gte() {
+      return self
+    },
+    lte() {
+      return self
+    },
     order() {
       return self
     },

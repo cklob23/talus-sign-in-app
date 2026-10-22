@@ -10,13 +10,11 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pa
 import { LocationGatePanel, useLocationGate, type CheckinGeofence } from "./location-gate"
 import type { DeviceCoords } from "@/lib/checkin-geofence"
 import {
-    clampSeek,
     IDLE_RESET_NOTICE,
-    recordWatchPosition,
     shouldIdleReset,
-    watchedToEnd,
     type WatchProgress,
 } from "@/lib/checkin-idle"
+import { TrainingPlayer } from "@/components/training-player"
 import {
     ArrowLeft,
     ArrowRight,
@@ -115,6 +113,11 @@ export function CheckinFlow({
     /** Signed ticket from training-start; the server needs it to accept the sign-in. */
     const [trainingTicket, setTrainingTicket] = useState<{ typeId: string; ticket: string } | null>(null)
     const [startingTraining, setStartingTraining] = useState(false)
+    const [skipKind, setSkipKind] = useState<"link" | "code" | null>(null)
+    const [clearanceMessage, setClearanceMessage] = useState<string | null>(null)
+    const [maskedEmail, setMaskedEmail] = useState<string | null>(null)
+    const [codeDigits, setCodeDigits] = useState("")
+    const [codeProof, setCodeProof] = useState<string | null>(null)
     const [idleNotice, setIdleNotice] = useState<string | null>(null)
     const watchProgressRef = useRef<WatchProgress>({ maxWatched: 0 })
     const videoPlayingRef = useRef(false)
@@ -274,12 +277,47 @@ export function CheckinFlow({
      * Runs when leaving the details step because the email entered there is what
      * identifies a returning visitor who signed the current NDA recently.
      */
+    async function lookupClearance(): Promise<"link" | "code" | null> {
+        if (!details.email || !typeId || !selectedType?.requires_training) {
+            setSkipKind(null)
+            return null
+        }
+        try {
+            const res = await fetch("/api/kiosk/training-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-checkin-token": token },
+                body: JSON.stringify({ email: details.email, visitor_type_id: typeId }),
+            })
+            if (!res.ok) return null
+            const json = await res.json()
+            if (json.skipKind === "link" || json.skipKind === "code") {
+                setSkipKind(json.skipKind)
+                setClearanceMessage(typeof json.message === "string" ? json.message : null)
+                setMaskedEmail(typeof json.maskedEmail === "string" ? json.maskedEmail : null)
+                if (json.skipKind === "code") {
+                    void fetch("/api/kiosk/training-code", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "x-checkin-token": token },
+                        body: JSON.stringify({ email: details.email, visitor_type_id: typeId }),
+                    })
+                }
+                return json.skipKind
+            }
+            setSkipKind(null)
+            return null
+        } catch {
+            setSkipKind(null)
+            return null
+        }
+    }
+
     async function continueFromDetails() {
         setError(null)
+        const kind = await lookupClearance()
 
         if (!ndaEnabled || !selectedType?.requires_nda) {
             setNdaInfo(null)
-            advanceFrom("details", false)
+            advanceFrom("details", false, kind)
             return
         }
 
@@ -295,14 +333,14 @@ export function CheckinFlow({
             // blocks the final submit if a signature is genuinely required.
             const info = res.ok && json.required ? (json as NdaInfo) : null
             setNdaInfo(info)
-            advanceFrom("details", info !== null)
+            advanceFrom("details", info !== null, kind)
             return
         } catch {
             setNdaInfo(null)
         } finally {
             setCheckingNda(false)
         }
-        advanceFrom("details", false)
+        advanceFrom("details", false, kind)
     }
 
     /**
@@ -312,7 +350,7 @@ export function CheckinFlow({
      * rebuilds the ordering locally with the freshly resolved NDA requirement
      * instead of reading a stale memo.
      */
-    function advanceFrom(from: Step, ndaRequired: boolean) {
+    function advanceFrom(from: Step, ndaRequired: boolean, kind: "link" | "code" | null = skipKind) {
         const list: Step[] = []
         if (visitorTypes.length > 0) list.push("type")
         list.push("details")
@@ -321,7 +359,7 @@ export function CheckinFlow({
         if (ndaEnabled && ndaRequired) list.push("nda")
         list.push("photo")
         const next = list[list.indexOf(from) + 1]
-        if (next === "training") void startTraining()
+        if (next === "training" && kind !== "link" && kind !== "code") void startTraining()
         if (next) setStep(next)
     }
 
@@ -331,7 +369,7 @@ export function CheckinFlow({
         const next = steps[index + 1]
         if (!next) return
         setStep(next)
-        if (next === "training") void startTraining()
+        if (next === "training" && skipKind !== "link" && skipKind !== "code") void startTraining()
     }
 
     function goBack() {
@@ -373,6 +411,9 @@ export function CheckinFlow({
                             ticket: trainingTicket?.typeId === typeId ? trainingTicket.ticket : null,
                             acknowledged: videoEnded && trainingAcknowledged,
                             videoSeconds,
+                            via: skipKind,
+                            codeToken: codeProof,
+                            prior: skipKind === "link" || (skipKind === "code" && !!codeProof),
                         }
                         : undefined,
                 }),
@@ -580,12 +621,64 @@ export function CheckinFlow({
             ) : null}
 
             {step === "training" && selectedType?.training_video_url ? (
+                skipKind === "link" ? (
+                    <StepPanel title="You are cleared" subtitle={clearanceMessage || "You did the safety video. You are cleared."}>
+                        <p className="text-sm text-muted-foreground">
+                            You watched the safety video from your training link. No video and no code today.
+                        </p>
+                        <NavRow onBack={goBack} nextLabel="Continue" onNext={goNext} error={error} />
+                    </StepPanel>
+                ) : skipKind === "code" && !codeProof ? (
+                    <StepPanel title="Type the 6 digit code" subtitle={`We sent a code to ${maskedEmail || details.email}. It lasts 30 minutes.`}>
+                        <p className="text-sm text-muted-foreground">{clearanceMessage}</p>
+                        <Input
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={6}
+                            value={codeDigits}
+                            onChange={(event) => setCodeDigits(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="h-14 text-center font-mono text-2xl tracking-[0.4em]"
+                        />
+                        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                        <div className="flex flex-col gap-2">
+                            <Button
+                                className="h-12 bg-[#00854c] hover:bg-[#00703f]"
+                                disabled={codeDigits.length !== 6}
+                                onClick={async () => {
+                                    setError(null)
+                                    const res = await fetch("/api/kiosk/training-code/verify", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json", "x-checkin-token": token },
+                                        body: JSON.stringify({
+                                            email: details.email,
+                                            visitor_type_id: typeId,
+                                            code: codeDigits,
+                                        }),
+                                    })
+                                    const json = await res.json().catch(() => ({}))
+                                    if (!res.ok || typeof json.proof !== "string") {
+                                        setError(json.error || "That code is not right.")
+                                        return
+                                    }
+                                    setCodeProof(json.proof)
+                                    goNext()
+                                }}
+                            >
+                                Continue
+                            </Button>
+                            <Button variant="outline" className="h-12" onClick={() => {
+                                setSkipKind(null)
+                                void startTraining()
+                            }}>
+                                Watch the video instead
+                            </Button>
+                        </div>
+                    </StepPanel>
+                ) : (
                 <StepPanel
                     title={selectedType.training_title ?? "Safety training"}
                     subtitle="Please watch the full video before continuing."
                 >
-                    {/* The video only appears once the server has issued the training
-                        ticket, so watch time always counts from a known start. */}
                     {trainingTicket?.typeId !== typeId ? (
                         <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg border bg-card p-4 text-center text-sm">
                             {startingTraining || !error ? (
@@ -600,51 +693,22 @@ export function CheckinFlow({
                             )}
                         </div>
                     ) : (
-                    <div className="overflow-hidden rounded-lg border bg-black">
-                        {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are baked into the source video */}
-                        <video
-                            src={selectedType.training_video_url}
-                            controls
-                            playsInline
-                            controlsList="nodownload noplaybackrate"
-                            disablePictureInPicture
-                            className="aspect-video w-full"
-                            onLoadedMetadata={(e) => {
-                                const duration = e.currentTarget.duration
-                                if (Number.isFinite(duration) && duration > 0) setVideoSeconds(duration)
-                            }}
-                            onPlay={() => {
-                                videoPlayingRef.current = true
-                                lastActivityRef.current = Date.now()
-                            }}
-                            onPause={() => {
-                                videoPlayingRef.current = false
-                                lastActivityRef.current = Date.now()
-                            }}
-                            onTimeUpdate={(e) => {
-                                recordWatchPosition(watchProgressRef.current, e.currentTarget.currentTime)
-                                lastActivityRef.current = Date.now()
-                            }}
-                            onSeeking={(e) => {
-                                const video = e.currentTarget
-                                const allowed = clampSeek(watchProgressRef.current, video.currentTime)
-                                if (allowed !== video.currentTime) video.currentTime = allowed
-                            }}
-                            onEnded={(e) => {
-                                videoPlayingRef.current = false
-                                lastActivityRef.current = Date.now()
-                                const video = e.currentTarget
-                                recordWatchPosition(watchProgressRef.current, video.currentTime)
-                                if (watchedToEnd(watchProgressRef.current, video.duration)) {
-                                    setVideoSeconds(video.duration)
-                                    setVideoEnded(true)
-                                    setError(null)
-                                } else {
-                                    setError("Please watch the whole video without skipping ahead.")
-                                }
-                            }}
-                        />
-                    </div>
+                    <TrainingPlayer
+                        url={selectedType.training_video_url}
+                        title={selectedType.training_title ?? "Safety training"}
+                        onDuration={setVideoSeconds}
+                        onPlayingChange={(playing) => {
+                            videoPlayingRef.current = playing
+                            lastActivityRef.current = Date.now()
+                        }}
+                        onEnded={(seconds) => {
+                            videoPlayingRef.current = false
+                            lastActivityRef.current = Date.now()
+                            setVideoSeconds(seconds)
+                            setVideoEnded(true)
+                            setError(null)
+                        }}
+                    />
                     )}
                     <p className="text-xs text-muted-foreground" aria-live="polite">
                         {videoEnded ? "Video complete." : "The checkbox unlocks when the video has finished."}
@@ -659,7 +723,7 @@ export function CheckinFlow({
                             onChange={(e) => setTrainingAcknowledged(videoEnded && e.target.checked)}
                             className="mt-0.5 h-4 w-4 accent-primary"
                         />
-                        <span>I have watched and understood the safety training.</span>
+                        <span>I watched the video. I will follow the safety rules.</span>
                     </label>
                     <NavRow
                         onBack={goBack}
@@ -669,6 +733,7 @@ export function CheckinFlow({
                         error={error}
                     />
                 </StepPanel>
+                )
             ) : null}
 
             {step === "nda" && ndaInfo ? (

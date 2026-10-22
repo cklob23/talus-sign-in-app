@@ -62,6 +62,7 @@ export async function sendHostNotification(args: {
             visitorPhotoUrl: args.visitorPhotoUrl ?? null,
             purpose: args.purpose ?? null,
             signInId: args.signInId ?? null,
+            hostId: args.hostId,
         })
 
         if (results.email === "sent" || results.sms === "sent" || results.loggedOnly) {

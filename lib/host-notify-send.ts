@@ -2,6 +2,8 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
 import { getSharedTransporter, resetSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
 import { HOST_NOTIFY_BUDGET_MS, sendWithNotifyRetry } from "@/lib/host-notify-retry"
+import { visitUrlForSignIn } from "@/lib/visit-token"
+import { resolveAppOrigin } from "@/lib/nda"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -174,6 +176,7 @@ export async function sendResolvedHostNotification(args: {
   visitorPhotoUrl?: string | null
   purpose?: string | null
   signInId?: string | null
+  hostId?: string | null
 }): Promise<{ email?: string; sms?: string; loggedOnly?: boolean }> {
   const notifSettings = await getNotificationSettings()
   const results: { email?: string; sms?: string; loggedOnly?: boolean } = {}
@@ -248,6 +251,17 @@ export async function sendResolvedHostNotification(args: {
     results.loggedOnly = true
     return results
   }
+
+  let visitUrl = ""
+  if (args.signInId) {
+    try {
+      const origin = resolveAppOrigin(null)
+      if (origin) visitUrl = visitUrlForSignIn({ origin, signInId: args.signInId, hostId: args.hostId })
+    } catch {
+      visitUrl = ""
+    }
+  }
+  const safeVisitUrl = visitUrl && /^https?:\/\//i.test(visitUrl) ? escapeHtml(visitUrl) : ""
 
   const isTraining = args.notificationType === "completing_training"
   const emailTitle = isTraining ? "Visitor Checking In - Training Required" : "Visitor Arrival"
@@ -327,6 +341,8 @@ export async function sendResolvedHostNotification(args: {
                           </td>
                         </tr>
                       </table>
+                      ${safeVisitUrl ? `<p style="margin: 24px 0 0 0; text-align: center;"><a href="${safeVisitUrl}" style="display:inline-block;padding:14px 24px;background:#00854c;color:#ffffff;text-decoration:none;border-radius:12px;font-weight:700;">Open visit details</a></p>
+                      <p style="font-size: 14px; color: #374151; margin: 12px 0 0 0;">Not expecting ${safe.visitorName}? Open the visit and tap <b>Not my visitor</b>.</p>` : ""}
                       <p style="font-size: 15px; color: #374151; margin: 25px 0 0 0; padding: 15px; background-color: ${isTraining ? "#fffbeb" : "#ecfdf5"}; border-radius: 6px; border-left: 4px solid ${isTraining ? "#d97706" : "#059669"};">${escapeHtml(actionMessage)}</p>
                     </td>
                   </tr>
@@ -348,7 +364,7 @@ export async function sendResolvedHostNotification(args: {
     to: args.host.email,
     subject: emailSubject,
     html: emailHtml,
-    text: `Dear ${hostName},\n\n${mainMessage}\n\nName: ${visitorName}\nCompany: ${visitorCompany || "Not specified"}\nPurpose: ${purpose || "Not specified"}\nBadge #: ${badgeNumber || "N/A"}\n${locationName ? `Location: ${locationName}\n` : ""}\n${actionMessage}\n\n- ${sanitizePlainText(notifSettings.companyName, 80)} Visitor Management System`,
+    text: `Dear ${hostName},\n\n${mainMessage}\n\nName: ${visitorName}\nCompany: ${visitorCompany || "Not specified"}\nPurpose: ${purpose || "Not specified"}\nBadge #: ${badgeNumber || "N/A"}\n${locationName ? `Location: ${locationName}\n` : ""}${visitUrl ? `\nOpen visit details: ${visitUrl}\n\nNot expecting ${visitorName}? Open the visit and tap "Not my visitor".\n` : ""}\n${actionMessage}\n\n- ${sanitizePlainText(notifSettings.companyName, 80)} Visitor Management System`,
   }
 
   await sendWithNotifyRetry(

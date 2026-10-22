@@ -31,6 +31,8 @@ import { refreshBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/lib/tier"
 import Image from "next/image"
+import { TrainingUrlPreview } from "@/components/training-player"
+import { parseTrainingMedia } from "@/lib/training-media"
 
 interface SystemSettings {
   auto_sign_out: boolean
@@ -1016,6 +1018,10 @@ export default function SettingsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (form.requiresTraining && form.trainingVideoUrl && !parseTrainingMedia(form.trainingVideoUrl)) {
+      alert("Enter an https MP4, YouTube, or Vimeo URL for the training video.")
+      return
+    }
     const supabase = createClient()
 
     // Get location
@@ -1197,8 +1203,9 @@ export default function SettingsPage() {
                         placeholder="https://www.youtube.com/embed/..."
                       />
                       <p className="text-xs text-muted-foreground">
-                        Use YouTube embed URL format
+                        Paste an MP4 link, a YouTube URL, or a Vimeo URL
                       </p>
+                      <TrainingUrlPreview url={form.trainingVideoUrl} />
                     </div>
                   </>
                 )}

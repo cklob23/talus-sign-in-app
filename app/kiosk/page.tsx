@@ -19,7 +19,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
   UserPlus,
@@ -54,8 +53,9 @@ import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
+import { TrainingPlayer } from "@/components/training-player"
 
-type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
+type KioskMode = "receptionist-login" | "home" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
 
 /** What the server says about the NDA for this visitor type and person. */
 interface KioskNdaInfo {
@@ -197,11 +197,17 @@ export default function KioskPage() {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
+  const [clearanceMessage, setClearanceMessage] = useState<string | null>(null)
+  const [maskedEmail, setMaskedEmail] = useState<string | null>(null)
+  const [codeDigits, setCodeDigits] = useState("")
   const videoTimerRef = useRef<NodeJS.Timeout | null>(null)
   /** Signed ticket from /api/kiosk/training/start; the server needs it to record training. */
   const trainingTicketRef = useRef<string | null>(null)
   /** Set when training-status said this visitor's earlier training is still valid. */
   const priorTrainingValidRef = useRef(false)
+  const skipKindRef = useRef<"link" | "code" | null>(null)
+  const codeProofRef = useRef<string | null>(null)
   // Guards against duplicate sign-ins / duplicate host notifications caused by
   // double/triple taps on the kiosk touchscreen or component re-renders.
   const ndaSignatureRef = useRef<SignaturePadHandle>(null)
@@ -1107,8 +1113,27 @@ export default function KioskPage() {
           if (statusRes.ok) {
             const status = await statusRes.json()
             visitorId = status.visitorId || null
-            if (status.hasValidTraining && visitorId) {
+            if (status.skipKind === "link" && visitorId) {
               await completeBookingSignIn(visitorId)
+              return
+            }
+            if (status.skipKind === "code") {
+              skipKindRef.current = "code"
+              setClearanceMessage(status.message || null)
+              setMaskedEmail(status.maskedEmail || null)
+              setForm({
+                firstName: selectedBooking.visitor_first_name,
+                lastName: selectedBooking.visitor_last_name,
+                email: selectedBooking.visitor_email,
+                phone: "",
+                company: selectedBooking.visitor_company || "",
+                visitorTypeId: visitorTypeData.id,
+                hostId: selectedBooking.host_id || "",
+                purpose: selectedBooking.purpose || "",
+              })
+              setMode("code")
+              void requestTrainingCode(selectedBooking.visitor_email, visitorTypeData.id)
+              setIsLoading(false)
               return
             }
           }
@@ -1220,16 +1245,28 @@ export default function KioskPage() {
     }
   }
 
-  // Begin the training video and track watch progress. The training video is an
-  // embedded iframe (e.g. YouTube), so progress is tracked on a timer that
-  // unlocks the acknowledgement step once complete.
+  async function requestTrainingCode(email: string | null | undefined, visitorTypeId: string) {
+    if (!email) return
+    try {
+      await fetch("/api/kiosk/training-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          visitor_type_id: visitorTypeId,
+          location_id: selectedLocation || null,
+        }),
+      })
+    } catch {
+      // The visitor can watch the video if the email does not go out.
+    }
+  }
+
+  // Issue a training ticket, then let the shared player report the ended event.
   async function startVideoProgress() {
     if (videoStarted || isLoading) return
     if (!selectedVisitorType) return
 
-    // Ask the server for a training ticket first. The training completion is
-    // only accepted with this ticket once the video has run its full length,
-    // so the timer must not start without it.
     setIsLoading(true)
     setError(null)
     try {
@@ -1252,29 +1289,35 @@ export default function KioskPage() {
 
     setVideoStarted(true)
     setVideoProgress(0)
+  }
 
-    if (videoTimerRef.current) {
-      clearInterval(videoTimerRef.current)
-    }
-
-    const durationSeconds = 180
-    const stepMs = 500
-    const increment = 100 / ((durationSeconds * 1000) / stepMs)
-
-    videoTimerRef.current = setInterval(() => {
-      setVideoProgress((prev) => {
-        const next = prev + increment
-        if (next >= 100) {
-          if (videoTimerRef.current) {
-            clearInterval(videoTimerRef.current)
-            videoTimerRef.current = null
-          }
-          setTrainingWatched(true)
-          return 100
-        }
-        return next
+  async function verifyKioskCode() {
+    if (!selectedVisitorType || codeDigits.length !== 6) return
+    setIsLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/kiosk/training-code/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          visitor_type_id: selectedVisitorType.id,
+          code: codeDigits,
+        }),
       })
-    }, stepMs)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || typeof json.proof !== "string") {
+        throw new Error(json.error || "That code is not right.")
+      }
+      codeProofRef.current = json.proof
+      priorTrainingValidRef.current = true
+      skipKindRef.current = "code"
+      proceedToPhoto()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That code is not right.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Walk-in visitor form submit: validate, then either go to training or photo.
@@ -1316,10 +1359,21 @@ export default function KioskPage() {
           })
           if (statusRes.ok) {
             const status = await statusRes.json()
-            if (status.hasValidTraining) {
+            if (status.skipKind === "link") {
               priorTrainingValidRef.current = true
+              skipKindRef.current = "link"
+              setClearanceMessage(status.message || "You are cleared.")
               setIsLoading(false)
-              proceedToPhoto()
+              setMode("cleared")
+              return
+            }
+            if (status.skipKind === "code") {
+              skipKindRef.current = "code"
+              setClearanceMessage(status.message || null)
+              setMaskedEmail(status.maskedEmail || null)
+              setIsLoading(false)
+              setMode("code")
+              void requestTrainingCode(form.email, selectedVisitorType.id)
               return
             }
           }
@@ -1400,6 +1454,9 @@ export default function KioskPage() {
               ticket: trainingTicketRef.current,
               acknowledged: trainingAcknowledged,
               prior: priorTrainingValidRef.current,
+              via: skipKindRef.current,
+              codeToken: codeProofRef.current,
+              videoSeconds,
             },
           }),
         })
@@ -1578,11 +1635,17 @@ export default function KioskPage() {
     setNdaSignature(null)
     setVideoProgress(0)
     setVideoStarted(false)
+    setVideoSeconds(null)
+    setClearanceMessage(null)
+    setMaskedEmail(null)
+    setCodeDigits("")
     if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current)
     }
     trainingTicketRef.current = null
     priorTrainingValidRef.current = false
+    skipKindRef.current = null
+    codeProofRef.current = null
   }
 
   // Camera functions for visitor photo
@@ -3239,54 +3302,45 @@ export default function KioskPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
-                {/* Video Container */}
                 <div className="relative">
-                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                    {selectedVisitorType.training_video_url ? (
-                      <iframe
-                        src={selectedVisitorType.training_video_url}
-                        className="w-full h-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        title="Safety Training Video"
+                  {selectedVisitorType.training_video_url ? (
+                    videoStarted ? (
+                      <TrainingPlayer
+                        url={selectedVisitorType.training_video_url}
+                        title={selectedVisitorType.training_title || "Safety training"}
+                        onDuration={setVideoSeconds}
+                        onEnded={(seconds) => {
+                          setVideoSeconds(seconds)
+                          setTrainingWatched(true)
+                          setVideoProgress(100)
+                        }}
                       />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
-                        <PlayCircle className="w-16 h-16 mb-4 opacity-50" />
-                        <p>Training video not available</p>
-                        <p className="text-sm">Please contact reception for assistance</p>
+                      <div className="aspect-video bg-muted rounded-lg overflow-hidden relative">
+                        <div
+                          className="absolute inset-0 bg-foreground/60 flex flex-col items-center justify-center cursor-pointer rounded-lg"
+                          onClick={() => void startVideoProgress()}
+                        >
+                          <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
+                            <PlayCircle className="w-12 h-12 text-primary" />
+                          </div>
+                          <p className="text-background font-medium text-lg">Tap to start training</p>
+                        </div>
                       </div>
-                    )}
-                  </div>
-
-                  {/* Play overlay for tracking */}
-                  {!videoStarted && selectedVisitorType.training_video_url && (
-                    <div
-                      className="absolute inset-0 bg-foreground/60 flex flex-col items-center justify-center cursor-pointer rounded-lg"
-                      onClick={() => void startVideoProgress()}
-                    >
-                      <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
-                        <PlayCircle className="w-12 h-12 text-primary" />
-                      </div>
-                      <p className="text-background font-medium text-lg">Click to Start Training</p>
+                    )
+                  ) : (
+                    <div className="aspect-video w-full flex flex-col items-center justify-center text-muted-foreground rounded-lg bg-muted">
+                      <PlayCircle className="w-16 h-16 mb-4 opacity-50" />
+                      <p>Training video not available</p>
+                      <p className="text-sm">Please ask reception for help</p>
                     </div>
                   )}
                 </div>
 
-                {/* Progress Bar */}
-                {videoStarted && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Training Progress</span>
-                      <span className="font-medium">{Math.round(videoProgress)}%</span>
-                    </div>
-                    <Progress value={videoProgress} className="h-2" />
-                    {!trainingWatched && (
-                      <p className="text-sm text-muted-foreground">
-                        Please watch the entire video to proceed
-                      </p>
-                    )}
-                  </div>
+                {videoStarted && !trainingWatched && (
+                  <p className="text-sm text-muted-foreground">
+                    Watch the video to the end. The box unlocks when it finishes.
+                  </p>
                 )}
 
                 {/* Acknowledgment Checkbox */}
@@ -3335,6 +3389,109 @@ export default function KioskPage() {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {mode === "cleared" && selectedVisitorType && (
+          <div className="max-w-3xl mx-auto space-y-4">
+            <Button variant="ghost" className="bg-transparent" onClick={() => setMode("sign-in")}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+            <Card className="border-2 border-[#00854c]">
+              <CardContent className="p-8 space-y-3">
+                <p className="inline-flex items-center gap-2 rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
+                  <Shield className="w-4 h-4" />
+                  Safety training done
+                </p>
+                <h2 className="text-3xl font-bold">You are cleared, {form.firstName || "visitor"}</h2>
+                <p className="text-lg">{clearanceMessage || "You did the safety video. You are cleared."}</p>
+                <p className="text-muted-foreground">You watched the safety video from your training link. No video and no code today.</p>
+              </CardContent>
+            </Card>
+            <div className="flex gap-3">
+              <Button variant="outline" className="h-14" onClick={() => setMode("training")}>
+                Watch it anyway
+              </Button>
+              <Button className="h-14 flex-1 bg-[#00854c] hover:bg-[#00703f]" onClick={() => proceedToPhoto()}>
+                Next: photo
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {mode === "code" && selectedVisitorType && (
+          <div className="max-w-3xl mx-auto space-y-4">
+            <Button variant="ghost" className="bg-transparent" onClick={() => setMode("sign-in")}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+            <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+              <Card>
+                <CardContent className="p-8 space-y-4">
+                  <p className="inline-flex items-center gap-2 rounded-full bg-[#e2f4e9] px-3 py-1 text-sm font-semibold text-[#00703f]">
+                    Training on file
+                  </p>
+                  <h2 className="text-3xl font-bold">Type the 6 digit code</h2>
+                  <p className="text-muted-foreground">
+                    Welcome back. This email finished safety training before. To skip the video, type the code we sent to{" "}
+                    <b className="text-foreground">{maskedEmail || form.email}</b>. It works for 30 minutes.
+                  </p>
+                  {clearanceMessage ? <p className="text-sm">{clearanceMessage}</p> : null}
+                  <div className="flex gap-2">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="flex h-16 w-12 items-center justify-center rounded-xl border-2 border-[#7b8b7f] font-mono text-3xl font-bold"
+                      >
+                        {codeDigits[index] || ""}
+                      </div>
+                    ))}
+                  </div>
+                  {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      variant="outline"
+                      className="h-14"
+                      onClick={() => void requestTrainingCode(form.email, selectedVisitorType.id)}
+                    >
+                      Send again
+                    </Button>
+                    <Button variant="outline" className="h-14" onClick={() => setMode("training")}>
+                      Watch the video instead
+                    </Button>
+                    <Button
+                      className="h-14 bg-[#00854c] hover:bg-[#00703f]"
+                      disabled={codeDigits.length !== 6 || isLoading}
+                      onClick={() => void verifyKioskCode()}
+                    >
+                      Continue
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="grid grid-cols-3 gap-3 p-5">
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((key) =>
+                    key ? (
+                      <Button
+                        key={key}
+                        variant="outline"
+                        className="h-24 text-3xl"
+                        onClick={() => {
+                          if (key === "⌫") setCodeDigits((value) => value.slice(0, -1))
+                          else setCodeDigits((value) => (value.length < 6 ? value + key : value))
+                        }}
+                      >
+                        {key}
+                      </Button>
+                    ) : (
+                      <span key="blank" />
+                    ),
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         )}
 
