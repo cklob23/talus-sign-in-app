@@ -13,6 +13,7 @@ import { findActiveHost } from "@/lib/active-hosts"
 import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
+import { hasValidTrainingForEmail, hasValidTrainingForVisitor } from "@/lib/training-completions"
 
 export async function POST(request: Request) {
   try {
@@ -69,6 +70,32 @@ export async function POST(request: Request) {
       const host = await findActiveHost(adminClient, host_id)
       if (!host.ok) {
         return NextResponse.json({ error: host.error }, { status: host.status })
+      }
+    }
+
+    // A visitor type that requires training can only be signed in once a valid
+    // completion exists. /api/kiosk/training only records one after checking
+    // the video ticket and acknowledgement, so this closes the "sign in while
+    // the video is still playing" gap from the server side too.
+    if (visitor_type_id) {
+      const { data: visitorType } = await adminClient
+        .from("visitor_types")
+        .select("id, requires_training")
+        .eq("id", visitor_type_id)
+        .maybeSingle()
+      if (visitorType?.requires_training) {
+        const trained =
+          (await hasValidTrainingForVisitor(adminClient, visitor_id, visitor_type_id)) ||
+          (await hasValidTrainingForEmail(adminClient, visitor_email, visitor_type_id))
+        if (!trained) {
+          return NextResponse.json(
+            {
+              error: "Please complete the safety training before signing in.",
+              code: "training_required",
+            },
+            { status: 409 },
+          )
+        }
       }
     }
 

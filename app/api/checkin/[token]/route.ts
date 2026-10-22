@@ -8,6 +8,7 @@ import { asOptionalEmail } from "@/lib/kiosk-input"
 import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
+import { parseTrainingProof, qrTrainingScope, requiredWatchMs, verifyTrainingProof } from "@/lib/training-gate"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         ndaSignatureDataUrl?: string
         coords?: unknown
         idempotencyKey?: string
+        training?: unknown
     }
     try {
         body = await request.json()
@@ -93,11 +95,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         requires_host: boolean
         requires_company: boolean
         requires_nda: boolean
+        requires_training: boolean
+        training_video_url: string | null
     } | null = null
     if (body.visitorTypeId) {
         const { data } = await admin
             .from("visitor_types")
-            .select("id, name, requires_host, requires_company, requires_nda")
+            .select("id, name, requires_host, requires_company, requires_nda, requires_training, training_video_url")
             .eq("id", body.visitorTypeId)
             .maybeSingle()
         if (!data) {
@@ -109,6 +113,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const company = body.company?.trim() || null
     if (visitorType?.requires_company && !company) {
         return NextResponse.json({ error: "Company is required for this visitor type" }, { status: 400 })
+    }
+
+    // Training is enforced here as well as in the browser: the visitor must
+    // return the ticket issued when the video step started, the ticket must be
+    // at least as old as the video, and the acknowledgement must be ticked.
+    // The page only shows the video step when a URL is set, so a type with no
+    // video has nothing to enforce.
+    const trainingRequired = visitorType?.requires_training === true && !!visitorType.training_video_url
+    if (trainingRequired && visitorType) {
+        const proof = parseTrainingProof(body.training)
+        const check = verifyTrainingProof(proof, {
+            visitorTypeId: visitorType.id,
+            scope: qrTrainingScope(location.id),
+            minWatchMs: requiredWatchMs(proof.videoSeconds),
+        })
+        if (!check.ok) {
+            console.log("[QR check-in] training check failed:", check.code)
+            return NextResponse.json({ error: check.message, code: check.code }, { status: 409 })
+        }
     }
 
     // Any active host is valid. Do not filter on hosts.location_id.
@@ -256,6 +279,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 { error: "Could not record your signed NDA. Please see reception." },
                 { status: 500 },
             )
+        }
+    }
+
+    // Record the completion so admins can see it and returning visitors are
+    // tracked the same way as kiosk visitors. Failure is logged, not fatal:
+    // the visitor did watch the video and is already signed in.
+    if (!replayed && trainingRequired && visitorType) {
+        const { error: trainingError } = await admin.from("training_completions").insert({
+            visitor_id: visitor.id,
+            visitor_type_id: visitorType.id,
+            expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        })
+        if (trainingError) {
+            console.log("[QR check-in] training completion insert failed:", trainingError.message)
         }
     }
 

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useMemo } from "react"
+import { buildQrSvg } from "@/lib/qr-code"
 
 interface QRCodeProps {
     value: string
@@ -9,60 +10,46 @@ interface QRCodeProps {
 }
 
 /**
- * Lightweight QR code component that renders via an <img> tag
- * using the Google Charts QR Code API. No npm dependency required.
+ * QR code rendered locally as inline SVG.
+ *
+ * This used to be an <img> pointing at api.qrserver.com. On the kiosk that
+ * third-party request can be blocked or slow, which left the "Scan for your
+ * digital badge" box blank (QA P2). Generating the matrix in the browser with
+ * the same `qrcode` package the posters use removes the network dependency.
+ * The SVG only contains module rectangles, never the encoded text, so
+ * injecting it is safe.
  */
 export function QRCode({ value, size = 200, className }: QRCodeProps) {
-    const src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&margin=4&format=svg`
-
-    return (
-        <img
-            src={src}
-            alt="QR Code"
-            width={size}
-            height={size}
-            className={className}
-            style={{ imageRendering: "pixelated" }}
-        />
-    )
-}
-
-/**
- * Self-contained QR code rendered to canvas. Falls back if the API
- * image doesn't load. Uses the same external API but renders to
- * canvas for a crisper look on high-DPI screens.
- */
-export function QRCodeCanvas({ value, size = 200, className }: QRCodeProps) {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-
-    useEffect(() => {
-        const canvas = canvasRef.current
-        if (!canvas) return
-
-        const ctx = canvas.getContext("2d")
-        if (!ctx) return
-
-        const dpr = window.devicePixelRatio || 1
-        canvas.width = size * dpr
-        canvas.height = size * dpr
-        canvas.style.width = `${size}px`
-        canvas.style.height = `${size}px`
-        ctx.scale(dpr, dpr)
-
-        const img = new Image()
-        img.crossOrigin = "anonymous"
-        img.onload = () => {
-            ctx.clearRect(0, 0, size, size)
-            ctx.drawImage(img, 0, 0, size, size)
+    const svg = useMemo(() => {
+        if (!value) return null
+        try {
+            return buildQrSvg({ text: value, size, logo: false })
+        } catch {
+            return null
         }
-        img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size * 2}x${size * 2}&data=${encodeURIComponent(value)}&margin=4&format=png`
     }, [value, size])
 
+    if (!svg) {
+        return (
+            <div
+                role="img"
+                aria-label="QR code unavailable"
+                className={className}
+                style={{ width: size, height: size }}
+            />
+        )
+    }
+
     return (
-        <canvas
-            ref={canvasRef}
+        <div
+            role="img"
+            aria-label="QR code"
             className={className}
-            style={{ width: size, height: size }}
+            style={{ width: size, height: size, lineHeight: 0 }}
+            dangerouslySetInnerHTML={{ __html: svg }}
         />
     )
 }
+
+/** Kept for existing imports; renders the same local SVG. */
+export const QRCodeCanvas = QRCode
