@@ -8,6 +8,16 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { LogOut, RefreshCw, Users, Briefcase, User, Printer } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 import { printVisitorBadge } from "@/lib/print-badge"
@@ -26,6 +36,7 @@ export default function CurrentVisitorsPage() {
   const [activeTab, setActiveTab] = useState("visitors")
   const [bladeRecord, setBladeRecord] = useState<SignInRecord | null>(null)
   const [isBladeOpen, setIsBladeOpen] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState<{ kind: "visitor" | "employee"; id: string; name: string } | null>(null)
   const { timezone: userTimezone } = useTimezone()
 
   function openBlade(record: SignInRecord) {
@@ -34,9 +45,10 @@ export default function CurrentVisitorsPage() {
   }
 
   function handleBladeSignOut(record: SignInRecord) {
-    if (record.kind === "visitor") handleVisitorSignOut(record.data.id)
-    else handleEmployeeSignOut(record.data.id)
-    setIsBladeOpen(false)
+    const name = record.kind === "visitor"
+      ? `${record.data.visitor?.first_name || ""} ${record.data.visitor?.last_name || ""}`.trim() || "this visitor"
+      : record.data.profile?.full_name || "this employee"
+    setConfirmSignOut({ kind: record.kind, id: record.data.id, name })
   }
 
   async function loadData() {
@@ -118,14 +130,20 @@ export default function CurrentVisitorsPage() {
     return `${hrs}h ${mins % 60}m`
   }
 
-  function handleSignOut(signInId: string) {
-    // Determine if the sign-in is for a visitor or an employee
-    const visitor = visitors.find(v => v.id === signInId)
-    if (visitor) {
-      handleVisitorSignOut(signInId)
-    } else {
-      handleEmployeeSignOut(signInId)
-    }
+  function requestVisitorSignOut(signInId: string, name: string) {
+    setConfirmSignOut({ kind: "visitor", id: signInId, name })
+  }
+
+  function requestEmployeeSignOut(signInId: string, name: string) {
+    setConfirmSignOut({ kind: "employee", id: signInId, name })
+  }
+
+  function confirmPendingSignOut() {
+    if (!confirmSignOut) return
+    if (confirmSignOut.kind === "visitor") handleVisitorSignOut(confirmSignOut.id)
+    else handleEmployeeSignOut(confirmSignOut.id)
+    setConfirmSignOut(null)
+    setIsBladeOpen(false)
   }
 
   useEffect(() => {
@@ -236,7 +254,7 @@ export default function CurrentVisitorsPage() {
                             <Printer className="w-4 h-4 mr-1" />
                             Print Badge
                           </Button>
-                          <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={() => handleVisitorSignOut(signIn.id)}>
+                          <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={() => requestVisitorSignOut(signIn.id, `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim() || "this visitor")}>
                             <LogOut className="w-4 h-4 mr-1" />
                             Sign Out
                           </Button>
@@ -322,7 +340,7 @@ export default function CurrentVisitorsPage() {
                                   <Printer className="w-4 h-4 mr-1" />
                                   Print
                                 </Button>
-                                <Button variant="outline" size="sm" onClick={() => handleVisitorSignOut(signIn.id)}>
+                                <Button variant="outline" size="sm" onClick={() => requestVisitorSignOut(signIn.id, `${signIn.visitor?.first_name || ""} ${signIn.visitor?.last_name || ""}`.trim() || "this visitor")}>
                                   <LogOut className="w-4 h-4 mr-1" />
                                   Sign Out
                                 </Button>
@@ -382,7 +400,7 @@ export default function CurrentVisitorsPage() {
                           <span>Duration: {formatDuration(signIn.sign_in_time)}</span>
                           <span>{signIn.auto_signed_in ? "Auto" : "Manual"}</span>
                         </div>
-                        <Button variant="outline" size="sm" className="w-full bg-transparent" onClick={() => handleEmployeeSignOut(signIn.id)}>
+                        <Button variant="outline" size="sm" className="w-full bg-transparent" onClick={() => requestEmployeeSignOut(signIn.id, signIn.profile?.full_name || "this employee")}>
                           <LogOut className="w-4 h-4 mr-1" />
                           Sign Out
                         </Button>
@@ -437,7 +455,7 @@ export default function CurrentVisitorsPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button variant="outline" size="sm" onClick={() => handleEmployeeSignOut(signIn.id)}>
+                              <Button variant="outline" size="sm" onClick={() => requestEmployeeSignOut(signIn.id, signIn.profile?.full_name || "this employee")}>
                                 <LogOut className="w-4 h-4 mr-1" />
                                 Sign Out
                               </Button>
@@ -463,6 +481,21 @@ export default function CurrentVisitorsPage() {
         canReprint
         onSignOut={handleBladeSignOut}
       />
+
+      <AlertDialog open={!!confirmSignOut} onOpenChange={(open) => { if (!open) setConfirmSignOut(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out {confirmSignOut?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This ends their current visit. They will no longer appear on the on-site list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPendingSignOut}>Sign Out</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

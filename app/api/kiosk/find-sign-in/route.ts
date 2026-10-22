@@ -1,48 +1,66 @@
 import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { requireKioskContextOrHide } from "@/lib/kiosk-auth"
-import { asRequiredEmail } from "@/lib/kiosk-input"
+import { asOptionalEmail, asOptionalString } from "@/lib/kiosk-input"
+import { BADGE_NUMBER_INPUT_RE, normalizeBadgeInput } from "@/lib/badge-number"
 
 const HIDDEN = { error: "No active sign-in found" }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null)
-    const qrToken = body && typeof body === "object" ? (body as { qrToken?: string }).qrToken : undefined
+    const raw = body && typeof body === "object" ? (body as Record<string, unknown>) : null
+    const qrToken = raw && typeof raw.qrToken === "string" ? raw.qrToken : undefined
     const auth = await requireKioskContextOrHide(request, { qrToken })
     if (!auth.ok) return auth.response
 
-    const email = asRequiredEmail(body && typeof body === "object" ? (body as { email?: unknown }).email : null)
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 })
-    }
-
-    const supabase = getAdminClient()
-    const { data: visitors, error: visitorError } = await supabase
-      .from("visitors")
-      .select("id, first_name, last_name")
-      .eq("email", email)
-
-    if (visitorError) {
-      console.error("Visitor lookup error:", visitorError)
-      return NextResponse.json({ error: "Failed to look up visitor" }, { status: 500 })
-    }
-
-    if (!visitors || visitors.length === 0) {
+    const email = asOptionalEmail(raw?.email ?? null)
+    const badgeRaw = asOptionalString(raw?.badgeNumber ?? raw?.badge_number ?? null, 20)
+    if (email === undefined || badgeRaw === undefined) {
       return NextResponse.json(HIDDEN, { status: 404 })
     }
 
-    const visitorIds = visitors.map((v) => v.id)
+    const badgeNumber = badgeRaw ? normalizeBadgeInput(badgeRaw) : null
+    if (badgeNumber && !BADGE_NUMBER_INPUT_RE.test(badgeNumber)) {
+      return NextResponse.json(HIDDEN, { status: 404 })
+    }
+    if (!email && !badgeNumber) {
+      return NextResponse.json({ error: "Email or badge number is required" }, { status: 400 })
+    }
+
+    const supabase = getAdminClient()
     let query = supabase
       .from("sign_ins")
       .select("*, visitor:visitors(*)")
-      .in("visitor_id", visitorIds)
       .is("sign_out_time", null)
       .order("sign_in_time", { ascending: false })
       .limit(1)
 
     if (auth.context.source === "qr") {
       query = query.eq("location_id", auth.context.locationId)
+    }
+
+    if (badgeNumber) {
+      query = query.eq("badge_number", badgeNumber)
+    } else if (email) {
+      const { data: visitors, error: visitorError } = await supabase
+        .from("visitors")
+        .select("id, first_name, last_name")
+        .eq("email", email)
+
+      if (visitorError) {
+        console.error("Visitor lookup error:", visitorError)
+        return NextResponse.json({ error: "Failed to look up visitor" }, { status: 500 })
+      }
+
+      if (!visitors || visitors.length === 0) {
+        return NextResponse.json(HIDDEN, { status: 404 })
+      }
+
+      query = query.in(
+        "visitor_id",
+        visitors.map((visitor) => visitor.id),
+      )
     }
 
     const { data: rows, error: findError } = await query

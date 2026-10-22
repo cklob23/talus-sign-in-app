@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { resolveCheckinToken } from "@/lib/checkin-token"
-import { sendHostNotification } from "@/lib/host-notification"
+import { findActiveHost } from "@/lib/active-hosts"
+import { parseIdempotencyKey } from "@/lib/idempotency"
+import { scheduleHostNotification } from "@/lib/host-notify-once"
 
 /**
  * Notifies a host that their QR visitor has started required training.
@@ -11,8 +13,8 @@ import { sendHostNotification } from "@/lib/host-notification"
  * because no sign-in row exists until training finishes.
  *
  * Security model: the poster token is the only credential, and the host is
- * resolved server-side and must belong to the token's location. The visitor
- * never supplies an email address.
+ * resolved server-side as any active host (P1-6). The visitor never supplies
+ * an email address.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
     const { token } = await params
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         firstName?: string
         lastName?: string
         company?: string
+        idempotencyKey?: string
     }
     try {
         body = await request.json()
@@ -43,10 +46,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: "Missing visitor or host details" }, { status: 400 })
     }
 
+    const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
+    if (idempotencyKey === undefined) {
+        return NextResponse.json({ error: "Invalid idempotency key" }, { status: 400 })
+    }
+
     // Only notify for a type that actually requires training, so this endpoint
     // can't be used to generate arbitrary emails to a host. Visitor types are
-    // global, so the type is not scoped to the location; the host still is.
+    // global. Any active host is valid.
     const admin = getAdminClient()
+    const host = await findActiveHost(admin, hostId)
+    if (!host.ok) {
+        return NextResponse.json({ error: host.error }, { status: host.status })
+    }
     let visitorTypeName: string | null = null
     if (body.visitorTypeId) {
         const { data: visitorType } = await admin
@@ -61,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorTypeName = visitorType.name
     }
 
-    const result = await sendHostNotification({
+    scheduleHostNotification({
         hostId,
         locationId: location.id,
         locationName: location.name,
@@ -69,9 +81,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorName: `${firstName} ${lastName}`,
         visitorCompany: body.company?.trim() || null,
         visitorTypeName,
+        idempotencyKey,
     })
 
-    // Reported for observability only. The visitor must be able to continue into
-    // training even when the host cannot be reached.
-    return NextResponse.json({ success: true, notified: result.sent, reason: result.reason ?? null })
+    // Queued in after() so a slow SMTP host cannot block the training step.
+    return NextResponse.json({ success: true, queued: true })
 }

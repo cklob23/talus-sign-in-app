@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Location } from "@/types/database"
-import { formatTime, formatDateTime } from "@/lib/timezone"
+import { formatTime, formatDateTime, toIANATimezone } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 
 interface CombinedSignIn {
@@ -26,10 +26,11 @@ interface CombinedSignIn {
 function formatSignInTime(utcDateString: string, timezone: string): string {
   const signInDate = new Date(utcDateString)
   const now = new Date()
+  const iana = toIANATimezone(timezone)
 
   // Get today's date in the specified timezone
-  const todayInTz = new Date(now.toLocaleString("en-US", { timeZone: timezone }))
-  const signInInTz = new Date(signInDate.toLocaleString("en-US", { timeZone: timezone }))
+  const todayInTz = new Date(now.toLocaleString("en-US", { timeZone: iana }))
+  const signInInTz = new Date(signInDate.toLocaleString("en-US", { timeZone: iana }))
 
   const isToday =
     todayInTz.getFullYear() === signInInTz.getFullYear() &&
@@ -37,9 +38,9 @@ function formatSignInTime(utcDateString: string, timezone: string): string {
     todayInTz.getDate() === signInInTz.getDate()
 
   if (isToday) {
-    return formatTime(utcDateString, timezone)
+    return formatTime(utcDateString, iana)
   }
-  return formatDateTime(utcDateString, timezone)
+  return formatDateTime(utcDateString, iana)
 }
 
 export function RecentVisitors() {
@@ -62,6 +63,7 @@ export function RecentVisitors() {
           location:locations(*)
         `,
         )
+        .is("sign_out_time", null)
         .order("sign_in_time", { ascending: false })
         .limit(5)
 
@@ -75,6 +77,7 @@ export function RecentVisitors() {
           location:locations(*)
         `,
         )
+        .is("sign_out_time", null)
         .order("sign_in_time", { ascending: false })
         .limit(5)
 
@@ -128,7 +131,7 @@ export function RecentVisitors() {
     <Card>
       <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-base sm:text-lg">Recent Visitors</CardTitle>
-        <CardDescription className="text-xs sm:text-sm">Latest sign-ins at the facility</CardDescription>
+        <CardDescription className="text-xs sm:text-sm">Latest visitors still on site</CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
         <div className="space-y-3 sm:space-y-4">

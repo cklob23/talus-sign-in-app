@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { MapPin, Clock, Building2, User, Download, Share2, LogOut, Loader2 } from "lucide-react"
+import { formatDateTimeWithZone, formatTimeWithZone, toIANATimezone } from "@/lib/timezone"
 
 const TALUS_GREEN = "#4d8b31"
 
@@ -20,6 +21,7 @@ interface DigitalBadgeClientProps {
     visitorTypeColor: string | null
     locationName: string | null
     locationAddress: string | null
+    locationTimezone: string
     hostName: string | null
     hostDepartment: string | null
     badgeNumber: string
@@ -39,6 +41,7 @@ export function DigitalBadgeClient({
     visitorTypeColor,
     locationName,
     locationAddress,
+    locationTimezone,
     hostName,
     hostDepartment,
     badgeNumber,
@@ -48,7 +51,9 @@ export function DigitalBadgeClient({
 }: DigitalBadgeClientProps) {
     const router = useRouter()
     const badgeRef = useRef<HTMLDivElement>(null)
-    const signInDate = new Date(signInTime)
+    const siteTimezone = toIANATimezone(locationTimezone || "UTC")
+    const signInLabel = formatDateTimeWithZone(signInTime, siteTimezone)
+    const signOutLabel = signOutTime ? formatTimeWithZone(signOutTime, siteTimezone) : null
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const [signingOut, setSigningOut] = useState(false)
     const [signOutError, setSignOutError] = useState<string | null>(null)
@@ -230,16 +235,16 @@ export function DigitalBadgeClient({
             ctx.fillStyle = "#111827"
             ctx.font = "600 13px Arial"
             ctx.fillText(
-                signInDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }),
+                signInLabel,
                 detailX + 20,
                 y
             )
             y += 16
             ctx.fillStyle = "#9ca3af"
             ctx.font = "11px Arial"
-            let timeText = `Signed in at ${signInDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-            if (signOutTime) {
-                timeText += ` - Signed out at ${new Date(signOutTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+            let timeText = `Signed in at ${formatTimeWithZone(signInTime, siteTimezone)}`
+            if (signOutTime && signOutLabel) {
+                timeText += ` - Signed out at ${signOutLabel}`
             }
             ctx.fillText(timeText, detailX + 20, y)
             y += 24
@@ -285,7 +290,7 @@ export function DigitalBadgeClient({
         } catch {
             alert("Unable to save badge image. Try using the Share button instead.")
         }
-    }, [visitorName, photoUrl, initials, company, visitorTypeName, visitorTypeColor, locationName, locationAddress, signInTime, signOutTime, badgeNumber, isActive])
+    }, [visitorName, photoUrl, initials, company, visitorTypeName, visitorTypeColor, locationName, locationAddress, signInTime, signOutTime, badgeNumber, isActive, signInLabel, signOutLabel, siteTimezone])
 
     const shareBadge = useCallback(async () => {
         if (navigator.share) {
@@ -384,17 +389,17 @@ export function DigitalBadgeClient({
                                     <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
                                     <div>
                                         <p className="font-medium text-foreground">
-                                            {signInDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                            {signInLabel}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
                                             {"Signed in at "}
-                                            {signInDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                                            {signOutTime && (
+                                            {formatTimeWithZone(signInTime, siteTimezone)}
+                                            {signOutTime && signOutLabel ? (
                                                 <>
                                                     {" \u00B7 Signed out at "}
-                                                    {new Date(signOutTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                                                    {signOutLabel}
                                                 </>
-                                            )}
+                                            ) : null}
                                         </p>
                                     </div>
                                 </div>

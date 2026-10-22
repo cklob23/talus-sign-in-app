@@ -6,6 +6,7 @@ import { hasGeofence } from "@/lib/checkin-geofence"
 import { CheckinFlow } from "./checkin-flow"
 import { CheckinShell } from "./checkin-shell"
 import { isNdaFeatureEnabled } from "@/lib/nda-flag"
+import { listActiveHosts, QR_HOST_SELECT } from "@/lib/active-hosts"
 
 export const dynamic = "force-dynamic"
 
@@ -46,25 +47,28 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
             }
             : null
 
-    // Visitor types are global: the admin UI manages them as one flat list with no
-    // location picker, and the kiosk offers all of them at every site. Their
-    // location_id is only whatever location happened to exist first at creation
-    // time, so filtering on it would arbitrarily hide types from some sites.
-    // Hosts, by contrast, genuinely belong to a location and stay scoped.
-    const [{ data: visitorTypes }, { data: hosts }] = await Promise.all([
+    // Visitor types and hosts are global: the admin UI manages them as one
+    // flat list. hosts.location_id is not a filter (P1-6).
+    const [{ data: visitorTypes }, hostsResult] = await Promise.all([
         admin
             .from("visitor_types")
             .select(
                 "id, name, badge_color, requires_host, requires_company, requires_training, requires_nda, training_title, training_video_url",
             )
             .order("name"),
-        admin
-            .from("hosts")
-            .select("id, name, department")
-            .eq("location_id", location.id)
-            .eq("is_active", true)
-            .order("name"),
+        listActiveHosts(admin, QR_HOST_SELECT),
     ])
+
+    if (!hostsResult.ok) {
+        return (
+            <CheckinShell companyName={branding.companyName} logo={branding.companyLogo} locationName={location.name}>
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+                    <h1 className="text-xl font-semibold text-balance">Could not load hosts</h1>
+                    <p className="text-sm leading-relaxed text-muted-foreground">{hostsResult.error}</p>
+                </div>
+            </CheckinShell>
+        )
+    }
 
     return (
         <CheckinShell companyName={branding.companyName} logo={branding.companyLogo} locationName={location.name}>
@@ -72,7 +76,7 @@ export default async function CheckinPage({ params }: { params: Promise<{ token:
                 token={token}
                 locationName={location.name}
                 visitorTypes={visitorTypes ?? []}
-                hosts={hosts ?? []}
+                hosts={hostsResult.hosts}
                 geofence={geofence}
                 ndaEnabled={isNdaFeatureEnabled()}
             />

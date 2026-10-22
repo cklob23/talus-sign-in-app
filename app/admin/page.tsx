@@ -5,6 +5,7 @@ import { DashboardCharts } from "@/components/admin/dashboard-charts"
 import { RecentVisitors } from "@/components/admin/recent-visitors"
 import { DashboardMap } from "@/components/admin/dashboard-map"
 import { getBrandingSettings } from "@/lib/branding"
+import { startOfDayInTimezone, toIANATimezone } from "@/lib/timezone"
 
 // Force dynamic rendering to always show fresh data
 export const dynamic = "force-dynamic"
@@ -25,19 +26,30 @@ export default async function AdminDashboardPage() {
     .select("*", { count: "exact", head: true })
     .is("sign_out_time", null)
 
-  // Get today's total sign-ins (visitors)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // All-locations view: "today" follows the admin display timezone, not UTC.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  let displayTimezone = "UTC"
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("timezone")
+      .eq("id", user.id)
+      .maybeSingle()
+    if (profile?.timezone) displayTimezone = profile.timezone
+  }
+  const todayStart = startOfDayInTimezone(toIANATimezone(displayTimezone)).toISOString()
+
   const { count: todayVisitors } = await supabase
     .from("sign_ins")
     .select("*", { count: "exact", head: true })
-    .gte("sign_in_time", today.toISOString())
+    .gte("sign_in_time", todayStart)
 
-  // Get today's employee sign-ins
   const { count: todayEmployees } = await supabase
     .from("employee_sign_ins")
     .select("*", { count: "exact", head: true })
-    .gte("sign_in_time", today.toISOString())
+    .gte("sign_in_time", todayStart)
 
   // Get average visit duration (last 7 days)
   const weekAgo = new Date()

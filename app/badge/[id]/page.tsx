@@ -20,7 +20,7 @@ async function getSignInData(id: string) {
       photo_url,
       purpose,
       visitor:visitors(first_name, last_name, company, email, photo_url),
-      location:locations(name, address),
+      location:locations(name, address, timezone),
       visitor_type:visitor_types(name, badge_color),
       host:hosts(name, department)
     `)
@@ -43,7 +43,7 @@ export default async function DigitalBadgePage({ params }: { params: Promise<{ i
     const visitor = (Array.isArray(visitorRaw) ? visitorRaw[0] : visitorRaw) as { first_name: string; last_name: string; company?: string; email?: string; photo_url?: string } | null
 
     const locationRaw = signIn.location as unknown
-    const location = (Array.isArray(locationRaw) ? locationRaw[0] : locationRaw) as { name: string; address?: string } | null
+    const location = (Array.isArray(locationRaw) ? locationRaw[0] : locationRaw) as { name: string; address?: string; timezone?: string } | null
 
     const visitorTypeRaw = signIn.visitor_type as unknown
     const visitorType = (Array.isArray(visitorTypeRaw) ? visitorTypeRaw[0] : visitorTypeRaw) as { name: string; badge_color?: string } | null
@@ -72,6 +72,7 @@ export default async function DigitalBadgePage({ params }: { params: Promise<{ i
             visitorTypeColor={visitorType?.badge_color || null}
             locationName={location?.name || null}
             locationAddress={location?.address || null}
+            locationTimezone={location?.timezone || "UTC"}
             hostName={host?.name || null}
             hostDepartment={host?.department || null}
             badgeNumber={signIn.badge_number}

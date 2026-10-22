@@ -4,6 +4,7 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { logAuditServer } from "@/lib/audit-log"
 import nodemailer from "nodemailer"
 import { NextResponse } from "next/server"
+import { smtpTransportOptions } from "@/lib/smtp-transport"
 
 /** Load SMTP + company branding from the settings table */
 async function getSmtpSettings() {
@@ -100,12 +101,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransport(smtpTransportOptions({
       host: smtp.host,
       port: smtp.port,
-      secure: smtp.port === 465,
-      auth: { user: smtp.user, pass: smtp.pass },
-    })
+      user: smtp.user,
+      pass: smtp.pass,
+    }))
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">

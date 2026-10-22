@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import nodemailer from "nodemailer"
 import { toIANATimezone } from "@/lib/timezone"
+import { smtpTransportOptions } from "@/lib/smtp-transport"
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
 
 export const maxDuration = 60
@@ -149,14 +150,14 @@ async function runAutoSignout(request: Request) {
 
     // Load SMTP settings once for host notification emails
     const smtp = await getSmtpSettings(supabase)
-    let transporter: nodemailer.Transporter | null = null
+    let transporter: ReturnType<typeof nodemailer.createTransport> | null = null
     if (smtp.host && smtp.user && smtp.pass) {
-      transporter = nodemailer.createTransport({
+      transporter = nodemailer.createTransport(smtpTransportOptions({
         host: smtp.host,
         port: smtp.port,
-        secure: smtp.port === 465,
-        auth: { user: smtp.user, pass: smtp.pass },
-      })
+        user: smtp.user,
+        pass: smtp.pass,
+      }))
     }
 
     // Load the separate visitor/employee auto sign-out settings (global rows).
