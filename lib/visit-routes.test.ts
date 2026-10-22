@@ -35,8 +35,33 @@ describe("visit page actions", () => {
       params: Promise.resolve({ token }),
     })
     assert.equal(res.status, 200, await res.clone().text())
+    const json = await res.json() as { success?: boolean; signedOutAt?: string }
+    assert.equal(typeof json.signedOutAt, "string")
     assert.ok(writes.some((w) => w.table === "sign_ins" && w.op === "update"))
+    const update = writes.find((w) => w.table === "sign_ins" && w.op === "update")
+    assert.equal((update?.payload as { sign_out_time?: string }).sign_out_time, json.signedOutAt)
     assert.ok(writes.some((w) => w.table === "audit_logs" && w.op === "insert"))
+  })
+
+  it("keeps a signed-out visit readable and returns the departure time", async () => {
+    const token = issueVisitToken({ signInId: SIGN_IN_ID })
+    setOverride("sign_ins", {
+      single: {
+        id: SIGN_IN_ID,
+        visitor_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        sign_out_time: "2026-10-22T16:05:00.000Z",
+        badge_number: "V00001",
+        visitor: { first_name: "Carlos", last_name: "Mendoza", email: "carlos@example.com" },
+      },
+    })
+    const res = await signOutPost(request(`/visit/${token}/sign-out`) as never, {
+      params: Promise.resolve({ token }),
+    })
+    const json = await res.json() as { alreadySignedOut?: boolean; signedOutAt?: string }
+    assert.equal(res.status, 200)
+    assert.equal(json.alreadySignedOut, true)
+    assert.equal(json.signedOutAt, "2026-10-22T16:05:00.000Z")
+    assert.equal(writes.some((w) => w.table === "sign_ins" && w.op === "update"), false)
   })
 
   it("rejects an expired visit token", async () => {

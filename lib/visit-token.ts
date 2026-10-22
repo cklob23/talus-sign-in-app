@@ -100,9 +100,13 @@ export function issueTrainingLinkToken(opts: {
   ttlMs?: number
 }): string {
   const now = opts.now ?? Date.now()
+  // hostName and company are looked up from hostId / the DB at read time.
+  // Keep them off new tokens so signed URLs stay under email length limits.
+  // readTrainingLinkToken still accepts those fields on older tokens.
+  const { hostName: _hostName, company: _company, ...payload } = opts.payload
   return issueSignedToken({
     kind: "training_link",
-    payload: opts.payload,
+    payload,
     issuedAt: now,
     expiresAt: now + (opts.ttlMs ?? TRAINING_LINK_TTL_MS),
     secret: opts.secret,

@@ -125,6 +125,7 @@ export function PreviewScreens({ screen }: { screen?: string }) {
             companyName="Talus Ag"
             logoUrl={null}
             signedOut={false}
+            expiresAt={Date.parse("2026-10-28T23:28:00.000Z")}
           />
         </section>
       ) : null}
