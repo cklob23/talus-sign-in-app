@@ -33,6 +33,9 @@ import { hasFeature, getTierName, getRequiredTier, type TierFeatures } from "@/l
 import Image from "next/image"
 import { TrainingUrlPreview } from "@/components/training-player"
 import { parseTrainingMedia } from "@/lib/training-media"
+import { contrastWarning } from "@/lib/color-contrast"
+import { isUndefinedColumn } from "@/lib/idempotency"
+import { typeRequiresPhoto } from "@/lib/requires-photo"
 
 interface SystemSettings {
   auto_sign_out: boolean
@@ -146,10 +149,10 @@ export default function SettingsPage() {
   const [savingBranding, setSavingBranding] = useState(false)
   const [savingSmtp, setSavingSmtp] = useState(false)
   const [colorSettings, setColorSettings] = useState<ColorSettings>({
-    primary_color_light: "#10B981",
-    primary_color_dark: "#10B981",
-    accent_color_light: "#059669",
-    accent_color_dark: "#34D399",
+    primary_color_light: "#00854c",
+    primary_color_dark: "#00854c",
+    accent_color_light: "#00b162",
+    accent_color_dark: "#00b162",
   })
   const [savingColors, setSavingColors] = useState(false)
   const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicySettings>({
@@ -179,6 +182,7 @@ export default function SettingsPage() {
     requiresCompany: false,
     requiresTraining: false,
     requiresNda: false,
+    requiresPhoto: true,
     trainingVideoUrl: "",
     trainingTitle: "",
   })
@@ -361,16 +365,16 @@ export default function SettingsPage() {
 
     if (data && data.length > 0) {
       const loadedColors: ColorSettings = {
-        primary_color_light: "#10B981",
-        primary_color_dark: "#10B981",
-        accent_color_light: "#059669",
-        accent_color_dark: "#34D399",
+        primary_color_light: "#00854c",
+        primary_color_dark: "#00854c",
+        accent_color_light: "#00b162",
+        accent_color_dark: "#00b162",
       }
       for (const setting of data) {
-        if (setting.key === "primary_color_light") loadedColors.primary_color_light = String(setting.value || "#10B981")
-        if (setting.key === "primary_color_dark") loadedColors.primary_color_dark = String(setting.value || "#10B981")
-        if (setting.key === "accent_color_light") loadedColors.accent_color_light = String(setting.value || "#059669")
-        if (setting.key === "accent_color_dark") loadedColors.accent_color_dark = String(setting.value || "#34D399")
+        if (setting.key === "primary_color_light") loadedColors.primary_color_light = String(setting.value || "#00854c")
+        if (setting.key === "primary_color_dark") loadedColors.primary_color_dark = String(setting.value || "#00854c")
+        if (setting.key === "accent_color_light") loadedColors.accent_color_light = String(setting.value || "#00b162")
+        if (setting.key === "accent_color_dark") loadedColors.accent_color_dark = String(setting.value || "#00b162")
       }
       setColorSettings(loadedColors)
       // Apply color settings to CSS
@@ -995,6 +999,7 @@ export default function SettingsPage() {
       requiresCompany: false,
       requiresTraining: false,
       requiresNda: false,
+      requiresPhoto: true,
       trainingVideoUrl: "",
       trainingTitle: "",
     })
@@ -1010,6 +1015,7 @@ export default function SettingsPage() {
       requiresCompany: type.requires_company,
       requiresTraining: type.requires_training,
       requiresNda: type.requires_nda ?? false,
+      requiresPhoto: typeRequiresPhoto(type),
       trainingVideoUrl: type.training_video_url || "",
       trainingTitle: type.training_title || "",
     })
@@ -1035,13 +1041,28 @@ export default function SettingsPage() {
       requires_company: form.requiresCompany,
       requires_training: form.requiresTraining,
       requires_nda: form.requiresNda,
+      requires_photo: form.requiresPhoto,
       training_video_url: form.trainingVideoUrl || null,
       training_title: form.trainingTitle || null,
       location_id: locations[0].id,
     }
 
+    async function writeType() {
+      if (editingType) {
+        return supabase.from("visitor_types").update(data).eq("id", editingType.id)
+      }
+      return supabase.from("visitor_types").insert(data).select().single()
+    }
+
+    let result = await writeType()
+    if (isUndefinedColumn(result.error) && "requires_photo" in data) {
+      const { requires_photo: _dropped, ...withoutPhoto } = data
+      result = editingType
+        ? await supabase.from("visitor_types").update(withoutPhoto).eq("id", editingType.id)
+        : await supabase.from("visitor_types").insert(withoutPhoto).select().single()
+    }
+
     if (editingType) {
-      await supabase.from("visitor_types").update(data).eq("id", editingType.id)
       await logAudit({
         action: "visitor_type.updated",
         entityType: "visitor_type",
@@ -1050,11 +1071,11 @@ export default function SettingsPage() {
         metadata: { name: data.name }
       })
     } else {
-      const { data: newType } = await supabase.from("visitor_types").insert(data).select().single()
+      const createdId = (result.data as { id?: string } | null)?.id
       await logAudit({
         action: "visitor_type.created",
         entityType: "visitor_type",
-        entityId: newType?.id,
+        entityId: createdId,
         description: `Visitor type created: ${data.name}`,
         metadata: { name: data.name }
       })
@@ -1159,6 +1180,17 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
+                    <Label htmlFor="requiresPhoto">Requires photo</Label>
+                    <p className="text-xs text-muted-foreground">Badge photo at sign-in. Staff can skip this on the kiosk.</p>
+                  </div>
+                  <Switch
+                    id="requiresPhoto"
+                    checked={form.requiresPhoto}
+                    onCheckedChange={(checked: boolean) => setForm({ ...form, requiresPhoto: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
                     <Label htmlFor="requiresTraining">Requires Safety Training</Label>
                     <p className="text-xs text-muted-foreground">Visitors must complete training on first visit</p>
                   </div>
@@ -1241,8 +1273,11 @@ export default function SettingsPage() {
                         Company: {type.requires_company ? "Yes" : "No"}
                       </span>
                       {type.requires_training && (
-                        <span className="text-orange-600 font-medium">Training Required</span>
+                        <span className="font-medium text-[#8a4500]">Training Required</span>
                       )}
+                      <span className={typeRequiresPhoto(type) ? "text-foreground" : "text-muted-foreground"}>
+                        Photo: {typeRequiresPhoto(type) ? "Yes" : "No"}
+                      </span>
                     </div>
                     <div className="flex justify-end gap-2 pt-1">
                       <Button variant="ghost" size="sm" onClick={() => openEditDialog(type)}>
@@ -1267,6 +1302,7 @@ export default function SettingsPage() {
                       <TableHead>Requires Host</TableHead>
                       <TableHead>Requires Company</TableHead>
                       <TableHead>Safety Training</TableHead>
+                      <TableHead>Photo</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1284,11 +1320,12 @@ export default function SettingsPage() {
                         <TableCell>{type.requires_company ? "Yes" : "No"}</TableCell>
                         <TableCell>
                           {type.requires_training ? (
-                            <span className="text-orange-600 font-medium">Required</span>
+                            <span className="font-medium text-[#8a4500]">Required</span>
                           ) : (
                             <span className="text-muted-foreground">No</span>
                           )}
                         </TableCell>
+                        <TableCell>{typeRequiresPhoto(type) ? "Yes" : "No"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(type)}>
@@ -1581,9 +1618,12 @@ export default function SettingsPage() {
                         value={colorSettings.primary_color_light}
                         onChange={(e) => setColorSettings(prev => ({ ...prev, primary_color_light: e.target.value }))}
                         className="flex-1 font-mono text-sm"
-                        placeholder="#10B981"
+                        placeholder="#00854c"
                       />
                     </div>
+                    {contrastWarning(colorSettings.primary_color_light) ? (
+                      <p className="text-sm text-[#8a4500]">{contrastWarning(colorSettings.primary_color_light)}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="accent_light">Accent Color</Label>

@@ -1,9 +1,10 @@
 import { getAdminClient } from "@/lib/supabase/server"
-import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { sanitizePlainText } from "@/lib/html-escape"
 import { getSharedTransporter, resetSharedTransporter, TWILIO_TIMEOUT_MS } from "@/lib/smtp-transport"
 import { HOST_NOTIFY_BUDGET_MS, sendWithNotifyRetry } from "@/lib/host-notify-retry"
 import { visitUrlForSignIn } from "@/lib/visit-token"
 import { resolveAppOrigin } from "@/lib/nda"
+import { renderHostArrivalEmail, renderHostTrainingEmail } from "@/lib/host-mail"
 
 export type HostNotificationType = "arrived" | "completing_training"
 
@@ -177,6 +178,11 @@ export async function sendResolvedHostNotification(args: {
   purpose?: string | null
   signInId?: string | null
   hostId?: string | null
+  signedInBy?: string | null
+  locationLabel?: string | null
+  trainingLine?: string | null
+  arrivedAt?: string | Date | null
+  timeZone?: string | null
 }): Promise<{ email?: string; sms?: string; loggedOnly?: boolean }> {
   const notifSettings = await getNotificationSettings()
   const results: { email?: string; sms?: string; loggedOnly?: boolean } = {}
@@ -190,7 +196,6 @@ export async function sendResolvedHostNotification(args: {
   const visitorCompany = sanitizePlainText(args.visitorCompany, 200)
   const locationName = sanitizePlainText(args.locationName, 200)
   const badgeNumber = sanitizePlainText(args.badgeNumber, 40)
-  const hostName = sanitizePlainText(args.host.name || "Host", 200)
   const purpose = sanitizePlainText(args.purpose, 300)
   const visitorTypeName = sanitizePlainText(args.visitorTypeName, 120)
 
@@ -223,21 +228,6 @@ export async function sendResolvedHostNotification(args: {
     results.sms = "twilio_not_configured"
   }
 
-  const safe = {
-    companyName: escapeHtml(notifSettings.companyName),
-    companyLogo: escapeHtml(notifSettings.companyLogo),
-    hostName: escapeHtml(hostName),
-    visitorName: escapeHtml(visitorName),
-    visitorCompany: escapeHtml(visitorCompany),
-    purpose: escapeHtml(purpose),
-    badgeNumber: escapeHtml(badgeNumber),
-    locationName: escapeHtml(locationName),
-    visitorTypeName: escapeHtml(visitorTypeName),
-    visitorPhotoUrl: /^https?:\/\//i.test(String(args.visitorPhotoUrl || ""))
-      ? escapeHtml(args.visitorPhotoUrl)
-      : "",
-  }
-
   const smtpCfg = {
     host: notifSettings.host,
     port: notifSettings.port,
@@ -261,110 +251,31 @@ export async function sendResolvedHostNotification(args: {
       visitUrl = ""
     }
   }
-  const safeVisitUrl = visitUrl && /^https?:\/\//i.test(visitUrl) ? escapeHtml(visitUrl) : ""
-
   const isTraining = args.notificationType === "completing_training"
-  const emailTitle = isTraining ? "Visitor Checking In - Training Required" : "Visitor Arrival"
-  const emailSubject = isTraining
-    ? `Visitor Checking In: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""} - Completing Training`
-    : `Visitor Arrival: ${visitorName}${visitorCompany ? ` from ${visitorCompany}` : ""}`
-  const mainMessage = isTraining
-    ? `Your visitor is checking in and completing the required ${visitorTypeName || "safety"} training. They will be ready to meet you shortly.`
-    : "Your visitor has arrived and is waiting for you at the reception area."
-  const actionMessage = isTraining
-    ? "Your visitor will proceed to reception after completing their training."
-    : "Please proceed to reception to meet your visitor."
-
-  const emailHtml = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f3f4f6;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
-            <tr>
-              <td align="center">
-                <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
-                  <tr>
-                    <td style="background-color: ${isTraining ? "#d97706" : "#059669"}; padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                      ${safe.companyLogo ? `<img src="${safe.companyLogo}" alt="${safe.companyName}" style="max-height: 50px; margin-bottom: 15px; border-radius: 8px" />` : ""}
-                      <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">${escapeHtml(emailTitle)}</h1>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="background-color: #ffffff; padding: 30px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
-                      <p style="font-size: 16px; margin: 0 0 20px 0; color: #111827;">Dear ${safe.hostName},</p>
-                      <p style="font-size: 16px; margin: 0 0 25px 0; color: #374151;">${escapeHtml(mainMessage)}</p>
-                      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
-                        <tr>
-                          <td style="padding: 20px;">
-                            <h3 style="margin: 0 0 15px 0; color: #059669; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">Visitor Details</h3>
-                            <table width="100%" cellpadding="0" cellspacing="0">
-                              ${safe.visitorPhotoUrl ? `
-                              <tr>
-                                <td colspan="2" style="padding: 0 0 15px 0; text-align: center;">
-                                  <img src="${safe.visitorPhotoUrl}" alt="${safe.visitorName}" style="width: 120px; height: 120px; border-radius: 8px; object-fit: cover; border: 3px solid #e5e7eb;" />
-                                </td>
-                              </tr>
-                              ` : ""}
-                              <tr>
-                                <td style="padding: 10px 0; color: #6b7280; font-size: 14px; width: 100px; vertical-align: top;">Name:</td>
-                                <td style="padding: 10px 0; color: #111827; font-size: 14px; font-weight: 600;">${safe.visitorName}</td>
-                              </tr>
-                              ${safe.visitorCompany ? `
-                              <tr>
-                                <td style="padding: 10px 0; color: #6b7280; font-size: 14px; vertical-align: top;">Company:</td>
-                                <td style="padding: 10px 0; color: #111827; font-size: 14px;">${safe.visitorCompany}</td>
-                              </tr>
-                              ` : ""}
-                              ${safe.purpose ? `
-                              <tr>
-                                <td style="padding: 10px 0; color: #6b7280; font-size: 14px; vertical-align: top;">Purpose:</td>
-                                <td style="padding: 10px 0; color: #111827; font-size: 14px;">${safe.purpose}</td>
-                              </tr>
-                              ` : ""}
-                              ${safe.badgeNumber ? `
-                              <tr>
-                                <td style="padding: 10px 0; color: #6b7280; font-size: 14px; vertical-align: top;">Badge #:</td>
-                                <td style="padding: 10px 0; color: #111827; font-size: 14px; font-weight: 600;">${safe.badgeNumber}</td>
-                              </tr>
-                              ` : ""}
-                              ${safe.locationName ? `
-                              <tr>
-                                <td style="padding: 10px 0; color: #6b7280; font-size: 14px; vertical-align: top;">Location:</td>
-                                <td style="padding: 10px 0; color: #111827; font-size: 14px;">${safe.locationName}</td>
-                              </tr>
-                              ` : ""}
-                            </table>
-                          </td>
-                        </tr>
-                      </table>
-                      ${safeVisitUrl ? `<p style="margin: 24px 0 0 0; text-align: center;"><a href="${safeVisitUrl}" style="display:inline-block;padding:14px 24px;background:#00854c;color:#ffffff;text-decoration:none;border-radius:12px;font-weight:700;">Open visit details</a></p>
-                      <p style="font-size: 14px; color: #374151; margin: 12px 0 0 0;">Not expecting ${safe.visitorName}? Open the visit and tap <b>Not my visitor</b>.</p>` : ""}
-                      <p style="font-size: 15px; color: #374151; margin: 25px 0 0 0; padding: 15px; background-color: ${isTraining ? "#fffbeb" : "#ecfdf5"}; border-radius: 6px; border-left: 4px solid ${isTraining ? "#d97706" : "#059669"};">${escapeHtml(actionMessage)}</p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="background-color: #f9fafb; padding: 20px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none; text-align: center;">
-                      <p style="margin: 0; color: #9ca3af; font-size: 12px;">This is an automated message from ${safe.companyName} Visitor Management System</p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-      </html>
-    `
+  const mailArgs = {
+    visitorName,
+    visitorCompany,
+    visitorTypeName,
+    visitorPhotoUrl: args.visitorPhotoUrl,
+    purpose,
+    badgeNumber,
+    locationName,
+    locationLabel: args.locationLabel || (args.signedInBy === "QR" ? "QR sign-in" : "Main lobby kiosk"),
+    signedInBy: args.signedInBy || "Kiosk",
+    trainingLine: args.trainingLine || (isTraining ? "In progress. Not cleared yet." : undefined),
+    arrivedAt: args.arrivedAt || new Date(),
+    timeZone: args.timeZone,
+    visitUrl,
+    logoUrl: notifSettings.companyLogo,
+  }
+  const rendered = isTraining ? renderHostTrainingEmail(mailArgs) : renderHostArrivalEmail(mailArgs)
 
   const mail = {
-    from: `"${notifSettings.companyName} Visitor Management" <${notifSettings.fromEmail}>`,
+    from: `"Talus Ag Visitor Management" <${notifSettings.fromEmail}>`,
     to: args.host.email,
-    subject: emailSubject,
-    html: emailHtml,
-    text: `Dear ${hostName},\n\n${mainMessage}\n\nName: ${visitorName}\nCompany: ${visitorCompany || "Not specified"}\nPurpose: ${purpose || "Not specified"}\nBadge #: ${badgeNumber || "N/A"}\n${locationName ? `Location: ${locationName}\n` : ""}${visitUrl ? `\nOpen visit details: ${visitUrl}\n\nNot expecting ${visitorName}? Open the visit and tap "Not my visitor".\n` : ""}\n${actionMessage}\n\n- ${sanitizePlainText(notifSettings.companyName, 80)} Visitor Management System`,
+    subject: rendered.subject,
+    html: rendered.html,
+    text: rendered.text,
   }
 
   await sendWithNotifyRetry(

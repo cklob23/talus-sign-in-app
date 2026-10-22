@@ -3,7 +3,10 @@ import { createClient } from "@supabase/supabase-js"
 import nodemailer from "nodemailer"
 import { toIANATimezone } from "@/lib/timezone"
 import { smtpTransportOptions } from "@/lib/smtp-transport"
-import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
+import { sanitizePlainText } from "@/lib/html-escape"
+import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
+import { resolveAppOrigin } from "@/lib/nda"
+import { formatMailClock } from "@/lib/email-shell"
 
 export const maxDuration = 60
 
@@ -285,6 +288,8 @@ async function runAutoSignout(request: Request) {
         .select(`
           id,
           visitor_id,
+          badge_number,
+          sign_in_time,
           visitors!inner ( first_name, last_name, email, company ),
           host_id,
           hosts ( name, email )
@@ -338,7 +343,7 @@ async function runAutoSignout(request: Request) {
         const hostVisitors: Record<string, {
           hostName: string
           hostEmail: string
-          visitors: { name: string; company: string | null }[]
+          visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null }[]
         }> = {}
 
         for (const signIn of activeSignIns) {
@@ -364,44 +369,32 @@ async function runAutoSignout(request: Request) {
           hostVisitors[host.email].visitors.push({
             name: visitorName,
             company: visitor.company,
+            badge: (signIn as { badge_number?: string | null }).badge_number,
+            signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
+              ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, tz)
+              : null,
           })
         }
 
         for (const hv of Object.values(hostVisitors)) {
           try {
-            const visitorList = hv.visitors
-              .map((v) => `<li style="padding:4px 0;color:#333;">${escapeHtml(sanitizePlainText(v.name, 200))}${v.company ? ` <span style="color:#888;">(${escapeHtml(sanitizePlainText(v.company, 200))})</span>` : ""}</li>`)
-              .join("")
-
-            const safeCompany = escapeHtml(sanitizePlainText(smtp.companyName, 80))
-            const safeLogo = /^https?:\/\//i.test(smtp.companyLogo) ? escapeHtml(smtp.companyLogo) : ""
-            const safeHost = escapeHtml(sanitizePlainText(hv.hostName, 200))
-            const safeLocation = escapeHtml(sanitizePlainText(location.name, 200))
-            const safeTime = escapeHtml(`${localTimeStr} ${tz}`)
-
-            const htmlBody = `
-              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-                ${safeLogo ? `<img src="${safeLogo}" alt="${safeCompany}" style="height:40px;margin-bottom:24px;" />` : `<h2 style="margin-bottom:24px;color:#333;">${safeCompany}</h2>`}
-                <p style="font-size:16px;color:#333;">Hi ${safeHost},</p>
-                <p style="font-size:14px;color:#555;line-height:1.6;">
-                  The following visitor${hv.visitors.length > 1 ? "s were" : " was"} automatically signed out at <strong>${safeLocation}</strong> at end of day (${safeTime}):
-                </p>
-                <ul style="font-size:14px;line-height:1.8;padding-left:20px;margin:16px 0;">
-                  ${visitorList}
-                </ul>
-                <p style="font-size:13px;color:#888;line-height:1.5;">
-                  This is an automated notification. If any of these visitors are still on-site, please have them sign in again tomorrow.
-                </p>
-                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-                <p style="font-size:11px;color:#aaa;">${safeCompany} Visitor Management</p>
-              </div>
-            `
+            const origin = resolveAppOrigin(null)
+            const rendered = renderSignoutSummaryEmail({
+              kind: "auto",
+              hostName: hv.hostName,
+              locationName: location.name,
+              whenLabel: `${localTimeStr} ${tz}`,
+              visitors: hv.visitors,
+              reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
+              logoUrl: smtp.companyLogo,
+            })
 
             await transporter.sendMail({
-              from: `"${sanitizePlainText(smtp.companyName, 80)}" <${smtp.fromEmail}>`,
+              from: `"Talus Ag Visitor Management" <${smtp.fromEmail}>`,
               to: hv.hostEmail,
-              subject: `${sanitizePlainText(smtp.companyName, 80)} - Visitor${hv.visitors.length > 1 ? "s" : ""} Auto Signed Out at ${sanitizePlainText(location.name, 120)}`,
-              html: htmlBody,
+              subject: rendered.subject,
+              html: rendered.html,
+              text: rendered.text,
             })
             emailsSent++
           } catch (emailErr) {
