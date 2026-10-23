@@ -764,8 +764,6 @@ export function CheckinFlow({
                         title={selectedType.training_title ?? "Safety training"}
                         autoPlay
                         unmuteLabel={copy.tapToUnmute}
-                        soundOnLabel={copy.soundOn}
-                        soundOffLabel={copy.soundOff}
                         onDuration={setVideoSeconds}
                         onPlayingChange={(playing) => {
                             videoPlayingRef.current = playing

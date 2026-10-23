@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { parseTrainingMedia, type TrainingMedia } from "@/lib/training-media"
 import {
   clampSeek,
@@ -99,8 +99,6 @@ export function TrainingPlayer({
   onPlayingChange,
   autoPlay = true,
   unmuteLabel = "Turn on sound",
-  soundOnLabel = "Sound on",
-  soundOffLabel = "Sound off",
   onPlaybackReady,
 }: {
   url: string
@@ -110,8 +108,6 @@ export function TrainingPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay?: boolean
   unmuteLabel?: string
-  soundOnLabel?: string
-  soundOffLabel?: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const media = parseTrainingMedia(url)
@@ -131,8 +127,6 @@ export function TrainingPlayer({
       onPlayingChange={onPlayingChange}
       autoPlay={autoPlay}
       unmuteLabel={unmuteLabel}
-      soundOnLabel={soundOnLabel}
-      soundOffLabel={soundOffLabel}
       onPlaybackReady={onPlaybackReady}
     />
   )
@@ -146,8 +140,6 @@ function ResolvedTrainingPlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
-  soundOnLabel,
-  soundOffLabel,
   onPlaybackReady,
 }: {
   media: TrainingMedia
@@ -157,8 +149,6 @@ function ResolvedTrainingPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
-  soundOnLabel: string
-  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const shared = {
@@ -168,8 +158,6 @@ function ResolvedTrainingPlayer({
     onPlayingChange,
     autoPlay,
     unmuteLabel,
-    soundOnLabel,
-    soundOffLabel,
     onPlaybackReady,
   }
   if (media.kind === "youtube") {
@@ -215,40 +203,28 @@ function SoundPrompt({
   )
 }
 
-function PlaybackStatusBadge({
+function PlayerFrame({
   unlocked,
   muted,
   playing,
-  soundOnLabel,
-  soundOffLabel,
-  onRetryUnmute,
+  children,
 }: {
   unlocked: boolean
   muted: boolean
   playing: boolean
-  soundOnLabel: string
-  soundOffLabel: string
-  onRetryUnmute: () => void
+  children: ReactNode
 }) {
   const soundOn = trainingSoundIsOn({ unlocked, muted })
   return (
-    <button
-      type="button"
+    <div
+      className="relative aspect-video w-full overflow-hidden rounded-lg bg-black"
       data-training-sound={soundOn ? "on" : "off"}
       data-training-unlocked={unlocked ? "true" : "false"}
       data-training-muted={muted ? "true" : "false"}
       data-training-playing={playing ? "true" : "false"}
-      className={`absolute left-2 top-2 z-20 rounded-md px-2 py-1 text-xs font-semibold shadow ${
-        soundOn ? "bg-emerald-600 text-white" : "bg-amber-400 text-[#0f1a13]"
-      }`}
-      onClick={() => {
-        if (!soundOn) onRetryUnmute()
-      }}
-      aria-live="polite"
     >
-      {soundOn ? soundOnLabel : soundOffLabel}
-      {playing ? " · Playing" : ""}
-    </button>
+      {children}
+    </div>
   )
 }
 
@@ -260,8 +236,6 @@ function FilePlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
-  soundOnLabel,
-  soundOffLabel,
   onPlaybackReady,
 }: {
   src: string
@@ -271,8 +245,6 @@ function FilePlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
-  soundOnLabel: string
-  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -380,7 +352,7 @@ function FilePlayer({
   }
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <PlayerFrame unlocked={soundUnlocked} muted={playerMuted} playing={playing}>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are baked into the source video */}
       <video
         ref={videoRef}
@@ -421,16 +393,8 @@ function FilePlayer({
           maybeUnlock(true, progressRef.current, durationRef.current, endedRef.current, unlockedRef)
         }}
       />
-      <PlaybackStatusBadge
-        unlocked={soundUnlocked}
-        muted={playerMuted}
-        playing={playing}
-        soundOnLabel={soundOnLabel}
-        soundOffLabel={soundOffLabel}
-        onRetryUnmute={() => void unmuteAndPlay()}
-      />
       <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
-    </div>
+    </PlayerFrame>
   )
 }
 
@@ -442,8 +406,6 @@ function YouTubePlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
-  soundOnLabel,
-  soundOffLabel,
   onPlaybackReady,
 }: {
   videoId: string
@@ -453,8 +415,6 @@ function YouTubePlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
-  soundOnLabel: string
-  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const hostId = useId()
@@ -651,18 +611,10 @@ function YouTubePlayer({
   }, [videoId, hostId])
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <PlayerFrame unlocked={soundUnlocked} muted={playerMuted} playing={playing}>
       <div ref={mountRef} title={title || "Safety training"} className="h-full w-full" />
-      <PlaybackStatusBadge
-        unlocked={soundUnlocked}
-        muted={playerMuted}
-        playing={playing}
-        soundOnLabel={soundOnLabel}
-        soundOffLabel={soundOffLabel}
-        onRetryUnmute={() => void unmuteAndPlay()}
-      />
       <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
-    </div>
+    </PlayerFrame>
   )
 }
 
@@ -674,8 +626,6 @@ function VimeoPlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
-  soundOnLabel,
-  soundOffLabel,
   onPlaybackReady,
 }: {
   embedUrl: string
@@ -685,8 +635,6 @@ function VimeoPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
-  soundOnLabel: string
-  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -843,7 +791,7 @@ function VimeoPlayer({
   }, [playbackUrl])
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <PlayerFrame unlocked={soundUnlocked} muted={playerMuted} playing={playing}>
       <iframe
         ref={iframeRef}
         src={playbackUrl}
@@ -852,16 +800,8 @@ function VimeoPlayer({
         allow="autoplay; fullscreen; picture-in-picture"
         allowFullScreen
       />
-      <PlaybackStatusBadge
-        unlocked={soundUnlocked}
-        muted={playerMuted}
-        playing={playing}
-        soundOnLabel={soundOnLabel}
-        soundOffLabel={soundOffLabel}
-        onRetryUnmute={() => void unmuteAndPlay()}
-      />
       <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
-    </div>
+    </PlayerFrame>
   )
 }
 
