@@ -4,11 +4,10 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import {
-  Clock,
-  PlayCircle,
+  Lock,
   Shield,
   User,
-  UserPlus,
+  Users,
 } from "lucide-react"
 import { useBranding } from "@/hooks/use-branding"
 
@@ -38,7 +37,7 @@ export default function HomePage() {
             {`Welcome to ${companyName}`}
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-[var(--lp-muted)] lg:text-[17px]">
-            Open the kiosk to sign in, or go to the admin portal.
+            Unlock the visitor kiosk, or open the admin portal.
           </p>
         </div>
 
@@ -46,15 +45,15 @@ export default function HomePage() {
           <LandingCard
             href="/kiosk"
             primary
-            icon={<UserPlus className="h-7 w-7" aria-hidden />}
-            title="Kiosk Sign In"
-            subtitle="Open the visitor and staff sign-in kiosk."
+            icon={<Lock className="h-7 w-7" aria-hidden />}
+            title="Kiosk Login"
+            subtitle="Sign in to unlock the visitor management kiosk."
             bullets={[
-              { icon: <Clock className="h-4 w-4" aria-hidden />, text: "About 2 minutes" },
-              { icon: <PlayCircle className="h-4 w-4" aria-hidden />, text: "Safety video if your visit needs it" },
-              { icon: <UserPlus className="h-4 w-4" aria-hidden />, text: "We tell your host you are here." },
+              { icon: <User className="h-4 w-4" aria-hidden />, text: "Employee sign-in required to activate the kiosk" },
+              { icon: <Users className="h-4 w-4" aria-hidden />, text: "Visitors and employees sign in after you unlock" },
+              { icon: <Lock className="h-4 w-4" aria-hidden />, text: "Tap Lock when you leave the desk" },
             ]}
-            cta="Open kiosk →"
+            cta="Unlock kiosk →"
           />
 
           <LandingCard
