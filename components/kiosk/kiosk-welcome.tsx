@@ -73,18 +73,32 @@ export function KioskWelcome({
           </span>
         </button>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-4 text-muted-foreground">
+      <div className="flex flex-col gap-4">
         {showBooking ? (
-          <button type="button" className="inline-flex min-h-12 items-center gap-2 text-primary-text" onClick={onBooking} disabled={visitorBlocked}>
-            <CalendarCheck className="h-5 w-5" />
-            {copy.bookingHint}
-          </button>
-        ) : (
-          <span>{copy.bookingHint}</span>
-        )}
-        <Button type="button" variant="ghost" className="min-h-12 text-primary-text" onClick={onStaff}>
-          {copy.staffSignIn}
-        </Button>
+          <div className="flex flex-col gap-2">
+            <p className="text-base text-muted-foreground">{copy.bookingHint}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-14 w-full border-primary text-[17px] font-semibold text-primary-text"
+              onClick={onBooking}
+              disabled={visitorBlocked}
+            >
+              <CalendarCheck className="h-5 w-5" />
+              {copy.haveBooking}
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-14 w-full px-5 text-[17px] font-semibold text-primary-text sm:w-auto"
+            onClick={onStaff}
+          >
+            {copy.staffSignIn}
+          </Button>
+        </div>
       </div>
     </div>
   )

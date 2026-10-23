@@ -29,7 +29,6 @@ import {
   Building2,
   PlayCircle,
   AlertTriangle,
-  MapPin,
   Briefcase,
   Loader2,
   User,
@@ -2377,23 +2376,21 @@ export default function KioskPage() {
                 <TalusAgLogo />
               </Link>
             </div>
-            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-              <div className="hidden items-center gap-2 text-sm lg:flex">
-                <MapPin className="h-4 w-4 text-primary-text" />
-                <span className="font-medium">{currentLocation?.name || "Select location"}</span>
-              </div>
-              <div className="hidden items-center gap-2 border-r pr-4 text-sm md:flex portrait:hidden">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">
-                  {currentTime.toLocaleTimeString("en-US", {
-                    timeZone: toIANATimezone(currentTimezone),
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-4">
+              <div className="hidden min-w-0 items-center gap-3 text-sm md:flex">
+                <span className="flex shrink-0 items-center gap-2 border-r border-border pr-3">
+                  <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <span className="font-medium">
+                    {currentTime.toLocaleTimeString("en-US", {
+                      timeZone: toIANATimezone(currentTimezone),
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
                 </span>
                 {siteKind === "none" ? (
                   receptionistUser ? (
-                    <span className="truncate text-[#8a4500]">{copy.noSitesStaff}</span>
+                    <span className="truncate text-warning">{copy.noSitesStaff}</span>
                   ) : null
                 ) : siteKind === "detecting" || currentLocation ? (
                   <KioskSiteLine
@@ -2408,7 +2405,7 @@ export default function KioskPage() {
               <div className={`min-w-0 md:hidden ${receptionistUser && siteKind !== "detecting" ? "hidden" : "max-w-[36%]"}`}>
                 {siteKind === "none" ? (
                   receptionistUser ? (
-                    <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>
+                    <span className="block truncate text-xs text-warning">{copy.noSitesStaff}</span>
                   ) : null
                 ) : siteKind === "detecting" || currentLocation ? (
                   <KioskSiteLine

@@ -33,13 +33,13 @@ export function KioskSiteLine({
 
   return (
     <span
-      className={`flex min-w-0 items-center gap-2 text-sm font-medium text-[#0f1a13] ${className}`}
+      className={`flex min-w-0 items-center gap-2 text-sm font-medium text-foreground ${className}`}
       {...(detecting ? { role: "status", "aria-live": "polite", "aria-busy": true } : {})}
     >
       {detecting ? (
-        <Spinner className="shrink-0 text-[#00703f]" aria-hidden />
+        <Spinner className="shrink-0 text-primary-text" aria-hidden />
       ) : (
-        <MapPin className="h-4 w-4 shrink-0 text-[#00703f]" aria-hidden />
+        <MapPin className="h-4 w-4 shrink-0 text-primary-text" aria-hidden />
       )}
       {spinnerOnly ? (
         <span className="sr-only">{copy.checkingLocation}</span>
