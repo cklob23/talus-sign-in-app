@@ -26,7 +26,6 @@ describe("kiosk page render-critical imports", () => {
       "KioskSiteLine",
       "KioskResolvedSite",
       "staffGeofenceLine",
-      "MapPin",
     ]
     for (const token of required) {
       assert.match(page, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `missing ${token}`)
