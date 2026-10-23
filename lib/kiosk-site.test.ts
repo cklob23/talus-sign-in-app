@@ -4,7 +4,9 @@ import {
   formatHeaderSiteLine,
   formatSiteDistance,
   headerLocationKind,
+  isEmployeeNearestSiteOnly,
   isVisitorFlowMode,
+  nearestOnlyLocations,
   resolveKioskSite,
 } from "./kiosk-site.ts"
 import { visitorCopy } from "./visitor-i18n.ts"
@@ -182,5 +184,21 @@ describe("kiosk header site line", () => {
     assert.equal(isVisitorFlowMode("sign-in"), true)
     assert.equal(isVisitorFlowMode("booking"), true)
     assert.equal(isVisitorFlowMode("photo"), true)
+  })
+})
+
+describe("employee nearest-site-only", () => {
+  it("locks the unlock Employee Login and post-unlock staff sign-in", () => {
+    assert.equal(isEmployeeNearestSiteOnly("receptionist-login"), true)
+    assert.equal(isEmployeeNearestSiteOnly("employee-login"), true)
+    assert.equal(isEmployeeNearestSiteOnly("home"), false)
+    assert.equal(isEmployeeNearestSiteOnly("sign-in"), false)
+  })
+
+  it("returns only the resolved site from a full location list", () => {
+    const all = [{ id: "test" }, { id: "boone" }, { id: "eagle" }, { id: "kenya" }, { id: "spain" }]
+    assert.deepEqual(nearestOnlyLocations(all, "boone"), [{ id: "boone" }])
+    assert.deepEqual(nearestOnlyLocations(all, null), [])
+    assert.deepEqual(nearestOnlyLocations(all, "gone"), [])
   })
 })

@@ -29,7 +29,6 @@ import {
   Building2,
   PlayCircle,
   AlertTriangle,
-  MapPin,
   Briefcase,
   Loader2,
   User,
@@ -59,11 +58,11 @@ import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-de
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
-import { KioskLocationPicker } from "@/components/kiosk/kiosk-location-picker"
+import { KioskResolvedSite } from "@/components/kiosk/kiosk-resolved-site"
 import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
 import { KioskSessionLoading } from "@/components/kiosk/kiosk-session-loading"
 import { kioskBootScreen } from "@/lib/kiosk-boot"
-import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite, writeStaffSite } from "@/lib/kiosk-site"
+import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite } from "@/lib/kiosk-site"
 import { fill, hostArrivalMessage, readVisitorLang, staffGeofenceLine, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
@@ -616,16 +615,10 @@ export default function KioskPage() {
     reverseGeocode()
   }, [userCoords])
 
-  const staffHeldSiteRef = useRef(false)
-
-  // Auto-select the nearest site from a fresh fix. Freeze mid sign-in, and
-  // keep a staff pick until they leave the staff screen.
+  // Auto-select the nearest site from a fresh fix. Freeze mid visitor sign-in
+  // so the site cannot jump while a guest is mid-flow.
   useEffect(() => {
-    if (mode === "home") staffHeldSiteRef.current = false
-    const freeze =
-      isVisitorFlowMode(mode) ||
-      staffHeldSiteRef.current ||
-      (isDetectingLocation && !userCoords)
+    const freeze = isVisitorFlowMode(mode) || (isDetectingLocation && !userCoords)
     const resolved = resolveKioskSite({
       locations,
       nearestId: nearestLocation?.location.id ?? null,
@@ -653,25 +646,6 @@ export default function KioskPage() {
   })
   const siteUnavailable = siteKind === "unavailable"
   const siteMeters = siteKind === "distance" ? selectedLocationDistance : null
-
-  async function handleStaffSiteChange(nextId: string) {
-    if (!nextId || nextId === selectedLocation) return
-    const previousId = selectedLocation
-    const previousName = locations.find((l) => l.id === previousId)?.name
-    const nextName = locations.find((l) => l.id === nextId)?.name
-    staffHeldSiteRef.current = true
-    setSelectedLocation(nextId)
-    setGeofenceOverride(false)
-    writeStaffSite(nextId)
-    await logAuditViaApi({
-      action: "kiosk.location_changed",
-      entityType: "location",
-      entityId: nextId,
-      description: `Kiosk site changed from ${previousName || previousId || "none"} to ${nextName || nextId}`,
-      metadata: { from: previousId || null, to: nextId, portal: "kiosk" },
-      userId: receptionistUser?.id || currentEmployee?.id,
-    })
-  }
 
   // Geofence enforcement (same rules as QR, via lib/checkin-geofence).
   // Visitor unlock is PR #9's geofenceOverride ("Allow sign-in anyway").
@@ -2532,11 +2506,15 @@ export default function KioskPage() {
                       {locations.length === 0 ? (
                         <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
                       ) : (
-                        <KioskLocationPicker
-                          locations={locations}
-                          value={selectedLocation}
-                          onChange={(id) => void handleStaffSiteChange(id)}
+                        <KioskResolvedSite
                           label={copy.chooseSite}
+                          siteName={currentLocation?.name ?? null}
+                          distanceText={
+                            selectedLocationDistance !== null
+                              ? formatDistance(selectedLocationDistance, "from your location")
+                              : null
+                          }
+                          pendingText={copy.checkingLocation}
                         />
                       )}
                       {receptionistError && (
@@ -3325,29 +3303,17 @@ export default function KioskPage() {
                   </div>
                   {locations.length === 0 ? (
                     <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
-                  ) : null}
-                  {currentLocation && (
-                    <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center gap-3">
-                        <Building2 className="w-5 h-5 text-primary" />
-                        <div>
-                          <p className="text-sm font-medium">Signing in at {currentLocation.name}</p>
-                          {selectedLocationDistance !== null && (
-                            <p className="text-xs text-muted-foreground">
-                              {formatDistance(selectedLocationDistance, "from your location")}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {/* {userLocationName && (
-                        <div className="flex items-center gap-3 pt-1 border-t border-border/50">
-                          <MapPin className="w-4 h-4 text-muted-foreground" />
-                          <p className="text-xs text-muted-foreground">
-                            Your current location: <span className="font-medium text-foreground">{userLocationName}</span>
-                          </p>
-                        </div>
-                      )} */}
-                    </div>
+                  ) : (
+                    <KioskResolvedSite
+                      label={copy.chooseSite}
+                      siteName={currentLocation?.name ?? null}
+                      distanceText={
+                        selectedLocationDistance !== null
+                          ? formatDistance(selectedLocationDistance, "from your location")
+                          : null
+                      }
+                      pendingText={copy.checkingLocation}
+                    />
                   )}
 
                   {isOutsideGeofence && (

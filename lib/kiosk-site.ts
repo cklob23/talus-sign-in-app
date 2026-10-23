@@ -19,6 +19,24 @@ export function isVisitorFlowMode(mode: string): boolean {
   return VISITOR_FLOW_MODES.has(mode)
 }
 
+const EMPLOYEE_NEAREST_SITE_MODES = new Set([
+  "employee-login",
+  "receptionist-login",
+])
+
+/** Employee unlock + staff sign-in: nearest/resolved site only, never a full picker. */
+export function isEmployeeNearestSiteOnly(mode: string): boolean {
+  return EMPLOYEE_NEAREST_SITE_MODES.has(mode)
+}
+
+export function nearestOnlyLocations<T extends { id: string }>(
+  locations: T[],
+  resolvedId: string | null,
+): T[] {
+  if (!resolvedId) return []
+  return locations.filter((location) => location.id === resolvedId)
+}
+
 export function readStaffSite(): string | null {
   if (typeof window === "undefined") return null
   try {
