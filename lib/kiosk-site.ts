@@ -78,6 +78,26 @@ export function formatHeaderSiteLine(opts: {
   })
 }
 
+/** Mobile header stacks name + detail so neither is ellipsized at ~390px. */
+export function formatHeaderSiteParts(opts: {
+  siteName: string
+  meters: number | null
+  unavailable: boolean
+  copy: { locationUnavailable: string; siteDistanceAway: string; checkingLocation: string }
+  detecting?: boolean
+}): { name: string; detail: string | null } {
+  if (opts.detecting) {
+    return { name: opts.siteName || opts.copy.checkingLocation, detail: null }
+  }
+  if (opts.unavailable) {
+    return { name: opts.siteName, detail: opts.copy.locationUnavailable }
+  }
+  if (opts.meters == null || !Number.isFinite(opts.meters)) {
+    return { name: opts.siteName, detail: null }
+  }
+  return { name: opts.siteName, detail: formatSiteDistance(opts.meters) }
+}
+
 export type KioskSiteSource = "nearest" | "persisted" | "current" | "default" | "none"
 
 export function resolveKioskSite(input: {
@@ -136,7 +156,7 @@ export function shouldShowUnlockedHeaderSiteLine(input: {
   return input.hasLocation
 }
 
-/** Wrapper classes for that single site line. Must stay visible at ~390px — never `hidden`. */
+/** Own full-width row on mobile; desktop stays in the header chrome line. Never `hidden`. */
 export function unlockedHeaderSiteLineClassName(): string {
-  return "min-w-0 max-w-[42%] md:max-w-none"
+  return "order-3 basis-full min-w-0 md:basis-auto md:min-w-0 md:flex-1 md:max-w-none"
 }

@@ -30,6 +30,7 @@ describe("kiosk page render-critical imports", () => {
       "KioskResolvedSite",
       "staffGeofenceLine",
       "kioskHomeSignInVisibility",
+      "shouldOfferGeofenceOverride",
       "KioskGeofenceBlocked",
     ]
     for (const token of required) {
