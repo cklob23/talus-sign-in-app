@@ -19,5 +19,11 @@ describe("IT Support contact placement", () => {
     assert.match(src, /Need help\? Contact IT Support/)
     assert.match(src, /it_support@talusag\.com/)
     assert.match(src, /receptionist-login/)
+    assert.match(src, /text-primary-text/)
+    assert.doesNotMatch(
+      src.slice(src.indexOf("Need help? Contact IT Support")),
+      /text-primary[^-]/,
+      "IT Support email must use primary-text so it stays AA in Settings dark",
+    )
   })
 })

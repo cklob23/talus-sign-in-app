@@ -344,7 +344,7 @@ export function UserDetailBlade({
                 <>
                     <Badge className="bg-primary text-primary-foreground">{roleLabel}</Badge>
                     {customRole ? (
-                        <Badge variant="outline" className="gap-1 border-primary/50 text-primary">
+                        <Badge variant="outline" className="gap-1 border-primary/50 text-primary-text">
                             <ShieldCheck className="h-3 w-3" />
                             {customRole.name}
                         </Badge>

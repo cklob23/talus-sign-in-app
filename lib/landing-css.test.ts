@@ -61,4 +61,21 @@ describe("landing CSS tokens", () => {
     assert.match(out, /\.dark\.landing-page\{[^}]*--lp-bg:#0a110d/i)
     assert.match(out, /\.landing-page\{[^}]*--lp-bg:#f5f8f6/i)
   })
+
+  it("emits readable dark landing text tokens with AA hover fill", async () => {
+    const css = readFileSync(globalsPath, "utf8")
+    const result = await postcss([tailwind({ optimize: true })]).process(css, {
+      from: globalsPath,
+    })
+    const out = result.css.replace(/\s+/g, "")
+
+    assert.match(out, /\.dark\.landing-page\{[^}]*--lp-text:#e8efea/i)
+    assert.match(out, /\.dark\.landing-page\{[^}]*--lp-muted:#a0afa5/i)
+    assert.match(out, /\.dark\.landing-page\{[^}]*--lp-primary-text:#4fd68f/i)
+    assert.match(out, /\.dark\.landing-page\{[^}]*--lp-primary-hover:#00703f/i)
+    assert.match(out, /\.dark\.landing-page\{[^}]*background-color:var\(--lp-bg\)/i)
+    assert.match(out, /\.dark\.landing-page\{[^}]*color:var\(--lp-text\)/i)
+    assert.doesNotMatch(out, /--lp-primary-hover:#009656/i)
+    assert.doesNotMatch(out, /--primary-hover:#009656/i)
+  })
 })

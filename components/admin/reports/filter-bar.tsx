@@ -53,7 +53,7 @@ function MultiFilter({
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <button
           type="button"
-          className="text-xs text-primary hover:underline"
+          className="text-xs text-primary-text hover:underline"
           onClick={() => onChange([])}
         >
           All {label.toLowerCase()}
