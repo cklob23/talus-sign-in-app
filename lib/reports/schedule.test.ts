@@ -21,7 +21,17 @@ describe("parseScheduleBody", () => {
     if (!parsed.ok) return
     assert.equal(parsed.value.sendTime, "08:00")
     assert.equal(parsed.value.enabled, true)
+    assert.equal(parsed.value.durationUnit, "minutes")
     assert.equal(parsed.value.locationIds.length, 0)
+  })
+
+  it("accepts hours as the duration unit for visitor and employee reports", () => {
+    const parsed = parseScheduleBody({ ...base, durationUnit: "hours" })
+    assert.equal(parsed.ok, true)
+    if (!parsed.ok) return
+    assert.equal(parsed.value.durationUnit, "hours")
+    assert.equal(parseScheduleBody({ ...base, duration_unit: "minutes" }).ok, true)
+    assert.equal(parseScheduleBody({ ...base, durationUnit: "days" }).ok, false)
   })
 
   it("requires weekday, month day, last N, and at least one recipient", () => {

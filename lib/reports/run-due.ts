@@ -72,13 +72,18 @@ export async function runDueReports(): Promise<DueReportsResult> {
     }
 
     try {
-      const report = await buildReport(admin, {
-        kind: schedule.kind,
-        locationIds: schedule.locationIds,
-        visitorTypeIds: schedule.visitorTypeIds,
-        from: period.start.toISOString(),
-        to: period.end.toISOString(),
-      })
+      const report = await buildReport(
+        admin,
+        {
+          kind: schedule.kind,
+          locationIds: schedule.locationIds,
+          visitorTypeIds: schedule.visitorTypeIds,
+          from: period.start.toISOString(),
+          to: period.end.toISOString(),
+        },
+        Date.now(),
+        schedule.durationUnit,
+      )
       const sent = await sendBuiltReport({
         admin,
         scheduleName: schedule.name,
@@ -90,6 +95,7 @@ export async function runDueReports(): Promise<DueReportsResult> {
         timezone: schedule.timezone,
         locationIds: schedule.locationIds,
         report,
+        durationUnit: schedule.durationUnit,
       })
       if (!sent.sent) {
         await finishRun(admin, claimed.id, {

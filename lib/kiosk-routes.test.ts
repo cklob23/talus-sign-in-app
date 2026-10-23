@@ -232,6 +232,8 @@ describe("kiosk sign-in / training / notify-host / sign-out payloads", () => {
     })
     const res = await signOutPost(jsonRequest("/api/kiosk/sign-out", body))
     assert.equal(res.status, 200, await res.clone().text())
+    const update = writes.find((w) => w.table === "sign_ins" && w.op === "update")
+    assert.equal((update?.payload as { sign_out_source?: string }).sign_out_source, "manual")
   })
 
   it("signs out with the digital badge payload (visitor_id null)", async () => {

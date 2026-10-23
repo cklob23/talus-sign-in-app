@@ -9,12 +9,15 @@ import {
   isWithinTriggerWindow,
   locationOverrideFromRow,
   resolveAutoSignOutSettings,
+  resolveAutoSignoutReportEmail,
   selectDueVisitorIds,
 } from "@/lib/auto-signout"
-import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
+import { renderAutoSignoutDigestEmail, renderSignoutSummaryEmail, type AutoSignoutDigestPerson } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock } from "@/lib/email-shell"
 import { resolveDisplayTimeZone } from "@/lib/timezone"
+import { applySignOut } from "@/lib/sign-out-source"
+import { sendEmail } from "@/lib/email"
 
 export const maxDuration = 60
 
@@ -35,6 +38,7 @@ async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
     .in("key", [
       "smtp_host", "smtp_port", "smtp_user", "smtp_pass",
       "smtp_from_email", "company_name", "company_logo",
+      "auto_signout_report_email", "admin_alert_email",
     ])
 
   const s: Record<string, string> = {}
@@ -48,6 +52,7 @@ async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
     fromEmail: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || s.smtp_user || process.env.SMTP_USER || "",
     companyName: s.company_name || "Talus Ag",
     companyLogo: s.company_logo || "",
+    reportEmail: s.auto_signout_report_email || s.admin_alert_email || "",
   }
 }
 
@@ -106,12 +111,14 @@ async function runAutoSignout(request: Request) {
     }
 
     let totalSignedOut = 0
+    const digestPeople: AutoSignoutDigestPerson[] = []
     const results: {
       locationId: string
       locationName: string
       timezone: string
       localTime: string
       signedOut: number
+      employeesSignedOut: number
       enabled: boolean
       emailsSent: number
     }[] = []
@@ -172,6 +179,7 @@ async function runAutoSignout(request: Request) {
       // This is a reliable server-side cleanup that doesn't
       // depend on the kiosk browser being open.
       // =====================================================
+      let employeesSignedOut = 0
       if (employeeAutoEnabled) {
         // Calculate cutoff for max duration (14 hours ago)
         const maxDurationHours = 14
@@ -180,7 +188,7 @@ async function runAutoSignout(request: Request) {
         // Get all employees still signed in at this location
         const { data: activeEmployeeSignIns, error: empFetchError } = await supabase
           .from("employee_sign_ins")
-          .select("id, profile_id, sign_in_time")
+          .select("id, profile_id, sign_in_time, profiles ( full_name, email )")
           .eq("location_id", location.id)
           .is("sign_out_time", null)
 
@@ -197,18 +205,33 @@ async function runAutoSignout(request: Request) {
           if (employeesToSignOut.length > 0) {
             const idsToSignOut = employeesToSignOut.map(e => e.id)
 
-            // Sign out the selected employees
-            const { error: empUpdateError } = await supabase
-              .from("employee_sign_ins")
-              .update({ sign_out_time: now })
-              .in("id", idsToSignOut)
+            const { error: empUpdateError } = await applySignOut(
+              (payload) => supabase.from("employee_sign_ins").update(payload).in("id", idsToSignOut),
+              "auto",
+              now,
+            )
 
             if (!empUpdateError) {
               const reason = isDailyWindow
                 ? "end-of-day cleanup"
                 : `exceeded ${maxDurationHours}h max duration`
 
-              // Audit log for employee auto-signout
+              employeesSignedOut = employeesToSignOut.length
+              totalSignedOut += employeesSignedOut
+              const zone = resolveDisplayTimeZone(location.timezone)
+              for (const row of employeesToSignOut) {
+                const profile = (Array.isArray(row.profiles) ? row.profiles[0] : row.profiles) as
+                  | { full_name: string | null; email: string | null }
+                  | null
+                digestPeople.push({
+                  kind: "employee",
+                  name: profile?.full_name || profile?.email || "Unknown employee",
+                  locationName: location.name,
+                  signedInAt: formatMailClock(String(row.sign_in_time), zone),
+                  signedOutAt: formatMailClock(now, zone),
+                })
+              }
+
               await supabase.from("audit_logs").insert({
                 action: "employee.auto_sign_out",
                 entity_type: "system",
@@ -235,6 +258,7 @@ async function runAutoSignout(request: Request) {
           timezone: tz,
           localTime: localTimeStr,
           signedOut: 0,
+          employeesSignedOut,
           enabled: false,
           emailsSent: 0,
         })
@@ -277,6 +301,7 @@ async function runAutoSignout(request: Request) {
           timezone: tz,
           localTime: localTimeStr,
           signedOut: 0,
+          employeesSignedOut,
           enabled: true,
           emailsSent: 0,
         })
@@ -285,12 +310,12 @@ async function runAutoSignout(request: Request) {
 
       const dueSignIns = (activeSignIns ?? []).filter((row) => dueIds.includes(row.id as string))
 
-      const { data: updatedRows, error: updateError } = await supabase
-        .from("sign_ins")
-        .update({ sign_out_time: now })
-        .in("id", dueIds)
-        .is("sign_out_time", null)
-        .select("id")
+      const { data: updatedRows, error: updateError } = await applySignOut(
+        (payload) =>
+          supabase.from("sign_ins").update(payload).in("id", dueIds).is("sign_out_time", null).select("id"),
+        "auto",
+        now,
+      )
 
       if (updateError) {
         console.error(`[Auto Sign-out] Error signing out visitors at ${location.name}:`, updateError)
@@ -306,6 +331,7 @@ async function runAutoSignout(request: Request) {
           timezone: tz,
           localTime: localTimeStr,
           signedOut: 0,
+          employeesSignedOut,
           enabled: true,
           emailsSent: 0,
         })
@@ -320,6 +346,21 @@ async function runAutoSignout(request: Request) {
       })
 
       totalSignedOut += signedOutNow.length
+      const visitorZone = resolveDisplayTimeZone(location.timezone)
+      for (const signIn of signedOutNow) {
+        const visitor = (Array.isArray(signIn.visitors) ? signIn.visitors[0] : signIn.visitors) as
+          | { first_name: string; last_name: string; company: string | null }
+          | null
+        digestPeople.push({
+          kind: "visitor",
+          name: `${visitor?.first_name ?? ""} ${visitor?.last_name ?? ""}`.trim() || "Unknown visitor",
+          locationName: location.name,
+          signedInAt: signIn.sign_in_time
+            ? formatMailClock(String(signIn.sign_in_time), visitorZone)
+            : "",
+          signedOutAt: formatMailClock(now, visitorZone),
+        })
+      }
 
       const emailable: typeof signedOutNow = []
       for (const signIn of signedOutNow) {
@@ -345,7 +386,7 @@ async function runAutoSignout(request: Request) {
         const hostVisitors: Record<string, {
           hostName: string
           hostEmail: string
-          visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null }[]
+          visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null; signedOutAt?: string | null }[]
         }> = {}
 
         for (const signIn of emailable) {
@@ -375,6 +416,7 @@ async function runAutoSignout(request: Request) {
             signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
               ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, resolveDisplayTimeZone(location.timezone))
               : null,
+            signedOutAt: formatMailClock(now, resolveDisplayTimeZone(location.timezone)),
           })
         }
 
@@ -412,15 +454,43 @@ async function runAutoSignout(request: Request) {
         timezone: tz,
         localTime: localTimeStr,
         signedOut: signedOutNow.length,
+        employeesSignedOut,
         enabled: true,
         emailsSent,
       })
     }
 
+    let digestSent = false
+    if (digestPeople.length > 0) {
+      const origin = resolveAppOrigin(null)
+      const recipient = resolveAutoSignoutReportEmail({
+        settingsValue: smtp.reportEmail,
+        envValue: process.env.AUTO_SIGNOUT_REPORT_EMAIL,
+      })
+      const digest = renderAutoSignoutDigestEmail({
+        people: digestPeople,
+        runAtLabel: formatMailClock(now, "America/Chicago"),
+        reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
+        logoUrl: smtp.companyLogo,
+        appOrigin: origin,
+      })
+      const sent = await sendEmail({
+        to: recipient,
+        subject: digest.subject,
+        html: digest.html,
+        text: digest.text,
+      })
+      digestSent = sent.sent
+      if (!sent.sent) {
+        console.error("[Auto Sign-out] Admin digest not sent:", sent.reason)
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Signed out ${totalSignedOut} visitor(s) across locations at end of day`,
+      message: `Signed out ${totalSignedOut} person(s) across locations at end of day`,
       signedOut: totalSignedOut,
+      digestSent,
       timestamp: now,
       locations: results,
     })

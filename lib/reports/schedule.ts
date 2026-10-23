@@ -3,10 +3,12 @@ import { computeNextRunAt, isScheduleDue, resolveReportPeriod } from "./period.t
 import { decideExistingRun } from "./idempotency.ts"
 import {
   isRangeType,
+  isDurationUnit,
   isReportFormat,
   isReportFrequency,
   isReportKind,
   parseRecipientList,
+  type DurationUnit,
   type ReportFormat,
   type ReportFrequency,
   type ReportKind,
@@ -58,6 +60,14 @@ export function parseScheduleBody(body: Record<string, unknown>): { ok: true; va
 
   const formatRaw = typeof body.format === "string" ? body.format : "csv"
   if (!isReportFormat(formatRaw)) return { ok: false, error: "Choose CSV attachment, inline summary, or both" }
+
+  const durationRaw =
+    typeof body.durationUnit === "string"
+      ? body.durationUnit
+      : typeof body.duration_unit === "string"
+        ? body.duration_unit
+        : "minutes"
+  if (!isDurationUnit(durationRaw)) return { ok: false, error: "Choose minutes or hours for duration" }
 
   const sendTime = typeof body.sendTime === "string" ? body.sendTime : typeof body.send_time === "string" ? body.send_time : ""
   if (!/^\d{1,2}:\d{2}$/.test(sendTime.trim())) return { ok: false, error: "Send time must be HH:MM" }
@@ -119,6 +129,7 @@ export function parseScheduleBody(body: Record<string, unknown>): { ok: true; va
       timezone,
       recipients,
       format: formatRaw as ReportFormat,
+      durationUnit: durationRaw as DurationUnit,
       enabled: body.enabled !== false,
     },
   }
@@ -139,6 +150,7 @@ export function scheduleToRow(input: ReportScheduleInput, nextRunAt: string | nu
     timezone: input.timezone,
     recipients: input.recipients,
     format: input.format,
+    duration_unit: input.durationUnit,
     enabled: input.enabled,
     next_run_at: nextRunAt,
     ...(createdBy ? { created_by: createdBy } : {}),
@@ -162,6 +174,7 @@ export function rowToSchedule(row: Record<string, unknown>): ReportSchedule {
     timezone: String(row.timezone || "America/Chicago"),
     recipients: parseRecipientList(Array.isArray(row.recipients) ? (row.recipients as string[]) : []),
     format: (isReportFormat(String(row.format)) ? row.format : "csv") as ReportFormat,
+    durationUnit: (isDurationUnit(String(row.duration_unit)) ? row.duration_unit : "minutes") as DurationUnit,
     enabled: row.enabled !== false,
     nextRunAt: row.next_run_at ? String(row.next_run_at) : null,
     createdBy: row.created_by ? String(row.created_by) : null,

@@ -1,11 +1,12 @@
 import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
-import { EMAIL_FOOTER_EN, emailButton, emailShell, headingBlock, pill } from "@/lib/email-shell"
+import { EMAIL_FOOTER_EN, detailRow, detailsPanel, emailButton, emailShell, headingBlock, pill } from "@/lib/email-shell"
 
 export interface SignoutMailVisitor {
   name: string
   company?: string | null
   badge?: string | null
   signedInAt?: string | null
+  signedOutAt?: string | null
 }
 
 export function renderSignoutSummaryEmail(args: {
@@ -38,7 +39,8 @@ export function renderSignoutSummaryEmail(args: {
       const company = sanitizePlainText(v.company, 120)
       const badge = sanitizePlainText(v.badge, 40)
       const inAt = sanitizePlainText(v.signedInAt, 80)
-      const bits = [company, badge ? `badge ${badge}` : "", inAt ? `in at ${inAt}` : ""].filter(Boolean).join(", ")
+      const outAt = sanitizePlainText(v.signedOutAt, 80)
+      const bits = [company, badge ? `badge ${badge}` : "", inAt ? `in at ${inAt}` : "", outAt ? `out at ${outAt}` : ""].filter(Boolean).join(", ")
       return `<tr><td class="t" style="padding:8px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;color:#0f1a13;font-weight:600;">${escapeHtml(name)}</td></tr>${bits ? `<tr><td class="m" style="padding:0 0 8px 0;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#55625a;">${escapeHtml(bits)}</td></tr>` : ""}`
     })
     .join("")
@@ -67,7 +69,8 @@ ${reviewUrl ? emailButton(reviewUrl, "Review sign-outs") : ""}
       const company = sanitizePlainText(v.company, 120)
       const badge = sanitizePlainText(v.badge, 40)
       const inAt = sanitizePlainText(v.signedInAt, 80)
-      return `- ${name}${company ? `, ${company}` : ""}${badge ? `, badge ${badge}` : ""}${inAt ? `, in at ${inAt}` : ""}`
+      const outAt = sanitizePlainText(v.signedOutAt, 80)
+      return `- ${name}${company ? `, ${company}` : ""}${badge ? `, badge ${badge}` : ""}${inAt ? `, in at ${inAt}` : ""}${outAt ? `, out at ${outAt}` : ""}`
     }),
     "",
     "Anyone still on site? Mark them as still here so the site roster stays correct for safety and evacuations.",
@@ -79,4 +82,73 @@ ${reviewUrl ? emailButton(reviewUrl, "Review sign-outs") : ""}
   ]
 
   return { subject, html, text: textLines.filter((line) => line !== null).join("\n") }
+}
+
+export interface AutoSignoutDigestPerson {
+  kind: "employee" | "visitor"
+  name: string
+  locationName: string
+  signedInAt: string
+  signedOutAt: string
+}
+
+export function renderAutoSignoutDigestEmail(args: {
+  people: AutoSignoutDigestPerson[]
+  runAtLabel: string
+  reviewUrl?: string | null
+  logoUrl?: string | null
+  appOrigin?: string | null
+}): { subject: string; html: string; text: string } {
+  const employees = args.people.filter((person) => person.kind === "employee")
+  const visitors = args.people.filter((person) => person.kind === "visitor")
+  const count = args.people.length
+  const when = sanitizePlainText(args.runAtLabel, 120)
+  const subject = `Auto sign-out: ${count} ${count === 1 ? "person" : "people"} signed out`
+  const preheader = `${employees.length} employee${employees.length === 1 ? "" : "s"} and ${visitors.length} visitor${visitors.length === 1 ? "" : "s"} signed out automatically${when ? ` at ${when}` : ""}.`
+
+  const items = args.people
+    .map((person) => {
+      const name = sanitizePlainText(person.name, 120) || "Unknown"
+      const site = sanitizePlainText(person.locationName, 200) || "Unknown site"
+      const type = person.kind === "employee" ? "Employee" : "Visitor"
+      const inAt = sanitizePlainText(person.signedInAt, 80)
+      const outAt = sanitizePlainText(person.signedOutAt, 80)
+      return `${detailRow("Name", name)}${detailRow("Type", type)}${detailRow("Site", site)}${inAt ? detailRow("Signed in", inAt) : ""}${outAt ? detailRow("Signed out", outAt) : ""}`
+    })
+    .join('<tr><td colspan="2" class="line" style="border-top:1px solid #dce6df;font-size:0;line-height:0;padding:4px 0;">&nbsp;</td></tr>')
+
+  const reviewUrl = sanitizeAppUrl(args.reviewUrl, args.appOrigin || undefined)
+  const html = emailShell({
+    lang: "en",
+    preheader,
+    logoUrl: args.logoUrl || "",
+    bodyHtml: `${pill("Automatic sign-out")}
+${headingBlock(
+  `${count} ${count === 1 ? "person was" : "people were"} signed out`,
+  `${employees.length} employee${employees.length === 1 ? "" : "s"} and ${visitors.length} visitor${visitors.length === 1 ? "" : "s"} after the scheduled auto sign-out run${when ? ` at <b class="t" style="color:#0f1a13;">${escapeHtml(when)}</b>` : ""}.`,
+)}
+${detailsPanel(items)}
+${reviewUrl ? emailButton(reviewUrl, "Review history") : ""}
+<tr><td class="px m" style="padding:10px 36px 24px 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">This digest is sent only when the cron signed someone out. Hosts of auto-signed-out visitors get their own email.</td></tr>`,
+  })
+
+  const text = [
+    `${count} ${count === 1 ? "person was" : "people were"} signed out`,
+    `${employees.length} employee${employees.length === 1 ? "" : "s"} and ${visitors.length} visitor${visitors.length === 1 ? "" : "s"} after the scheduled auto sign-out run${when ? ` at ${when}` : ""}.`,
+    "",
+    ...args.people.map((person) => {
+      const name = sanitizePlainText(person.name, 120) || "Unknown"
+      const site = sanitizePlainText(person.locationName, 200) || "Unknown site"
+      const type = person.kind === "employee" ? "Employee" : "Visitor"
+      const inAt = sanitizePlainText(person.signedInAt, 80)
+      const outAt = sanitizePlainText(person.signedOutAt, 80)
+      return `- ${name} (${type}) at ${site}${inAt ? `, in ${inAt}` : ""}${outAt ? `, out ${outAt}` : ""}`
+    }),
+    "",
+    reviewUrl || null,
+    "",
+    EMAIL_FOOTER_EN,
+  ]
+
+  return { subject, html, text: text.filter((line) => line !== null).join("\n") }
 }

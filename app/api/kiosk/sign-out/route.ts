@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { requireKioskContext } from "@/lib/kiosk-auth"
 import { asOptionalEmail, asOptionalString, asOptionalUuid, asRequiredUuid } from "@/lib/kiosk-input"
+import { applySignOut } from "@/lib/sign-out-source"
 
 export async function POST(request: Request) {
   try {
@@ -45,10 +46,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: signOutError } = await adminClient
-      .from("sign_ins")
-      .update({ sign_out_time: new Date().toISOString() })
-      .eq("id", sign_in_id)
+    const { error: signOutError } = await applySignOut(
+      (payload) => adminClient.from("sign_ins").update(payload).eq("id", sign_in_id),
+      "manual",
+      new Date().toISOString(),
+    )
 
     if (signOutError) {
       console.error("[API] Sign-out update error:", signOutError)

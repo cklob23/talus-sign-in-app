@@ -108,6 +108,24 @@ export function autoSignoutEmailKey(signInId: string): string {
   return `auto-signout:${signInId}`
 }
 
+/** Work address already used in report placeholders and Talus mail. */
+export const DEFAULT_AUTO_SIGNOUT_REPORT_EMAIL = "caleb@talusag.com"
+
+/**
+ * Who gets the per-run admin digest. Prefer a settings/env override, then
+ * Caleb's Talus address used throughout the app.
+ */
+export function resolveAutoSignoutReportEmail(args?: {
+  settingsValue?: unknown
+  envValue?: string | undefined
+}): string {
+  const fromSettings = typeof args?.settingsValue === "string" ? args.settingsValue.trim() : ""
+  if (fromSettings.includes("@")) return fromSettings
+  const fromEnv = typeof args?.envValue === "string" ? args.envValue.trim() : ""
+  if (fromEnv.includes("@")) return fromEnv
+  return DEFAULT_AUTO_SIGNOUT_REPORT_EMAIL
+}
+
 /** True when local time is inside the 15-minute window starting at target. Employees only. */
 export function isWithinTriggerWindow(localMinutes: number, targetMinutes: number): boolean {
   const diff = (localMinutes - targetMinutes + 1440) % 1440

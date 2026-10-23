@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import type { FilterOption } from "./filter-bar"
 import { COMMON_REPORT_TIMEZONES } from "@/lib/reports/schedule"
 import {
+  DURATION_UNIT_LABELS,
   FORMAT_LABELS,
   FREQUENCY_LABELS,
   RANGE_TYPE_LABELS,
@@ -20,6 +21,7 @@ import {
   WEEKDAYS,
   isTalusRecipient,
   parseRecipientList,
+  type DurationUnit,
   type ReportFormat,
   type ReportFrequency,
   type ReportKind,
@@ -42,6 +44,7 @@ const emptyForm: ReportScheduleInput = {
   timezone: "America/Chicago",
   recipients: [],
   format: "csv",
+  durationUnit: "minutes",
   enabled: true,
 }
 
@@ -60,6 +63,7 @@ function fromSchedule(schedule: ReportSchedule): ReportScheduleInput {
     timezone: schedule.timezone,
     recipients: schedule.recipients,
     format: schedule.format,
+    durationUnit: schedule.durationUnit || "minutes",
     enabled: schedule.enabled,
   }
 }
@@ -160,6 +164,28 @@ export function ScheduleForm({
           </Select>
         </div>
       </div>
+
+      {(form.kind === "visitors" || form.kind === "employees") && (
+        <div className="space-y-2">
+          <Label>Duration unit</Label>
+          <Select
+            value={form.durationUnit}
+            onValueChange={(value) => setForm((prev) => ({ ...prev, durationUnit: value as DurationUnit }))}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(DURATION_UNIT_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">How on-site time is shown in the CSV and summary.</p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Sites</Label>

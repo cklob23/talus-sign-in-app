@@ -19,11 +19,13 @@ import { showAdminToast } from "@/hooks/admin-notify"
 import { dashboardPeriodLabel } from "@/lib/reports/period"
 import { adhocSendToast } from "@/lib/reports/action-toasts"
 import {
+  DURATION_UNIT_LABELS,
   FORMAT_LABELS,
   REPORT_KIND_LABELS,
   invalidRecipientTokens,
   isTalusRecipient,
   parseRecipientList,
+  type DurationUnit,
   type ReportFormat,
   type ReportKind,
 } from "@/lib/reports/types"
@@ -40,6 +42,7 @@ export function SendReportDialog({
   visitorTypeIds,
   previewRecipients,
   previewInline = false,
+  durationUnit: initialDurationUnit = "minutes",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -52,9 +55,11 @@ export function SendReportDialog({
   visitorTypeIds: string[]
   previewRecipients?: string
   previewInline?: boolean
+  durationUnit?: DurationUnit
 }) {
   const [recipientText, setRecipientText] = useState(previewRecipients || "")
   const [format, setFormat] = useState<ReportFormat>("both")
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>(initialDurationUnit)
   const [sending, setSending] = useState(false)
 
   const recipients = useMemo(() => parseRecipientList(recipientText), [recipientText])
@@ -80,6 +85,7 @@ export function SendReportDialog({
           locationIds,
           visitorTypeIds: kind === "employees" ? [] : visitorTypeIds,
           recipients,
+          durationUnit,
         }),
       })
       const body = (await res.json().catch(() => null)) as { error?: string; rowCount?: number; recipientCount?: number } | null
@@ -139,6 +145,23 @@ export function SendReportDialog({
             </SelectContent>
           </Select>
         </div>
+        {(kind === "visitors" || kind === "employees") && (
+          <div className="space-y-2">
+            <Label>Duration unit</Label>
+            <Select value={durationUnit} onValueChange={(value) => setDurationUnit(value as DurationUnit)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(DURATION_UNIT_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -189,6 +212,7 @@ export function SendReportButton({
   timezone,
   locationIds,
   visitorTypeIds,
+  durationUnit,
 }: {
   kind: ReportKind
   period: string
@@ -197,6 +221,7 @@ export function SendReportButton({
   timezone: string
   locationIds: string[]
   visitorTypeIds: string[]
+  durationUnit?: DurationUnit
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -215,6 +240,7 @@ export function SendReportButton({
         timezone={timezone}
         locationIds={locationIds}
         visitorTypeIds={visitorTypeIds}
+        durationUnit={durationUnit}
       />
     </>
   )

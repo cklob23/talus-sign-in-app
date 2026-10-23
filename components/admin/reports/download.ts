@@ -4,12 +4,14 @@ export async function downloadReportCsv(params: {
   visitorTypes: string[]
   from: string
   to: string
+  durationUnit?: "minutes" | "hours"
 }): Promise<void> {
   const qs = new URLSearchParams({
     kind: params.kind,
     from: params.from,
     to: params.to,
   })
+  if (params.durationUnit && params.durationUnit !== "minutes") qs.set("durationUnit", params.durationUnit)
   if (params.locations.length) qs.set("locations", params.locations.join(","))
   if (params.visitorTypes.length) qs.set("visitorTypes", params.visitorTypes.join(","))
 

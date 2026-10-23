@@ -10,7 +10,7 @@ import {
   type VisitorSignInSource,
 } from "./rows.ts"
 import { loadReportRows } from "./query.ts"
-import type { ReportFormat, ReportKind, ReportQuery } from "./types.ts"
+import { DURATION_UNIT_LABELS, type DurationUnit, type ReportFormat, type ReportKind, type ReportQuery } from "./types.ts"
 
 type AnyClient = {
   from: (table: string) => any
@@ -30,15 +30,21 @@ export function csvRowsForKind(
   kind: ReportKind,
   rows: VisitorSignInSource[] | EmployeeSignInSource[] | TrainingCompletionSource[],
   nowMs = Date.now(),
+  durationUnit: DurationUnit = "minutes",
 ) {
-  if (kind === "employees") return buildEmployeeCsvRows(rows as EmployeeSignInSource[])
+  if (kind === "employees") return buildEmployeeCsvRows(rows as EmployeeSignInSource[], durationUnit)
   if (kind === "training") return buildTrainingCsvRows(rows as TrainingCompletionSource[], nowMs)
-  return buildVisitorCsvRows(rows as VisitorSignInSource[])
+  return buildVisitorCsvRows(rows as VisitorSignInSource[], durationUnit)
 }
 
-export async function buildReport(admin: AnyClient, filter: ReportQuery, nowMs = Date.now()): Promise<BuiltReport> {
+export async function buildReport(
+  admin: AnyClient,
+  filter: ReportQuery,
+  nowMs = Date.now(),
+  durationUnit: DurationUnit = "minutes",
+): Promise<BuiltReport> {
   const loaded = await loadReportRows(admin, filter)
-  const csvRows = csvRowsForKind(loaded.kind, loaded.rows, nowMs)
+  const csvRows = csvRowsForKind(loaded.kind, loaded.rows, nowMs, durationUnit)
   return {
     kind: loaded.kind,
     rows: loaded.rows,
@@ -85,6 +91,7 @@ export async function sendBuiltReport(args: {
   badge?: string
   periodLabel?: string
   extraLines?: Array<{ label: string; value: string }>
+  durationUnit?: DurationUnit
 }): Promise<{ sent: boolean; reason?: string }> {
   const attachCsv = (args.format === "csv" || args.format === "both") && args.report.rowCount > 0
   const names = await locationNamesForIds(args.admin, args.locationIds)
@@ -102,7 +109,12 @@ export async function sendBuiltReport(args: {
     logoUrl,
     badge: args.badge,
     periodLabel: args.periodLabel,
-    extraLines: args.extraLines,
+    extraLines: [
+      ...(args.kind === "visitors" || args.kind === "employees"
+        ? [{ label: "Duration unit", value: DURATION_UNIT_LABELS[args.durationUnit || "minutes"] }]
+        : []),
+      ...(args.extraLines || []),
+    ],
     truncated: args.report.truncated,
   })
 

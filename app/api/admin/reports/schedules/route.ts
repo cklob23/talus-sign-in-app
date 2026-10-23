@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireBuiltInAdmin } from "@/lib/admin-auth"
-import { isUndefinedTable } from "@/lib/idempotency"
+import { isUndefinedColumn, isUndefinedTable } from "@/lib/idempotency"
 import { createAdminClient } from "@/lib/supabase/server"
 import { hydrateSchedule, nextRunIso, parseScheduleBody, scheduleToRow } from "@/lib/reports/schedule"
 
@@ -34,11 +34,12 @@ export async function POST(request: Request) {
 
   const nextRunAt = parsed.value.enabled ? nextRunIso(parsed.value) : null
   const admin = createAdminClient()
-  const inserted = await admin
-    .from("report_schedules")
-    .insert(scheduleToRow(parsed.value, nextRunAt, auth.user.userId))
-    .select("*")
-    .single()
+  const row = scheduleToRow(parsed.value, nextRunAt, auth.user.userId)
+  let inserted = await admin.from("report_schedules").insert(row).select("*").single()
+  if (inserted.error && isUndefinedColumn(inserted.error)) {
+    const { duration_unit: _durationUnit, ...withoutUnit } = row
+    inserted = await admin.from("report_schedules").insert(withoutUnit).select("*").single()
+  }
 
   if (inserted.error || !inserted.data) {
     if (isUndefinedTable(inserted.error)) {

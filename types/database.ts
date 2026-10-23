@@ -37,12 +37,16 @@ export interface Profile {
   updated_at: string
 }
 
+export type SignOutSource = "manual" | "auto"
+
 export interface EmployeeSignIn {
   id: string
   profile_id: string
   location_id: string
   sign_in_time: string
   sign_out_time: string | null
+  /** Present after 016-sign-out-source-and-duration-unit.sql. */
+  sign_out_source?: SignOutSource | null
   auto_signed_in: boolean
   device_id: string | null
   created_at: string
@@ -142,6 +146,8 @@ export interface ReportSchedule {
   timezone: string
   recipients: string[]
   format: "csv" | "summary" | "both"
+  /** Present after 016. minutes is the historical default. */
+  duration_unit?: "minutes" | "hours" | null
   enabled: boolean
   next_run_at: string | null
   created_by: string | null
@@ -200,6 +206,8 @@ export interface SignIn {
   host_id: string | null
   sign_in_time: string
   sign_out_time: string | null
+  /** Present after 016-sign-out-source-and-duration-unit.sql. */
+  sign_out_source?: SignOutSource | null
   purpose: string | null
   badge_number: string | null
   notes: string | null

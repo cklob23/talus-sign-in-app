@@ -12,6 +12,7 @@ import {
 import { printVisitorBadge } from "@/lib/print-badge"
 import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { signOutSourceLabel } from "@/lib/sign-out-source"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, "profile" | "location"> {
     profile: Profile | null
@@ -107,6 +108,11 @@ export function SignInDetailBlade({
             {record.kind === "employee" && record.data.auto_signed_in ? (
                 <Badge variant="secondary">Auto sign-in</Badge>
             ) : null}
+            {record.data.sign_out_time && signOutSourceLabel(record.data.sign_out_source) ? (
+                <Badge variant={record.data.sign_out_source === "auto" ? "outline" : "secondary"}>
+                    {signOutSourceLabel(record.data.sign_out_source)} sign-out
+                </Badge>
+            ) : null}
         </>
     ) : null
 
@@ -163,6 +169,15 @@ export function SignInDetailBlade({
                         <DetailBladeField
                             label="Signed out"
                             value={fmt(record.data.sign_out_time) ?? (onSite ? "Still on-site" : null)}
+                            showEmpty
+                        />
+                        <DetailBladeField
+                            label="Sign-out source"
+                            value={
+                                onSite
+                                    ? "Still on-site"
+                                    : signOutSourceLabel(record.data.sign_out_source) || (record.data.sign_out_time ? "Unknown" : null)
+                            }
                             showEmpty
                         />
                         <DetailBladeField label="Duration" value={duration} showEmpty />

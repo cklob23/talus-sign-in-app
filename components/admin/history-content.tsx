@@ -16,6 +16,7 @@ import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database
 import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 import { SignInDetailBlade, type SignInRecord } from "@/components/admin/sign-in-detail-blade"
+import { signOutSourceLabel } from "@/lib/sign-out-source"
 
 // Use Omit to override the profile and location types from the base EmployeeSignIn
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -111,10 +112,25 @@ export function HistoryContent() {
     return formatDurationUtil(signIn.sign_in_time, signIn.sign_out_time)
   }
 
+  function signOutHow(signIn: SignIn | EmployeeSignInWithJoins) {
+    if (!signIn.sign_out_time) return ""
+    return signOutSourceLabel(signIn.sign_out_source)
+  }
+
+  function SignOutSourceBadge({ signIn }: { signIn: SignIn | EmployeeSignInWithJoins }) {
+    const label = signOutHow(signIn)
+    if (!label) return null
+    return (
+      <Badge variant={label === "Auto" ? "outline" : "secondary"} className="text-xs">
+        {label} sign-out
+      </Badge>
+    )
+  }
+
   function handleExport() {
     if (activeTab === "employees") {
       const csv = [
-        ["Name", "Email", "Role", "Location", "Sign In", "Sign Out", "Duration", "Auto Sign-In"],
+        ["Name", "Email", "Role", "Location", "Sign In", "Sign Out", "Sign-out source", "Duration", "Auto Sign-In"],
         ...filteredEmployeeSignIns.map((s) => [
           s.profile?.full_name || "",
           s.profile?.email || "",
@@ -122,6 +138,7 @@ export function HistoryContent() {
           s.location?.name || "",
           s.sign_in_time,
           s.sign_out_time || "",
+          signOutHow(s),
           getDuration(s),
           s.auto_signed_in ? "Yes" : "No",
         ]),
@@ -137,7 +154,7 @@ export function HistoryContent() {
       a.click()
     } else {
       const csv = [
-        ["Name", "Email", "Company", "Type", "Location", "Host", "Sign In", "Sign Out", "Duration"],
+        ["Name", "Email", "Company", "Type", "Location", "Host", "Sign In", "Sign Out", "Sign-out source", "Duration"],
         ...filteredSignIns.map((s) => [
           `${s.visitor?.first_name} ${s.visitor?.last_name}`,
           s.visitor?.email || "",
@@ -147,6 +164,7 @@ export function HistoryContent() {
           s.host?.name || "",
           s.sign_in_time,
           s.sign_out_time || "",
+          signOutHow(s),
           getDuration(s),
         ]),
       ]
@@ -259,9 +277,12 @@ export function HistoryContent() {
                           <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
                           <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</span>
                         </div>
-                        <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
-                          {getDuration(signIn)}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
+                            {getDuration(signIn)}
+                          </Badge>
+                          <SignOutSourceBadge signIn={signIn} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -277,6 +298,7 @@ export function HistoryContent() {
                           <TableHead>Host</TableHead>
                           <TableHead>Sign In</TableHead>
                           <TableHead>Sign Out</TableHead>
+                          <TableHead>Sign-out</TableHead>
                           <TableHead>Duration</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -318,6 +340,9 @@ export function HistoryContent() {
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
                             <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
                             <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>
+                              <SignOutSourceBadge signIn={signIn} />
+                            </TableCell>
                             <TableCell>
                               <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>
@@ -394,8 +419,9 @@ export function HistoryContent() {
                           <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
                             {getDuration(signIn)}
                           </Badge>
+                          <SignOutSourceBadge signIn={signIn} />
                           {signIn.auto_signed_in && (
-                            <Badge variant="secondary" className="text-xs">Auto</Badge>
+                            <Badge variant="secondary" className="text-xs">Auto sign-in</Badge>
                           )}
                         </div>
                       </div>
@@ -412,8 +438,9 @@ export function HistoryContent() {
                           <TableHead>Location</TableHead>
                           <TableHead>Sign In</TableHead>
                           <TableHead>Sign Out</TableHead>
+                          <TableHead>Sign-out</TableHead>
                           <TableHead>Duration</TableHead>
-                          <TableHead>Auto</TableHead>
+                          <TableHead>Auto sign-in</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -443,6 +470,9 @@ export function HistoryContent() {
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
                             <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell>
+                              <SignOutSourceBadge signIn={signIn} />
+                            </TableCell>
                             <TableCell>
                               <Badge variant={signIn.sign_out_time ? "secondary" : "default"}>{getDuration(signIn)}</Badge>
                             </TableCell>
