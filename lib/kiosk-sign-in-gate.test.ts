@@ -46,6 +46,9 @@ describe("kiosk home sign-in visibility", () => {
     assert.match(welcomeSrc, /\{offerSignIn \? \(/)
     assert.match(welcomeSrc, /onClick=\{onStaff\}/)
     assert.match(welcomeSrc, /\{offerSignIn \? \([\s\S]*copy\.staffSignIn/)
+    assert.match(welcomeSrc, /copy\.haveBooking/)
+    assert.equal((welcomeSrc.match(/variant="outline"/g) || []).length, 2)
+    assert.doesNotMatch(welcomeSrc, /variant="ghost"/)
     assert.doesNotMatch(
       welcomeSrc,
       /disabled=\{visitorBlocked\}/,
