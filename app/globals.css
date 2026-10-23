@@ -42,6 +42,19 @@
   --sidebar-accent-foreground: oklch(0.25 0.05 150);
   --sidebar-border: oklch(0.9 0.02 150);
   --sidebar-ring: oklch(0.65 0.2 160);
+  /* Landing tokens: defined on :root so Tailwind v4 @theme emits them in production. */
+  --lp-bg: #f5f8f6;
+  --lp-surface: #ffffff;
+  --lp-surface-2: #eef4f0;
+  --lp-border: #dce6df;
+  --lp-text: #0f1a13;
+  --lp-muted: #55625a;
+  --lp-primary: #00854c;
+  --lp-primary-hover: #00703f;
+  --lp-on-primary: #ffffff;
+  --lp-primary-text: #00703f;
+  --lp-accent-soft: #e2f4e9;
+  --lp-focus: #0a5c36;
 }
 
 .dark {
@@ -81,6 +94,18 @@
   --sidebar-accent-foreground: oklch(0.95 0.01 150);
   --sidebar-border: oklch(0.28 0.02 150);
   --sidebar-ring: oklch(0.65 0.2 160);
+  --lp-bg: #0a110d;
+  --lp-surface: #111a15;
+  --lp-surface-2: #17231c;
+  --lp-border: #263429;
+  --lp-text: #e8efea;
+  --lp-muted: #a0afa5;
+  --lp-primary: #00854c;
+  --lp-primary-hover: #009656;
+  --lp-on-primary: #ffffff;
+  --lp-primary-text: #4fd68f;
+  --lp-accent-soft: #123a26;
+  --lp-focus: #7fe3ad;
 }
 
 @theme inline {
@@ -128,6 +153,22 @@
   --color-warning-soft: var(--warning-soft);
 }
 
+/* Always emit landing tokens so production optimize cannot drop unused @theme vars. */
+@theme static inline {
+  --color-lp-bg: var(--lp-bg);
+  --color-lp-surface: var(--lp-surface);
+  --color-lp-surface-2: var(--lp-surface-2);
+  --color-lp-border: var(--lp-border);
+  --color-lp-text: var(--lp-text);
+  --color-lp-muted: var(--lp-muted);
+  --color-lp-primary: var(--lp-primary);
+  --color-lp-primary-hover: var(--lp-primary-hover);
+  --color-lp-on-primary: var(--lp-on-primary);
+  --color-lp-primary-text: var(--lp-primary-text);
+  --color-lp-accent-soft: var(--lp-accent-soft);
+  --color-lp-focus: var(--lp-focus);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -158,28 +199,48 @@
   .kiosk-touch label:has(input[type="checkbox"]) {
     min-height: 48px;
   }
-}
 
-/* Public landing (/): tokens.md, light + dark via prefers-color-scheme. */
-.landing-page {
-  --lp-bg: #f5f8f6;
-  --lp-surface: #ffffff;
-  --lp-surface-2: #eef4f0;
-  --lp-border: #dce6df;
-  --lp-text: #0f1a13;
-  --lp-muted: #55625a;
-  --lp-primary: #00854c;
-  --lp-primary-hover: #00703f;
-  --lp-on-primary: #ffffff;
-  --lp-primary-text: #00703f;
-  --lp-accent-soft: #e2f4e9;
-  --lp-focus: #0a5c36;
-  background-color: var(--lp-bg);
-  color: var(--lp-text);
-}
-
-@media (prefers-color-scheme: dark) {
+  /* Public landing (/): keep the selector in @layer so Next/Turbopack production CSS does not drop it. */
   .landing-page {
+    --lp-bg: #f5f8f6;
+    --lp-surface: #ffffff;
+    --lp-surface-2: #eef4f0;
+    --lp-border: #dce6df;
+    --lp-text: #0f1a13;
+    --lp-muted: #55625a;
+    --lp-primary: #00854c;
+    --lp-primary-hover: #00703f;
+    --lp-on-primary: #ffffff;
+    --lp-primary-text: #00703f;
+    --lp-accent-soft: #e2f4e9;
+    --lp-focus: #0a5c36;
+    background-color: var(--lp-bg);
+    color: var(--lp-text);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .landing-page {
+      --lp-bg: #0a110d;
+      --lp-surface: #111a15;
+      --lp-surface-2: #17231c;
+      --lp-border: #263429;
+      --lp-text: #e8efea;
+      --lp-muted: #a0afa5;
+      --lp-primary: #00854c;
+      --lp-primary-hover: #009656;
+      --lp-on-primary: #ffffff;
+      --lp-primary-text: #4fd68f;
+      --lp-accent-soft: #123a26;
+      --lp-focus: #7fe3ad;
+    }
+
+    .landing-page header img {
+      filter: invert(1) hue-rotate(180deg);
+      mix-blend-mode: screen;
+    }
+  }
+
+  .dark .landing-page {
     --lp-bg: #0a110d;
     --lp-surface: #111a15;
     --lp-surface-2: #17231c;
@@ -194,28 +255,8 @@
     --lp-focus: #7fe3ad;
   }
 
-  .landing-page header img {
+  .dark .landing-page header img {
     filter: invert(1) hue-rotate(180deg);
     mix-blend-mode: screen;
   }
-}
-
-.dark .landing-page {
-  --lp-bg: #0a110d;
-  --lp-surface: #111a15;
-  --lp-surface-2: #17231c;
-  --lp-border: #263429;
-  --lp-text: #e8efea;
-  --lp-muted: #a0afa5;
-  --lp-primary: #00854c;
-  --lp-primary-hover: #009656;
-  --lp-on-primary: #ffffff;
-  --lp-primary-text: #4fd68f;
-  --lp-accent-soft: #123a26;
-  --lp-focus: #7fe3ad;
-}
-
-.dark .landing-page header img {
-  filter: invert(1) hue-rotate(180deg);
-  mix-blend-mode: screen;
 }
