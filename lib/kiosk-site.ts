@@ -46,9 +46,12 @@ export function formatHeaderSiteLine(opts: {
   meters: number | null
   unavailable: boolean
   copy: { locationUnavailable: string; siteDistanceAway: string }
+  includeDistance?: boolean
 }): string {
   if (opts.unavailable) return `${opts.siteName} · ${opts.copy.locationUnavailable}`
-  if (opts.meters == null || !Number.isFinite(opts.meters)) return opts.siteName
+  if (opts.includeDistance === false || opts.meters == null || !Number.isFinite(opts.meters)) {
+    return opts.siteName
+  }
   return fill(opts.copy.siteDistanceAway, {
     site: opts.siteName,
     distance: formatSiteDistance(opts.meters),

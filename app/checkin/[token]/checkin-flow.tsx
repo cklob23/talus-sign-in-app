@@ -759,6 +759,8 @@ export function CheckinFlow({
                     <TrainingPlayer
                         url={selectedType.training_video_url}
                         title={selectedType.training_title ?? "Safety training"}
+                        autoPlay
+                        unmuteLabel={copy.tapToUnmute}
                         onDuration={setVideoSeconds}
                         onPlayingChange={(playing) => {
                             videoPlayingRef.current = playing
@@ -1342,7 +1344,9 @@ function SignOutPanel({
                             onChange={(e) => setIdentifier(e.target.value)}
                             // Badge numbers are short and alphanumeric; email needs a normal keyboard.
                             inputMode={looksLikeBadge ? "text" : "email"}
-                            autoCapitalize="characters"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
                             autoComplete="off"
                             aria-describedby="signout-id-hint"
                             placeholder="V04821"

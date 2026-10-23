@@ -93,7 +93,7 @@ export function KioskWelcome({
           <Button
             type="button"
             variant="outline"
-            className="min-h-12 px-4 text-base font-medium text-[#00703f]"
+            className="min-h-14 w-full px-5 text-[17px] font-semibold text-[#00703f] sm:w-auto"
             onClick={onStaff}
           >
             {copy.staffSignIn}

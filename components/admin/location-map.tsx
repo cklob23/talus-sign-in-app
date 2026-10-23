@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MapPin, Users, Briefcase, Building2 } from "lucide-react"
 
 interface LocationWithStats {
@@ -211,6 +212,26 @@ export function LocationMap({ locations }: LocationMapProps) {
   const totalVisitors = locations.reduce((sum, l) => sum + l.currentVisitors, 0)
   const totalEmployees = locations.reduce((sum, l) => sum + l.currentEmployees, 0)
 
+  function showAllSites() {
+    if (mapInstanceRef.current && locationsWithCoords.length > 0) {
+      const L = (window as unknown as { L: typeof import("leaflet") }).L
+      if (L) {
+        const bounds = L.latLngBounds(
+          locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
+        )
+        ;(mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
+      }
+      setSelectedLocation(null)
+    }
+  }
+
+  function focusLocation(loc: LocationWithStats) {
+    if (loc.latitude && loc.longitude && mapInstanceRef.current) {
+      (mapInstanceRef.current as import("leaflet").Map).setView([loc.latitude, loc.longitude], 14)
+      setSelectedLocation(loc)
+    }
+  }
+
   return (
     <Card className="col-span-full overflow-hidden">
       <CardHeader className="pb-2">
@@ -232,25 +253,38 @@ export function LocationMap({ locations }: LocationMapProps) {
         </div>
       </CardHeader>
 
-      {/* Location selector - horizontal scroll on mobile, wrapping on desktop */}
+      {/* Location selector: dropdown under sm, pills from sm up */}
       {locationsWithCoords.length > 0 && (
         <div className="px-4 pb-3 sm:px-6">
-          <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 sm:flex-wrap scrollbar-thin">
-            {/* Show all locations button */}
+          <div className="sm:hidden">
+            <Select
+              value={selectedLocation?.id ?? "all"}
+              onValueChange={(id) => {
+                if (id === "all") {
+                  showAllSites()
+                  return
+                }
+                const loc = locations.find((item) => item.id === id)
+                if (loc) focusLocation(loc)
+              }}
+            >
+              <SelectTrigger className="h-11 w-full min-h-11" aria-label="Site">
+                <SelectValue placeholder="All Sites" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sites</SelectItem>
+                {locations.map((loc) => (
+                  <SelectItem key={loc.id} value={loc.id}>
+                    {loc.name} ({loc.currentVisitors} visitors, {loc.currentEmployees} staff)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="hidden gap-2 sm:flex sm:flex-wrap">
             <button
               type="button"
-              onClick={() => {
-                if (mapInstanceRef.current && locationsWithCoords.length > 0) {
-                  const L = (window as unknown as { L: typeof import("leaflet") }).L
-                  if (L) {
-                    const bounds = L.latLngBounds(
-                      locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
-                    )
-                      ; (mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
-                  }
-                  setSelectedLocation(null)
-                }
-              }}
+              onClick={showAllSites}
               className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${!selectedLocation
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/50 hover:bg-muted border-transparent"
@@ -266,12 +300,7 @@ export function LocationMap({ locations }: LocationMapProps) {
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-muted/50 hover:bg-muted border-transparent"
                   }`}
-                onClick={() => {
-                  if (loc.latitude && loc.longitude && mapInstanceRef.current) {
-                    (mapInstanceRef.current as import("leaflet").Map).setView([loc.latitude, loc.longitude], 14)
-                    setSelectedLocation(loc)
-                  }
-                }}
+                onClick={() => focusLocation(loc)}
               >
                 <span className="font-medium truncate max-w-[120px]">{loc.name}</span>
                 <span className={`flex items-center gap-1 ${selectedLocation?.id === loc.id ? "text-primary-foreground/80" : "text-muted-foreground"}`}>

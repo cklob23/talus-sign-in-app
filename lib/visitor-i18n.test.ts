@@ -6,6 +6,8 @@ describe("visitor copy", () => {
   it("points bookings at I have a booking, not Sign in", () => {
     const en = visitorCopy("en")
     const es = visitorCopy("es")
+    assert.equal(en.tapToUnmute, "Turn on sound")
+    assert.equal(es.tapToUnmute, "Activar sonido")
     assert.equal(en.haveBooking, "I have a booking")
     assert.equal(es.haveBooking, "Tengo una reserva")
     assert.equal(en.bookingHint, "Booked ahead? Tap I have a booking.")

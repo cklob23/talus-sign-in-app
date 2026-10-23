@@ -120,6 +120,16 @@ describe("kiosk header site line", () => {
       }),
       "Test Location, a 52 m",
     )
+    assert.equal(
+      formatHeaderSiteLine({
+        siteName: "Test Location",
+        meters: 52,
+        unavailable: false,
+        copy,
+        includeDistance: false,
+      }),
+      "Test Location",
+    )
   })
 
   it("classifies permission-denied and missing fixes as unavailable", () => {
