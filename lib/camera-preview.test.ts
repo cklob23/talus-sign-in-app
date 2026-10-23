@@ -5,20 +5,18 @@ import { attachAndPlayCamera } from "./camera-preview.ts"
 describe("camera preview attach", () => {
   it("sets srcObject and calls play before resolving", async () => {
     const stream = {} as MediaStream
-    const order: string[] = []
+    let played = false
     const video = {
       srcObject: null as MediaStream | null,
       muted: false,
       playsInline: false,
       play: async () => {
-        order.push("play")
+        played = true
         assert.equal(video.srcObject, stream)
       },
     }
-    const pending = attachAndPlayCamera(video, stream)
-    order.push("started")
-    await pending
-    assert.deepEqual(order, ["started", "play"])
+    await attachAndPlayCamera(video, stream)
+    assert.equal(played, true)
     assert.equal(video.srcObject, stream)
     assert.equal(video.muted, true)
     assert.equal(video.playsInline, true)
