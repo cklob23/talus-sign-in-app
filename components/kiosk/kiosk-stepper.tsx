@@ -16,7 +16,7 @@ export function KioskStepper({
 
   return (
     <ol
-      className="mb-6 flex items-center"
+      className="mb-6 flex w-full items-center"
       aria-label={copy.stepOf.replace("{current}", String(current + 1)).replace("{total}", String(steps.length))}
     >
       {steps.map((label, index) => {
