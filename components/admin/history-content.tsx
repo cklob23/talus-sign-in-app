@@ -2,8 +2,16 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import {
+  HISTORY_EMPLOYEE_SELECT,
+  HISTORY_SOURCE_COLUMN_HEADER,
+  HISTORY_VISITOR_SELECT,
+  isHistoryListPending,
+  readHistoryCache,
+  runHistoryListLoads,
+} from "@/lib/admin-history"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,14 +37,24 @@ interface EmployeeSignInWithProfile extends EmployeeSignInWithJoins {
 }
 
 export function HistoryContent() {
-  const [signIns, setSignIns] = useState<SignIn[]>([])
-  const [employeeSignIns, setEmployeeSignIns] = useState<EmployeeSignInWithJoins[]>([])
+  const [signIns, setSignIns] = useState<SignIn[]>(
+    () => readHistoryCache<SignIn, EmployeeSignInWithJoins>()?.visitors ?? [],
+  )
+  const [employeeSignIns, setEmployeeSignIns] = useState<EmployeeSignInWithJoins[]>(
+    () => readHistoryCache<SignIn, EmployeeSignInWithJoins>()?.employees ?? [],
+  )
   const [search, setSearch] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
+  const [visitorsSettled, setVisitorsSettled] = useState(
+    () => readHistoryCache() != null,
+  )
+  const [employeesSettled, setEmployeesSettled] = useState(
+    () => readHistoryCache() != null,
+  )
   const [activeTab, setActiveTab] = useState("all")
   const { timezone: userTimezone } = useTimezone()
   const [bladeRecord, setBladeRecord] = useState<SignInRecord | null>(null)
   const [isBladeOpen, setIsBladeOpen] = useState(false)
+  const loadIdRef = useRef(0)
 
   function openBlade(record: SignInRecord) {
     setBladeRecord(record)
@@ -44,40 +62,44 @@ export function HistoryContent() {
   }
 
   async function loadHistory() {
-    setIsLoading(true)
+    const loadId = ++loadIdRef.current
     const supabase = createClient()
 
-    // Load visitor sign-ins
-    const { data: visitorData } = await supabase
-      .from("sign_ins")
-      .select(
-        `
-        *,
-        visitor:visitors(*),
-        host:hosts(*),
-        visitor_type:visitor_types(*),
-        location:locations(*)
-      `,
-      )
-      .order("sign_in_time", { ascending: false })
-      .limit(100)
-
-    // Load employee sign-ins
-    const { data: employeeData } = await supabase
-      .from("employee_sign_ins")
-      .select(
-        `
-        *,
-        profile:profiles(*),
-        location:locations(*)
-      `,
-      )
-      .order("sign_in_time", { ascending: false })
-      .limit(100)
-
-    if (visitorData) setSignIns(visitorData as SignIn[])
-    if (employeeData) setEmployeeSignIns(employeeData as EmployeeSignInWithJoins[])
-    setIsLoading(false)
+    try {
+      await runHistoryListLoads({
+        visitors: async () => {
+          const { data } = await supabase
+            .from("sign_ins")
+            .select(HISTORY_VISITOR_SELECT)
+            .order("sign_in_time", { ascending: false })
+            .limit(100)
+          return data as SignIn[] | null
+        },
+        employees: async () => {
+          const { data } = await supabase
+            .from("employee_sign_ins")
+            .select(HISTORY_EMPLOYEE_SELECT)
+            .order("sign_in_time", { ascending: false })
+            .limit(100)
+          return data as EmployeeSignInWithJoins[] | null
+        },
+        onVisitors: (rows) => {
+          if (loadId !== loadIdRef.current) return
+          setSignIns(rows)
+          setVisitorsSettled(true)
+        },
+        onEmployees: (rows) => {
+          if (loadId !== loadIdRef.current) return
+          setEmployeeSignIns(rows)
+          setEmployeesSettled(true)
+        },
+      })
+    } catch (err) {
+      console.error("Failed to load history:", err)
+      if (loadId !== loadIdRef.current) return
+      setVisitorsSettled(true)
+      setEmployeesSettled(true)
+    }
   }
 
   useEffect(() => {
@@ -225,7 +247,7 @@ export function HistoryContent() {
               </div>
             </CardHeader>
             <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-              {isLoading ? (
+              {isHistoryListPending(visitorsSettled) ? (
                 <p className="text-center py-8 text-muted-foreground">Loading...</p>
               ) : filteredSignIns.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No visitor records found</p>
@@ -298,7 +320,7 @@ export function HistoryContent() {
                           <TableHead>Host</TableHead>
                           <TableHead>Sign In</TableHead>
                           <TableHead>Sign Out</TableHead>
-                          <TableHead>Sign-out</TableHead>
+                          <TableHead>{HISTORY_SOURCE_COLUMN_HEADER}</TableHead>
                           <TableHead>Duration</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -377,7 +399,7 @@ export function HistoryContent() {
               </div>
             </CardHeader>
             <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-              {isLoading ? (
+              {isHistoryListPending(employeesSettled) ? (
                 <p className="text-center py-8 text-muted-foreground">Loading...</p>
               ) : filteredEmployeeSignIns.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No employee records found</p>
@@ -438,7 +460,7 @@ export function HistoryContent() {
                           <TableHead>Location</TableHead>
                           <TableHead>Sign In</TableHead>
                           <TableHead>Sign Out</TableHead>
-                          <TableHead>Sign-out</TableHead>
+                          <TableHead>{HISTORY_SOURCE_COLUMN_HEADER}</TableHead>
                           <TableHead>Duration</TableHead>
                           <TableHead>Auto sign-in</TableHead>
                         </TableRow>
