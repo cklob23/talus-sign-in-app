@@ -35,6 +35,7 @@ const { POST: findSignInPost } = await import("../app/api/kiosk/find-sign-in/rou
 const { POST: completeBookingsPost } = await import("../app/api/kiosk/complete-bookings/route.ts")
 const { POST: employeeSignoutPost } = await import("../app/api/kiosk/employee-signout/route.ts")
 const { POST: employeeAutoSignInPost } = await import("../app/api/kiosk/employee-auto-signin/route.ts")
+const { POST: employeeSignInPost } = await import("../app/api/kiosk/employee-signin/route.ts")
 const { writes, resetWrites, setOverride, clearOverrides } = await import("./test-mocks/supabase-server.ts")
 const { resetGeofenceSightings } = await import("./geofence-guard.ts")
 const { resetRateLimits } = await import("./rate-limit.ts")
@@ -582,5 +583,45 @@ describe("kiosk server geofence enforcement", () => {
       }),
     )
     assert.equal(allowed.status, 200, await allowed.clone().text())
+  })
+
+  it("enforces the same fence on password employee sign-in", async () => {
+    setOverride("locations", { single: FENCED_SITE })
+    setOverride("employee_sign_ins", { single: null })
+    setOverride("profiles", {
+      single: {
+        id: VISITOR_ID,
+        email: "pat@talusag.com",
+        full_name: "Pat",
+        role: "employee",
+        avatar_url: null,
+        location_id: LOCATION_ID,
+      },
+    })
+    const blocked = await employeeSignInPost(
+      jsonRequest("/api/kiosk/employee-signin", {
+        profile_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        location_id: LOCATION_ID,
+        method: "password",
+        coords: { lat: 51.5, lng: -0.12, accuracy: 5, timestamp: Date.now() },
+      }),
+    )
+    assert.equal(blocked.status, 403)
+    assert.equal((await blocked.json()).code, "geofence_outside")
+
+    resetWrites()
+    resetGeofenceSightings()
+    resetRateLimits()
+    const allowed = await employeeSignInPost(
+      jsonRequest("/api/kiosk/employee-signin", {
+        profile_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        location_id: LOCATION_ID,
+        method: "password",
+        coords: freshOnSiteCoords(),
+      }),
+    )
+    assert.equal(allowed.status, 200, await allowed.clone().text())
+    const audit = writes.find((w) => w.table === "audit_logs" && w.op === "insert")
+    assert.equal((audit?.payload as { metadata?: { method?: string } }).metadata?.method, "password")
   })
 })

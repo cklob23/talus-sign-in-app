@@ -3,12 +3,14 @@
 import type { ReactNode } from "react"
 import { Bell, Calendar, Check, Home, LogOut, MapPin, MoreHorizontal, PlayCircle, Search, Users } from "lucide-react"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
+import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
 import { LangToggle } from "@/components/lang-toggle"
 import { StatusPill } from "@/components/v2/status-pill"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { visitorCopy } from "@/lib/visitor-i18n"
 import { cn } from "@/lib/utils"
+import type { VisitorType } from "@/types/database"
 
 const copy = visitorCopy("en")
 
@@ -132,7 +134,46 @@ function KioskWelcomeScreen() {
         onBooking={() => undefined}
         onStaff={() => undefined}
         showBooking
-        visitorBlocked={false}
+        offerSignIn
+      />
+    </KioskChrome>
+  )
+}
+
+function KioskTypeScreen() {
+  return (
+    <KioskChrome>
+      <KioskTypeStep
+        types={[
+          { id: "1", name: "Contractor", badge_color: "#f59e0b", requires_host: true, requires_company: true, requires_training: true, requires_nda: false, training_video_url: null, training_title: null, location_id: "loc", created_at: "" },
+          { id: "2", name: "Delivery", badge_color: "#3b82f6", requires_host: false, requires_company: true, requires_training: false, requires_nda: false, training_video_url: null, training_title: null, location_id: "loc", created_at: "" },
+          { id: "3", name: "Guest", badge_color: "#10b981", requires_host: true, requires_company: false, requires_training: true, requires_nda: false, training_video_url: null, training_title: null, location_id: "loc", created_at: "" },
+          { id: "4", name: "Interview", badge_color: "#8b5cf6", requires_host: true, requires_company: false, requires_training: true, requires_nda: false, training_video_url: null, training_title: null, location_id: "loc", created_at: "" },
+        ] satisfies VisitorType[]}
+        copy={copy}
+        onPick={() => undefined}
+        onBack={() => undefined}
+      />
+    </KioskChrome>
+  )
+}
+
+function KioskBlockedScreen() {
+  return (
+    <KioskChrome>
+      <KioskWelcome
+        companyName="Talus Ag"
+        copy={copy}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        onBooking={() => undefined}
+        onStaff={() => undefined}
+        showBooking
+        offerSignIn={false}
+        blockedTitle={copy.geofenceVisitor}
+        blockedHelp={copy.geofenceBlockedHelp}
+        blockedStaffDetail="This kiosk is about 76.2 km from Houston HQ. Sign-in only works within 200 m."
+        onOverride={() => undefined}
       />
     </KioskChrome>
   )
@@ -375,6 +416,8 @@ function AdminVisitorsScreen() {
 
 const SCREENS: Record<string, { title: string; node: ReactNode }> = {
   "kiosk-welcome": { title: "Kiosk welcome", node: <KioskWelcomeScreen /> },
+  "kiosk-type": { title: "Kiosk type", node: <KioskTypeScreen /> },
+  "kiosk-blocked": { title: "Kiosk blocked", node: <KioskBlockedScreen /> },
   "kiosk-details": { title: "Kiosk details", node: <KioskDetailsScreen /> },
   "kiosk-training": { title: "Kiosk training", node: <KioskTrainingScreen /> },
   "qr-host": { title: "QR host", node: <QrHostScreen /> },

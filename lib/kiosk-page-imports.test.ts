@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { describe, it } from "node:test"
 
 const page = readFileSync(new URL("../app/kiosk/page.tsx", import.meta.url), "utf8")
+const siteLine = readFileSync(new URL("../components/kiosk/kiosk-site-line.tsx", import.meta.url), "utf8")
 
 /**
  * The v2-redesign merge kept /kiosk call sites but dropped these imports.
@@ -28,9 +29,13 @@ describe("kiosk page render-critical imports", () => {
       "KioskSiteLine",
       "KioskResolvedSite",
       "staffGeofenceLine",
+      "kioskHomeSignInVisibility",
+      "KioskGeofenceBlocked",
     ]
     for (const token of required) {
       assert.match(page, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `missing ${token}`)
     }
+    // MapPin lives on the shared site line after the single-header-site change.
+    assert.match(siteLine, /MapPin/)
   })
 })
