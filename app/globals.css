@@ -200,7 +200,11 @@
     min-height: 48px;
   }
 
-  /* Public landing (/): keep the selector in @layer so Next/Turbopack production CSS does not drop it. */
+  /* Public landing (/): light by default. Dark tokens apply only when next-themes
+     puts .dark on <html> (Settings → Dark, or Settings → System while the OS is dark).
+     Do not follow prefers-color-scheme here — anonymous visitors with no stored
+     preference stay on brand light. Keep the selector in @layer so Next/Turbopack
+     production CSS does not drop it. */
   .landing-page {
     --lp-bg: #f5f8f6;
     --lp-surface: #ffffff;
@@ -216,28 +220,6 @@
     --lp-focus: #0a5c36;
     background-color: var(--lp-bg);
     color: var(--lp-text);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .landing-page {
-      --lp-bg: #0a110d;
-      --lp-surface: #111a15;
-      --lp-surface-2: #17231c;
-      --lp-border: #263429;
-      --lp-text: #e8efea;
-      --lp-muted: #a0afa5;
-      --lp-primary: #00854c;
-      --lp-primary-hover: #009656;
-      --lp-on-primary: #ffffff;
-      --lp-primary-text: #4fd68f;
-      --lp-accent-soft: #123a26;
-      --lp-focus: #7fe3ad;
-    }
-
-    .landing-page header img {
-      filter: invert(1) hue-rotate(180deg);
-      mix-blend-mode: screen;
-    }
   }
 
   .dark .landing-page {

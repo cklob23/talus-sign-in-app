@@ -39,4 +39,26 @@ describe("landing CSS tokens", () => {
       assert.ok(hasToken(out, token, hexes), `expected optimized CSS to define ${token}`)
     }
   })
+
+  it("stays light unless .dark is set — does not follow prefers-color-scheme", async () => {
+    const css = readFileSync(globalsPath, "utf8")
+    const result = await postcss([tailwind({ optimize: true })]).process(css, {
+      from: globalsPath,
+    })
+    const out = result.css.replace(/\s+/g, "")
+
+    assert.doesNotMatch(
+      out,
+      /prefers-color-scheme:dark[^{]*\{[^}]*\.landing-page/,
+      "landing must not switch tokens from OS dark mode",
+    )
+    assert.doesNotMatch(
+      css,
+      /@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{[\s\S]*\.landing-page/,
+      "source must not pair landing tokens with prefers-color-scheme",
+    )
+    // optimize:true strips whitespace, so ".dark .landing-page" becomes ".dark.landing-page"
+    assert.match(out, /\.dark\.landing-page\{[^}]*--lp-bg:#0a110d/i)
+    assert.match(out, /\.landing-page\{[^}]*--lp-bg:#f5f8f6/i)
+  })
 })
