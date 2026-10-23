@@ -67,6 +67,8 @@ import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite,
 import { fill, hostArrivalMessage, readVisitorLang, staffGeofenceLine, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
+import { attachAndPlayCamera } from "@/lib/camera-preview"
+import type { TrainingPlaybackControls } from "@/components/training-player"
 import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
 
 type KioskMode = "receptionist-login" | "home" | "visitor-type" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
@@ -218,10 +220,12 @@ export default function KioskPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraReady, setCameraReady] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [cameraIssue, setCameraIssue] = useState<CameraIssue | null>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
+  const trainingPlaybackRef = useRef<TrainingPlaybackControls | null>(null)
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
   const [clearanceMessage, setClearanceMessage] = useState<string | null>(null)
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null)
@@ -1383,12 +1387,18 @@ export default function KioskPage() {
   }
 
   // Issue a training ticket, then let the shared player report the ended event.
+  // Start the player immediately so unmute + play stay on the same tap as "start".
   async function startVideoProgress() {
     if (videoStarted || isLoading) return
     if (!selectedVisitorType) return
 
-    setIsLoading(true)
     setError(null)
+    setVideoStarted(true)
+    setVideoProgress(0)
+    videoPlayingRef.current = true
+    void trainingPlaybackRef.current?.unmuteAndPlay()
+
+    setIsLoading(true)
     try {
       const res = await fetch("/api/kiosk/training/start", {
         method: "POST",
@@ -1401,15 +1411,13 @@ export default function KioskPage() {
       }
       trainingTicketRef.current = json.ticket
     } catch (err) {
+      setVideoStarted(false)
+      videoPlayingRef.current = false
       setError(err instanceof Error ? err.message : "Could not start training. Please try again.")
       return
     } finally {
       setIsLoading(false)
     }
-
-    setVideoStarted(true)
-    setVideoProgress(0)
-    videoPlayingRef.current = true
   }
 
   async function verifyKioskCode() {
@@ -1784,6 +1792,7 @@ export default function KioskPage() {
     try {
       setCameraError(null)
       setCameraIssue(null)
+      setCameraReady(false)
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraIssue("unavailable")
         setCameraError(copy.photoCameraUnavailable)
@@ -1793,14 +1802,12 @@ export default function KioskPage() {
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
       })
       setCameraStream(stream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
     } catch (err) {
       console.error("Camera access error:", err)
       const issue = classifyCameraError(err)
       setCameraIssue(issue)
       setCameraError(issue === "denied" ? copy.photoCameraDenied : copy.photoCameraUnavailable)
+      setCameraReady(false)
     }
   }
 
@@ -1809,6 +1816,7 @@ export default function KioskPage() {
       cameraStream.getTracks().forEach(track => track.stop())
       setCameraStream(null)
     }
+    setCameraReady(false)
   }
 
   function capturePhoto() {
@@ -1880,6 +1888,26 @@ export default function KioskPage() {
     }
   }, [])
 
+  // Attach the stream after photo mode mounts, then wait until video.play() resolves.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!cameraStream || !video || mode !== "photo" || capturedPhoto) {
+      return
+    }
+    let cancelled = false
+    setCameraReady(false)
+    void attachAndPlayCamera(video, cameraStream)
+      .then(() => {
+        if (!cancelled) setCameraReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) setCameraReady(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [cameraStream, mode, capturedPhoto])
+
   // Go to photo mode after training (or directly if no training needed)
   /**
    * Gate the photo step behind the NDA when one is required.
@@ -1938,11 +1966,9 @@ export default function KioskPage() {
       return
     }
     stopCamera()
+    setCameraReady(false)
     setMode("photo")
-    // Start camera after a brief delay to allow mode change
-    setTimeout(() => {
-      startCamera()
-    }, 100)
+    void startCamera()
   }
 
   async function handleSignOut(e: React.FormEvent) {
@@ -2374,7 +2400,7 @@ export default function KioskPage() {
                 <TalusAgLogo />
               </Link>
             </div>
-            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-4">
               <div className="hidden min-w-0 items-center gap-3 text-sm md:flex">
                 <span className="flex shrink-0 items-center gap-2 border-r border-[#dce6df] pr-3">
                   <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -2399,7 +2425,7 @@ export default function KioskPage() {
                   />
                 ) : null}
               </div>
-              <div className="min-w-0 max-w-[46%] md:hidden">
+              <div className={`min-w-0 md:hidden ${receptionistUser ? "hidden" : "max-w-[36%]"}`}>
                 {siteKind === "none" ? (
                   receptionistUser ? (
                     <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>
@@ -2410,6 +2436,7 @@ export default function KioskPage() {
                     meters={siteMeters}
                     unavailable={siteUnavailable}
                     copy={copy}
+                    compact
                   />
                 ) : null}
               </div>
@@ -2426,7 +2453,7 @@ export default function KioskPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="min-h-12 min-w-12 bg-transparent text-muted-foreground hover:text-foreground"
+                  className="shrink-0 min-h-11 min-w-11 bg-transparent px-2 text-muted-foreground hover:text-foreground"
                   onClick={handleReceptionistLogout}
                   title={`Logged in as ${receptionistUser.name}. Click to lock kiosk.`}
                 >
@@ -3219,7 +3246,9 @@ export default function KioskPage() {
                       value={signOutIdentifier}
                       onChange={(e) => setSignOutIdentifier(e.target.value)}
                       placeholder="V04821 or name@example.com"
-                      autoCapitalize="characters"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       autoComplete="off"
                     />
                   </div>
@@ -3279,7 +3308,7 @@ export default function KioskPage() {
                       placeholder="Enter your password"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="rememberMe"
@@ -3296,14 +3325,7 @@ export default function KioskPage() {
                   </div>
                   {locations.length === 0 ? (
                     <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
-                  ) : (
-                    <KioskLocationPicker
-                      locations={locations}
-                      value={selectedLocation}
-                      onChange={(id) => void handleStaffSiteChange(id)}
-                      label={copy.chooseSite}
-                    />
-                  )}
+                  ) : null}
                   {currentLocation && (
                     <div className="bg-muted/50 rounded-lg p-3 space-y-2">
                       <div className="flex items-center gap-3">
@@ -3490,10 +3512,15 @@ export default function KioskPage() {
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
                 <div className="relative">
                   {selectedVisitorType.training_video_url ? (
-                    videoStarted ? (
+                    <>
                       <TrainingPlayer
                         url={selectedVisitorType.training_video_url}
                         title={selectedVisitorType.training_title || copy.trainingTitle}
+                        autoPlay={videoStarted}
+                        unmuteLabel={copy.tapToUnmute}
+                        onPlaybackReady={(controls) => {
+                          trainingPlaybackRef.current = controls
+                        }}
                         onDuration={setVideoSeconds}
                         onPlayingChange={(playing) => {
                           videoPlayingRef.current = playing
@@ -3505,10 +3532,9 @@ export default function KioskPage() {
                           setVideoProgress(100)
                         }}
                       />
-                    ) : (
-                      <div className="aspect-video bg-muted rounded-lg overflow-hidden relative">
+                      {!videoStarted ? (
                         <div
-                          className="absolute inset-0 bg-foreground/60 flex flex-col items-center justify-center cursor-pointer rounded-lg"
+                          className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-lg bg-foreground/60 cursor-pointer"
                           onClick={() => void startVideoProgress()}
                         >
                           <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
@@ -3516,8 +3542,8 @@ export default function KioskPage() {
                           </div>
                           <p className="text-background font-medium text-lg">{copy.tapToStart}</p>
                         </div>
-                      </div>
-                    )
+                      ) : null}
+                    </>
                   ) : (
                     <div className="aspect-video w-full flex flex-col items-center justify-center text-muted-foreground rounded-lg bg-muted">
                       <PlayCircle className="w-16 h-16 mb-4 opacity-50" />
@@ -3801,7 +3827,7 @@ export default function KioskPage() {
                         className="w-full h-full object-cover"
                         style={{ transform: "scaleX(-1)" }}
                       />
-                      {!cameraStream && (
+                      {!cameraReady && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
                           <Camera className="w-16 h-16 mb-4 opacity-50 text-muted-foreground" />
                           <p className="text-muted-foreground">Starting camera...</p>
@@ -3889,7 +3915,7 @@ export default function KioskPage() {
                       <Button
                         onClick={capturePhoto}
                         className="flex-1"
-                        disabled={!cameraStream || isLoading}
+                        disabled={!cameraReady || isLoading}
                       >
                         {isLoading ? (
                           <>

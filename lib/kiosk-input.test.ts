@@ -111,6 +111,7 @@ describe("optional kiosk helpers: missing vs invalid", () => {
     assert.equal(asOptionalString("O'Reilly Construction, Inc.", 200), "O'Reilly Construction, Inc.")
     assert.equal(asOptionalEmail("jane.doe@talusag.com"), "jane.doe@talusag.com")
     assert.equal(asOptionalEmail("Jane.Doe+kiosk@TalusAg.com"), "jane.doe+kiosk@talusag.com")
+    assert.equal(asOptionalEmail("NAME@EXAMPLE.COM"), "name@example.com")
     assert.equal(asOptionalHttpUrl(PHOTO), PHOTO)
     assert.equal(asOptionalIsoDate("2026-10-22T00:00:00.000Z"), "2026-10-22T00:00:00.000Z")
     assert.equal(asTrimmedString("Jane", 100), "Jane")
