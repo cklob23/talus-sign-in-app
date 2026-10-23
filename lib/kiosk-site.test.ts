@@ -132,6 +132,36 @@ describe("kiosk header site line", () => {
       }),
       "Test Location",
     )
+    assert.equal(
+      formatHeaderSiteLine({
+        siteName: "",
+        meters: null,
+        unavailable: false,
+        detecting: true,
+        copy,
+      }),
+      "Checking your location...",
+    )
+    assert.equal(
+      formatHeaderSiteLine({
+        siteName: "Test Location",
+        meters: null,
+        unavailable: false,
+        detecting: true,
+        copy,
+      }),
+      "Test Location",
+    )
+    assert.equal(
+      formatHeaderSiteLine({
+        siteName: "",
+        meters: null,
+        unavailable: false,
+        detecting: true,
+        copy: visitorCopy("es"),
+      }),
+      "Comprobando su ubicación...",
+    )
   })
 
   it("classifies permission-denied and missing fixes as unavailable", () => {
@@ -174,6 +204,26 @@ describe("kiosk header site line", () => {
         meters: null,
       }),
       "detecting",
+    )
+    assert.equal(
+      headerLocationKind({
+        hasLocations: false,
+        geoError: null,
+        hasFix: false,
+        isDetecting: true,
+        meters: null,
+      }),
+      "detecting",
+    )
+    assert.equal(
+      headerLocationKind({
+        hasLocations: false,
+        geoError: "permission_denied",
+        hasFix: false,
+        isDetecting: false,
+        meters: null,
+      }),
+      "none",
     )
   })
 

@@ -63,9 +63,11 @@ export function formatHeaderSiteLine(opts: {
   siteName: string
   meters: number | null
   unavailable: boolean
-  copy: { locationUnavailable: string; siteDistanceAway: string }
+  copy: { locationUnavailable: string; siteDistanceAway: string; checkingLocation: string }
   includeDistance?: boolean
+  detecting?: boolean
 }): string {
+  if (opts.detecting) return opts.siteName || opts.copy.checkingLocation
   if (opts.unavailable) return `${opts.siteName} · ${opts.copy.locationUnavailable}`
   if (opts.includeDistance === false || opts.meters == null || !Number.isFinite(opts.meters)) {
     return opts.siteName
@@ -114,9 +116,11 @@ export function headerLocationKind(input: {
   isDetecting: boolean
   meters: number | null
 }): HeaderLocationKind {
+  // Show the header spinner while GPS is still settling, including the brief
+  // window before the locations list arrives.
+  if (!input.geoError && input.isDetecting && !input.hasFix) return "detecting"
   if (!input.hasLocations) return "none"
   if (input.geoError === "permission_denied" || input.geoError) return "unavailable"
-  if (input.isDetecting && !input.hasFix) return "detecting"
   if (!input.hasFix) return "unavailable"
   if (input.meters != null && Number.isFinite(input.meters)) return "distance"
   return "name-only"
