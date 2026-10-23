@@ -72,15 +72,6 @@ export default function HomePage() {
       <footer className="mt-auto border-t border-[var(--lp-border)]">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col items-center gap-1 px-4 py-6 text-center text-[13px] leading-relaxed text-[var(--lp-muted)] sm:px-6">
           <p>{`© ${new Date().getFullYear()} ${companyName} Visitor Management.`}</p>
-          <p>
-            Need help? Contact IT Support at{" "}
-            <a
-              href="mailto:it_support@talusag.com"
-              className="font-medium text-[var(--lp-primary-text)] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-focus)]"
-            >
-              it_support@talusag.com
-            </a>
-          </p>
         </div>
       </footer>
     </div>

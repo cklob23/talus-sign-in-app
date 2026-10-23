@@ -2354,7 +2354,7 @@ export default function KioskPage() {
   }
 
   return (
-    <div className="kiosk-touch min-h-screen bg-background text-foreground">
+    <div className="kiosk-touch flex min-h-screen flex-col bg-background text-foreground">
       {mode === "receptionist-login" ? (
         <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
           <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-center">
@@ -2441,7 +2441,7 @@ export default function KioskPage() {
         </header>
       )}
 
-      <main className="container mx-auto px-3 py-4 sm:px-4 sm:py-8">
+      <main className="container mx-auto flex-1 px-3 py-4 sm:px-4 sm:py-8">
         {idleSeconds !== null && (
           <button
             type="button"
@@ -4025,6 +4025,21 @@ export default function KioskPage() {
           </div>
         )}
       </main>
+      {mode === "receptionist-login" ? (
+        <footer className="mt-auto border-t border-border">
+          <div className="mx-auto flex w-full max-w-[1080px] flex-col items-center px-4 py-6 text-center text-[13px] leading-relaxed text-muted-foreground sm:px-6">
+            <p>
+              Need help? Contact IT Support at{" "}
+              <a
+                href="mailto:it_support@talusag.com"
+                className="font-medium text-primary-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                it_support@talusag.com
+              </a>
+            </p>
+          </div>
+        </footer>
+      ) : null}
     </div>
   )
 }
