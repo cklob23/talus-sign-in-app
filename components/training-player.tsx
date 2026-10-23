@@ -2,12 +2,23 @@
 
 import { useEffect, useId, useRef, useState } from "react"
 import { parseTrainingMedia, type TrainingMedia } from "@/lib/training-media"
-import { clampSeek, recordWatchPosition, watchedToEnd, type WatchProgress } from "@/lib/checkin-idle"
+import {
+  clampSeek,
+  recordWatchPosition,
+  seekLockIsCoolingDown,
+  shouldCorrectSeek,
+  watchedToEnd,
+  type WatchProgress,
+} from "@/lib/checkin-idle"
 import {
   applyHtmlMediaUnmute,
   applyVimeoUnmute,
   applyYoutubeUnmute,
   htmlMediaNeedsUnmute,
+  htmlMediaShouldPlay,
+  logTrainingPlayback,
+  shouldInvokeAutoplayUnmute,
+  trainingSoundIsOn,
   vimeoUnmutedEmbedUrl,
   youtubeUnmutedPlayerVars,
 } from "@/lib/training-playback"
@@ -27,7 +38,6 @@ declare global {
           }
         },
       ) => YtPlayer
-      PlayerState?: { ENDED: number }
     }
     onYouTubeIframeAPIReady?: () => void
     Vimeo?: {
@@ -42,6 +52,7 @@ declare global {
 interface YtPlayer {
   getDuration: () => number
   getCurrentTime?: () => number
+  getPlayerState?: () => number
   seekTo?: (seconds: number, allowSeekAhead?: boolean) => void
   destroy?: () => void
   unMute?: () => void
@@ -60,6 +71,7 @@ interface VimeoPlayer {
   setVolume?: (volume: number) => Promise<unknown>
   play?: () => Promise<unknown>
   getMuted?: () => Promise<boolean>
+  getPaused?: () => Promise<boolean>
 }
 
 export type TrainingPlaybackControls = {
@@ -87,6 +99,8 @@ export function TrainingPlayer({
   onPlayingChange,
   autoPlay = true,
   unmuteLabel = "Turn on sound",
+  soundOnLabel = "Sound on",
+  soundOffLabel = "Sound off",
   onPlaybackReady,
 }: {
   url: string
@@ -96,6 +110,8 @@ export function TrainingPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay?: boolean
   unmuteLabel?: string
+  soundOnLabel?: string
+  soundOffLabel?: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const media = parseTrainingMedia(url)
@@ -115,6 +131,8 @@ export function TrainingPlayer({
       onPlayingChange={onPlayingChange}
       autoPlay={autoPlay}
       unmuteLabel={unmuteLabel}
+      soundOnLabel={soundOnLabel}
+      soundOffLabel={soundOffLabel}
       onPlaybackReady={onPlaybackReady}
     />
   )
@@ -128,6 +146,8 @@ function ResolvedTrainingPlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
+  soundOnLabel,
+  soundOffLabel,
   onPlaybackReady,
 }: {
   media: TrainingMedia
@@ -137,48 +157,28 @@ function ResolvedTrainingPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
+  soundOnLabel: string
+  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
+  const shared = {
+    title,
+    onEnded,
+    onDuration,
+    onPlayingChange,
+    autoPlay,
+    unmuteLabel,
+    soundOnLabel,
+    soundOffLabel,
+    onPlaybackReady,
+  }
   if (media.kind === "youtube") {
-    return (
-      <YouTubePlayer
-        videoId={media.youtubeId || ""}
-        title={title}
-        onEnded={onEnded}
-        onDuration={onDuration}
-        onPlayingChange={onPlayingChange}
-        autoPlay={autoPlay}
-        unmuteLabel={unmuteLabel}
-        onPlaybackReady={onPlaybackReady}
-      />
-    )
+    return <YouTubePlayer videoId={media.youtubeId || ""} {...shared} />
   }
   if (media.kind === "vimeo") {
-    return (
-      <VimeoPlayer
-        embedUrl={media.embedUrl}
-        title={title}
-        onEnded={onEnded}
-        onDuration={onDuration}
-        onPlayingChange={onPlayingChange}
-        autoPlay={autoPlay}
-        unmuteLabel={unmuteLabel}
-        onPlaybackReady={onPlaybackReady}
-      />
-    )
+    return <VimeoPlayer embedUrl={media.embedUrl} {...shared} />
   }
-  return (
-    <FilePlayer
-      src={media.url}
-      title={title}
-      onEnded={onEnded}
-      onDuration={onDuration}
-      onPlayingChange={onPlayingChange}
-      autoPlay={autoPlay}
-      unmuteLabel={unmuteLabel}
-      onPlaybackReady={onPlaybackReady}
-    />
-  )
+  return <FilePlayer src={media.url} {...shared} />
 }
 
 function maybeUnlock(
@@ -215,6 +215,43 @@ function SoundPrompt({
   )
 }
 
+function PlaybackStatusBadge({
+  unlocked,
+  muted,
+  playing,
+  soundOnLabel,
+  soundOffLabel,
+  onRetryUnmute,
+}: {
+  unlocked: boolean
+  muted: boolean
+  playing: boolean
+  soundOnLabel: string
+  soundOffLabel: string
+  onRetryUnmute: () => void
+}) {
+  const soundOn = trainingSoundIsOn({ unlocked, muted })
+  return (
+    <button
+      type="button"
+      data-training-sound={soundOn ? "on" : "off"}
+      data-training-unlocked={unlocked ? "true" : "false"}
+      data-training-muted={muted ? "true" : "false"}
+      data-training-playing={playing ? "true" : "false"}
+      className={`absolute left-2 top-2 z-20 rounded-md px-2 py-1 text-xs font-semibold shadow ${
+        soundOn ? "bg-emerald-600 text-white" : "bg-amber-400 text-[#0f1a13]"
+      }`}
+      onClick={() => {
+        if (!soundOn) onRetryUnmute()
+      }}
+      aria-live="polite"
+    >
+      {soundOn ? soundOnLabel : soundOffLabel}
+      {playing ? " · Playing" : ""}
+    </button>
+  )
+}
+
 function FilePlayer({
   src,
   title,
@@ -223,6 +260,8 @@ function FilePlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
+  soundOnLabel,
+  soundOffLabel,
   onPlaybackReady,
 }: {
   src: string
@@ -232,25 +271,56 @@ function FilePlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
+  soundOnLabel: string
+  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
   const durationRef = useRef(0)
   const unlockedRef = useRef(false)
+  const soundUnlockedRef = useRef(false)
+  const seekLockedAtRef = useRef(0)
   const endedRef = useRef(onEnded)
-  const [needsSound, setNeedsSound] = useState(true)
+  const [soundUnlocked, setSoundUnlocked] = useState(false)
+  const [playerMuted, setPlayerMuted] = useState(true)
+  const [playing, setPlaying] = useState(false)
   endedRef.current = onEnded
 
+  function markUnlocked() {
+    soundUnlockedRef.current = true
+    setSoundUnlocked(true)
+  }
+
   async function unmuteAndPlay() {
+    markUnlocked()
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      logTrainingPlayback("unmute_pending", { source: "html5", unlocked: true, muted: true, playing: false })
+      return
+    }
     applyHtmlMediaUnmute(video)
     try {
-      await video.play()
-      setNeedsSound(htmlMediaNeedsUnmute(video))
-    } catch {
-      setNeedsSound(true)
+      if (htmlMediaShouldPlay(video)) await video.play()
+      const muted = htmlMediaNeedsUnmute(video)
+      setPlayerMuted(muted)
+      setPlaying(!video.paused)
+      logTrainingPlayback("unmute_applied", {
+        source: "html5",
+        unlocked: true,
+        muted,
+        playing: !video.paused,
+      })
+    } catch (error) {
+      setPlayerMuted(true)
+      setPlaying(false)
+      logTrainingPlayback("play_blocked", {
+        source: "html5",
+        unlocked: true,
+        muted: true,
+        playing: false,
+        error: String(error),
+      })
     }
   }
 
@@ -262,20 +332,48 @@ function FilePlayer({
     const video = videoRef.current
     if (!video) return
     applyHtmlMediaUnmute(video)
-    if (!autoPlay) return
+    if (!shouldInvokeAutoplayUnmute({ autoPlay, alreadyUnlocked: soundUnlockedRef.current, hasPlayer: true })) {
+      return
+    }
+    if (!htmlMediaShouldPlay(video)) return
     void video.play().then(() => {
-      setNeedsSound(htmlMediaNeedsUnmute(video))
-    }).catch(() => {
-      setNeedsSound(true)
+      const muted = htmlMediaNeedsUnmute(video)
+      setPlayerMuted(muted)
+      setPlaying(!video.paused)
+      if (!muted) markUnlocked()
+      logTrainingPlayback(muted ? "autoplay_muted" : "autoplay_unmuted", {
+        source: "html5",
+        unlocked: soundUnlockedRef.current,
+        muted,
+        playing: !video.paused,
+      })
+    }).catch((error) => {
+      setPlayerMuted(true)
+      setPlaying(false)
+      logTrainingPlayback("autoplay_blocked", {
+        source: "html5",
+        unlocked: soundUnlockedRef.current,
+        muted: true,
+        playing: false,
+        error: String(error),
+      })
     })
   }, [src, autoPlay])
 
   function onTime(video: HTMLVideoElement) {
     const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : durationRef.current
     durationRef.current = duration
-    const clamped = clampSeek(progressRef.current, video.currentTime)
-    if (clamped < video.currentTime) {
-      video.currentTime = clamped
+    if (seekLockIsCoolingDown(seekLockedAtRef.current, Date.now())) return
+    if (shouldCorrectSeek(progressRef.current, video.currentTime)) {
+      seekLockedAtRef.current = Date.now()
+      video.currentTime = clampSeek(progressRef.current, video.currentTime)
+      logTrainingPlayback("seek_lock", {
+        source: "html5",
+        unlocked: soundUnlockedRef.current,
+        muted: htmlMediaNeedsUnmute(video),
+        playing: !video.paused,
+        currentTime: video.currentTime,
+      })
       return
     }
     recordWatchPosition(progressRef.current, video.currentTime)
@@ -304,21 +402,34 @@ function FilePlayer({
         onSeeked={(event) => onTime(event.currentTarget)}
         onPlay={(event) => {
           applyHtmlMediaUnmute(event.currentTarget)
-          setNeedsSound(htmlMediaNeedsUnmute(event.currentTarget))
+          setPlayerMuted(htmlMediaNeedsUnmute(event.currentTarget))
+          setPlaying(true)
           onPlayingChange?.(true)
         }}
         onVolumeChange={(event) => {
-          setNeedsSound(htmlMediaNeedsUnmute(event.currentTarget))
+          setPlayerMuted(htmlMediaNeedsUnmute(event.currentTarget))
         }}
-        onPause={() => onPlayingChange?.(false)}
+        onPause={() => {
+          setPlaying(false)
+          onPlayingChange?.(false)
+        }}
         onEnded={(event) => {
+          setPlaying(false)
           onPlayingChange?.(false)
           const duration = event.currentTarget.duration
           if (Number.isFinite(duration) && duration > 0) durationRef.current = duration
           maybeUnlock(true, progressRef.current, durationRef.current, endedRef.current, unlockedRef)
         }}
       />
-      <SoundPrompt visible={needsSound} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
+      <PlaybackStatusBadge
+        unlocked={soundUnlocked}
+        muted={playerMuted}
+        playing={playing}
+        soundOnLabel={soundOnLabel}
+        soundOffLabel={soundOffLabel}
+        onRetryUnmute={() => void unmuteAndPlay()}
+      />
+      <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
     </div>
   )
 }
@@ -331,6 +442,8 @@ function YouTubePlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
+  soundOnLabel,
+  soundOffLabel,
   onPlaybackReady,
 }: {
   videoId: string
@@ -340,6 +453,8 @@ function YouTubePlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
+  soundOnLabel: string
+  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const hostId = useId()
@@ -350,6 +465,8 @@ function YouTubePlayer({
   const durationRef = useRef(onDuration)
   const playingRef = useRef(onPlayingChange)
   const autoPlayRef = useRef(autoPlay)
+  const soundUnlockedRef = useRef(false)
+  const seekLockedAtRef = useRef(0)
   endedRef.current = onEnded
   durationRef.current = onDuration
   playingRef.current = onPlayingChange
@@ -358,14 +475,31 @@ function YouTubePlayer({
   const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
   const durationSecondsRef = useRef(0)
   const unlockedRef = useRef(false)
-  const [needsSound, setNeedsSound] = useState(true)
+  const [soundUnlocked, setSoundUnlocked] = useState(false)
+  const [playerMuted, setPlayerMuted] = useState(true)
+  const [playing, setPlaying] = useState(false)
+
+  function markUnlocked() {
+    soundUnlockedRef.current = true
+    setSoundUnlocked(true)
+  }
 
   async function unmuteAndPlay() {
     pendingPlayRef.current = true
+    markUnlocked()
     const player = playerRef.current
-    if (!player) return
+    if (!player) {
+      logTrainingPlayback("unmute_pending", { source: "youtube", unlocked: true, muted: true, playing: false })
+      return
+    }
     const muted = applyYoutubeUnmute(player)
-    setNeedsSound(muted)
+    setPlayerMuted(muted)
+    logTrainingPlayback("unmute_applied", {
+      source: "youtube",
+      unlocked: true,
+      muted,
+      playing: player.getPlayerState?.() === 1,
+    })
   }
 
   useEffect(() => {
@@ -373,10 +507,18 @@ function YouTubePlayer({
   }, [onPlaybackReady])
 
   useEffect(() => {
-    if (autoPlay) {
-      pendingPlayRef.current = true
-      if (playerRef.current) void unmuteAndPlay()
+    if (!autoPlay) return
+    pendingPlayRef.current = true
+    if (
+      !shouldInvokeAutoplayUnmute({
+        autoPlay: true,
+        alreadyUnlocked: soundUnlockedRef.current,
+        hasPlayer: Boolean(playerRef.current),
+      })
+    ) {
+      return
     }
+    void unmuteAndPlay()
   }, [autoPlay])
 
   useEffect(() => {
@@ -387,12 +529,22 @@ function YouTubePlayer({
     if (!host || !videoId) return
 
     const lockTime = (target: YtPlayer) => {
+      const state = target.getPlayerState?.()
+      if (state === 3 || state === 5 || state === -1) return
+      if (seekLockIsCoolingDown(seekLockedAtRef.current, Date.now())) return
       const duration = target.getDuration()
       if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
       const current = typeof target.getCurrentTime === "function" ? target.getCurrentTime() : 0
-      const clamped = clampSeek(progressRef.current, current)
-      if (clamped < current && typeof target.seekTo === "function") {
-        target.seekTo(clamped, true)
+      if (shouldCorrectSeek(progressRef.current, current)) {
+        seekLockedAtRef.current = Date.now()
+        target.seekTo?.(clampSeek(progressRef.current, current), true)
+        logTrainingPlayback("seek_lock", {
+          source: "youtube",
+          unlocked: soundUnlockedRef.current,
+          muted: target.isMuted?.() === true,
+          playing: state === 1,
+          currentTime: current,
+        })
         return
       }
       recordWatchPosition(progressRef.current, current)
@@ -413,11 +565,19 @@ function YouTubePlayer({
             }
             if (pendingPlayRef.current || autoPlayRef.current) {
               const muted = applyYoutubeUnmute(event.target)
-              setNeedsSound(muted)
+              setPlayerMuted(muted)
+              if (!muted) markUnlocked()
+              logTrainingPlayback(muted ? "ready_muted" : "ready_unmuted", {
+                source: "youtube",
+                unlocked: soundUnlockedRef.current,
+                muted,
+                playing: event.target.getPlayerState?.() === 1,
+              })
             } else {
               event.target.unMute?.()
               event.target.setVolume?.(100)
-              setNeedsSound(event.target.isMuted?.() === true)
+              const muted = event.target.isMuted?.() === true
+              setPlayerMuted(muted)
             }
             if (poll == null) {
               poll = window.setInterval(() => {
@@ -430,13 +590,27 @@ function YouTubePlayer({
             const ended = window.YT?.PlayerState?.ENDED ?? 0
             if (event.data === 1) {
               playingRef.current?.(true)
-              if (event.target.isMuted?.()) {
-                applyYoutubeUnmute(event.target)
+              setPlaying(true)
+              // Raise volume only — never playVideo() here. A PLAYING re-play
+              // restarts under autoplay policy and chops audio until the next tap.
+              if (soundUnlockedRef.current) {
+                applyYoutubeUnmute(event.target, { play: false })
               }
-              setNeedsSound(event.target.isMuted?.() === true)
+              const muted = event.target.isMuted?.() === true
+              setPlayerMuted(muted)
+              logTrainingPlayback("playing", {
+                source: "youtube",
+                unlocked: soundUnlockedRef.current,
+                muted,
+                playing: true,
+              })
             }
-            if (event.data === 2) playingRef.current?.(false)
+            if (event.data === 2) {
+              setPlaying(false)
+              playingRef.current?.(false)
+            }
             if (event.data === ended) {
+              setPlaying(false)
               playingRef.current?.(false)
               const duration = event.target.getDuration()
               if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
@@ -479,7 +653,15 @@ function YouTubePlayer({
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
       <div ref={mountRef} title={title || "Safety training"} className="h-full w-full" />
-      <SoundPrompt visible={needsSound} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
+      <PlaybackStatusBadge
+        unlocked={soundUnlocked}
+        muted={playerMuted}
+        playing={playing}
+        soundOnLabel={soundOnLabel}
+        soundOffLabel={soundOffLabel}
+        onRetryUnmute={() => void unmuteAndPlay()}
+      />
+      <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
     </div>
   )
 }
@@ -492,6 +674,8 @@ function VimeoPlayer({
   onPlayingChange,
   autoPlay,
   unmuteLabel,
+  soundOnLabel,
+  soundOffLabel,
   onPlaybackReady,
 }: {
   embedUrl: string
@@ -501,6 +685,8 @@ function VimeoPlayer({
   onPlayingChange?: (playing: boolean) => void
   autoPlay: boolean
   unmuteLabel: string
+  soundOnLabel: string
+  soundOffLabel: string
   onPlaybackReady?: (controls: TrainingPlaybackControls) => void
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -510,6 +696,8 @@ function VimeoPlayer({
   const durationRef = useRef(onDuration)
   const playingRef = useRef(onPlayingChange)
   const autoPlayRef = useRef(autoPlay)
+  const soundUnlockedRef = useRef(false)
+  const seekLockedAtRef = useRef(0)
   endedRef.current = onEnded
   durationRef.current = onDuration
   playingRef.current = onPlayingChange
@@ -518,15 +706,27 @@ function VimeoPlayer({
   const progressRef = useRef<WatchProgress>({ maxWatched: 0 })
   const durationSecondsRef = useRef(0)
   const unlockedRef = useRef(false)
-  const [needsSound, setNeedsSound] = useState(true)
+  const [soundUnlocked, setSoundUnlocked] = useState(false)
+  const [playerMuted, setPlayerMuted] = useState(true)
+  const [playing, setPlaying] = useState(false)
   const playbackUrl = vimeoUnmutedEmbedUrl(embedUrl)
+
+  function markUnlocked() {
+    soundUnlockedRef.current = true
+    setSoundUnlocked(true)
+  }
 
   async function unmuteAndPlay() {
     pendingPlayRef.current = true
+    markUnlocked()
     const player = playerRef.current
-    if (!player) return
+    if (!player) {
+      logTrainingPlayback("unmute_pending", { source: "vimeo", unlocked: true, muted: true, playing: false })
+      return
+    }
     const muted = await applyVimeoUnmute(player)
-    setNeedsSound(muted)
+    setPlayerMuted(muted)
+    logTrainingPlayback("unmute_applied", { source: "vimeo", unlocked: true, muted, playing: true })
   }
 
   useEffect(() => {
@@ -534,10 +734,18 @@ function VimeoPlayer({
   }, [onPlaybackReady])
 
   useEffect(() => {
-    if (autoPlay) {
-      pendingPlayRef.current = true
-      if (playerRef.current) void unmuteAndPlay()
+    if (!autoPlay) return
+    pendingPlayRef.current = true
+    if (
+      !shouldInvokeAutoplayUnmute({
+        autoPlay: true,
+        alreadyUnlocked: soundUnlockedRef.current,
+        hasPlayer: Boolean(playerRef.current),
+      })
+    ) {
+      return
     }
+    void unmuteAndPlay()
   }, [autoPlay])
 
   useEffect(() => {
@@ -550,9 +758,17 @@ function VimeoPlayer({
         playerRef.current = player
         const lockTime = (seconds?: number) => {
           const apply = (current: number) => {
-            const clamped = clampSeek(progressRef.current, current)
-            if (clamped < current && typeof player?.setCurrentTime === "function") {
-              void player.setCurrentTime(clamped)
+            if (seekLockIsCoolingDown(seekLockedAtRef.current, Date.now())) return
+            if (shouldCorrectSeek(progressRef.current, current)) {
+              seekLockedAtRef.current = Date.now()
+              void player?.setCurrentTime?.(clampSeek(progressRef.current, current))
+              logTrainingPlayback("seek_lock", {
+                source: "vimeo",
+                unlocked: soundUnlockedRef.current,
+                muted: false,
+                playing: true,
+                currentTime: current,
+              })
               return
             }
             recordWatchPosition(progressRef.current, current)
@@ -571,15 +787,28 @@ function VimeoPlayer({
         })
         player.on("play", () => {
           playingRef.current?.(true)
+          setPlaying(true)
           void player?.getMuted?.().then((muted) => {
-            if (muted) void applyVimeoUnmute(player!)
-            setNeedsSound(Boolean(muted))
+            if (soundUnlockedRef.current) {
+              void applyVimeoUnmute(player!, { play: false })
+            }
+            setPlayerMuted(Boolean(muted))
+            logTrainingPlayback("playing", {
+              source: "vimeo",
+              unlocked: soundUnlockedRef.current,
+              muted: Boolean(muted),
+              playing: true,
+            })
           })
         })
-        player.on("pause", () => playingRef.current?.(false))
+        player.on("pause", () => {
+          setPlaying(false)
+          playingRef.current?.(false)
+        })
         player.on("timeupdate", (data) => lockTime(data?.seconds))
         player.on("seeked", (data) => lockTime(data?.seconds))
         player.on("ended", () => {
+          setPlaying(false)
           playingRef.current?.(false)
           player?.getDuration().then((duration) => {
             if (Number.isFinite(duration) && duration > 0) durationSecondsRef.current = duration
@@ -588,7 +817,15 @@ function VimeoPlayer({
         })
         if (pendingPlayRef.current || autoPlayRef.current) {
           void applyVimeoUnmute(player).then((muted) => {
-            if (!cancelled) setNeedsSound(muted)
+            if (cancelled) return
+            setPlayerMuted(muted)
+            if (!muted) markUnlocked()
+            logTrainingPlayback(muted ? "ready_muted" : "ready_unmuted", {
+              source: "vimeo",
+              unlocked: soundUnlockedRef.current,
+              muted,
+              playing: true,
+            })
           })
         } else {
           void player.setMuted?.(false)
@@ -615,7 +852,15 @@ function VimeoPlayer({
         allow="autoplay; fullscreen; picture-in-picture"
         allowFullScreen
       />
-      <SoundPrompt visible={needsSound} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
+      <PlaybackStatusBadge
+        unlocked={soundUnlocked}
+        muted={playerMuted}
+        playing={playing}
+        soundOnLabel={soundOnLabel}
+        soundOffLabel={soundOffLabel}
+        onRetryUnmute={() => void unmuteAndPlay()}
+      />
+      <SoundPrompt visible={!soundUnlocked} label={unmuteLabel} onUnmute={() => void unmuteAndPlay()} />
     </div>
   )
 }

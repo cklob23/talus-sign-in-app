@@ -6,6 +6,9 @@ import {
   KIOSK_IDLE_MS,
   clampSeek,
   recordWatchPosition,
+  SEEK_LOCK_COOLDOWN_MS,
+  seekLockIsCoolingDown,
+  shouldCorrectSeek,
   shouldIdleReset,
   shouldShowIdleWarning,
   watchedToEnd,
@@ -65,6 +68,10 @@ describe("training watch progress", () => {
     recordWatchPosition(progress, 450)
     assert.equal(progress.maxWatched, 120)
     assert.equal(clampSeek(progress, 450), 120)
+    assert.equal(shouldCorrectSeek(progress, 450), true)
+    assert.equal(shouldCorrectSeek(progress, 121.5), false)
+    assert.equal(seekLockIsCoolingDown(1_000, 1_000 + SEEK_LOCK_COOLDOWN_MS - 1), true)
+    assert.equal(seekLockIsCoolingDown(1_000, 1_000 + SEEK_LOCK_COOLDOWN_MS), false)
     // Rewinding is fine.
     assert.equal(clampSeek(progress, 30), 30)
     assert.equal(watchedToEnd(progress, 453), false)

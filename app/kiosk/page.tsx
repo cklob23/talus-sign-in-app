@@ -1476,7 +1476,8 @@ export default function KioskPage() {
   }
 
   // Issue a training ticket, then let the shared player report the ended event.
-  // Start the player immediately so unmute + play stay on the same tap as "start".
+  // Unmute + play on this tap. The player must not call play() again when
+  // autoPlay flips to true — that leaves the user-gesture stack and remutes.
   async function startVideoProgress() {
     if (videoStarted || isLoading) return
     if (!selectedVisitorType) return
@@ -3583,6 +3584,8 @@ export default function KioskPage() {
                         title={selectedVisitorType.training_title || copy.trainingTitle}
                         autoPlay={videoStarted}
                         unmuteLabel={copy.tapToUnmute}
+                        soundOnLabel={copy.soundOn}
+                        soundOffLabel={copy.soundOff}
                         onPlaybackReady={(controls) => {
                           trainingPlaybackRef.current = controls
                         }}

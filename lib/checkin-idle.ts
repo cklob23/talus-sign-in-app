@@ -78,6 +78,18 @@ export function clampSeek(progress: WatchProgress, requested: number): number {
   return requested > progress.maxWatched + SEEK_TOLERANCE_SECONDS ? progress.maxWatched : requested
 }
 
+/** True only for a real skip-ahead, so the playhead lock does not thrash currentTime. */
+export function shouldCorrectSeek(progress: WatchProgress, currentTime: number): boolean {
+  return Number.isFinite(currentTime) && currentTime > progress.maxWatched + SEEK_TOLERANCE_SECONDS
+}
+
+/** Ignore getCurrentTime jitter after a corrective seek so audio does not stutter. */
+export const SEEK_LOCK_COOLDOWN_MS = 750
+
+export function seekLockIsCoolingDown(lockedAtMs: number, nowMs: number, cooldownMs = SEEK_LOCK_COOLDOWN_MS): boolean {
+  return nowMs - lockedAtMs < cooldownMs
+}
+
 /** Unlock only after a native ended event and at least 95 percent genuinely watched. */
 export const WATCH_COMPLETE_RATIO = 0.95
 
