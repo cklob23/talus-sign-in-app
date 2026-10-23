@@ -29,6 +29,7 @@ import {
   Building2,
   PlayCircle,
   AlertTriangle,
+  MapPin,
   Briefcase,
   Loader2,
   User,
@@ -59,8 +60,13 @@ import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
+import { KioskResolvedSite } from "@/components/kiosk/kiosk-resolved-site"
+import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
+import { KioskSessionLoading } from "@/components/kiosk/kiosk-session-loading"
 import { StatusPill } from "@/components/v2/status-pill"
-import { fill, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
+import { kioskBootScreen } from "@/lib/kiosk-boot"
+import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite } from "@/lib/kiosk-site"
+import { fill, readVisitorLang, staffGeofenceLine, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
 import { attachAndPlayCamera } from "@/lib/camera-preview"
