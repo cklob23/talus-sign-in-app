@@ -114,8 +114,8 @@ export default function SettingsPage() {
     use_miles: false,
   })
   const [settingsLoading, setSettingsLoading] = useState(true)
-  // Auto sign-out settings are GLOBAL (apply to all locations, each in its own
-  // timezone) and are read by the /api/auto-signout cron.
+  // Auto sign-out settings are GLOBAL defaults. A location override wins when
+  // set. Otherwise the cron uses these values in that location's timezone.
   const [autoSignOut, setAutoSignOut] = useState({
     visitors_enabled: true,
     visitors_time: "23:45",
@@ -1410,7 +1410,7 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
                   <Label className="text-sm font-medium">Auto Sign-Out</Label>
-                  <span className="text-xs text-muted-foreground">(applies to all locations, each in its local time)</span>
+                  <span className="text-xs text-muted-foreground">(global defaults when a location has no override)</span>
                 </div>
 
                 {/* Visitor auto sign-out */}
@@ -1418,7 +1418,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <Label className="text-sm">Visitors</Label>
-                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all visitors at the end of the day</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all visitors at this time in each location timezone. Used when that location has no visitor override. Set per-location times on the Locations page.</p>
                     </div>
                     <Switch
                       checked={autoSignOut.visitors_enabled}
@@ -1447,7 +1447,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <Label className="text-sm">Employees</Label>
-                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all employees at the end of the day (a 14-hour safety limit always applies)</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all employees at this time in each location timezone (a 14-hour safety limit always applies). 18:00 is 6 PM local. US sites should use America/Chicago so this is 6 PM Central. Used when that location has no employee override.</p>
                     </div>
                     <Switch
                       checked={autoSignOut.employees_enabled}

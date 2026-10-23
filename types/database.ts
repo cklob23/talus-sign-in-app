@@ -9,6 +9,11 @@ export interface Location {
   auto_signout_minutes: number | null
   /** Present after 011-geofence.sql. false means the admin turned the fence off. */
   geofence_enabled?: boolean | null
+  /** Present after 015-location-auto-signout.sql. null means use the global setting. */
+  auto_sign_out_employees?: boolean | null
+  auto_sign_out_employees_time?: string | null
+  auto_sign_out_visitors?: boolean | null
+  auto_sign_out_visitors_time?: string | null
   created_at: string
   updated_at: string
 }

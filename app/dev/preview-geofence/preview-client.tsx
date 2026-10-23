@@ -62,6 +62,16 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
                     200 m. Allowed range 25 m to 5 km. Used for QR and kiosk sign-in.
                   </p>
                 </div>
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label>End-of-day auto sign-out</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave a field on Global default to use Settings. Times are local to this location timezone.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input value="Global default" readOnly />
+                    <Input value="" placeholder="Employee time" readOnly />
+                  </div>
+                </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-medium">Coordinates</Label>
