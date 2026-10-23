@@ -2390,11 +2390,12 @@ export default function KioskPage() {
                   receptionistUser ? (
                     <span className="truncate text-[#8a4500]">{copy.noSitesStaff}</span>
                   ) : null
-                ) : currentLocation ? (
+                ) : siteKind === "detecting" || currentLocation ? (
                   <KioskSiteLine
-                    siteName={currentLocation.name}
+                    siteName={currentLocation?.name ?? ""}
                     meters={siteMeters}
                     unavailable={siteUnavailable}
+                    detecting={siteKind === "detecting"}
                     copy={copy}
                   />
                 ) : null}
@@ -2404,11 +2405,12 @@ export default function KioskPage() {
                   receptionistUser ? (
                     <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>
                   ) : null
-                ) : currentLocation ? (
+                ) : siteKind === "detecting" || currentLocation ? (
                   <KioskSiteLine
-                    siteName={currentLocation.name}
+                    siteName={currentLocation?.name ?? ""}
                     meters={siteMeters}
                     unavailable={siteUnavailable}
+                    detecting={siteKind === "detecting"}
                     copy={copy}
                     compact
                   />

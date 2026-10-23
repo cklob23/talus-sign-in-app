@@ -66,12 +66,14 @@ function KioskChrome({
   meters = 52,
   unavailable = false,
   noSites = false,
+  detecting = false,
 }: {
   children: React.ReactNode
   siteName?: string
   meters?: number | null
   unavailable?: boolean
   noSites?: boolean
+  detecting?: boolean
 }) {
   return (
     <div className="flex h-full flex-col bg-[#f5f8f6]">
@@ -85,7 +87,13 @@ function KioskChrome({
           {noSites ? (
             <span className="truncate text-sm text-[#8a4500]">{copy.noSitesStaff}</span>
           ) : (
-            <KioskSiteLine siteName={siteName} meters={meters} unavailable={unavailable} copy={copy} />
+            <KioskSiteLine
+              siteName={siteName}
+              meters={meters}
+              unavailable={unavailable}
+              detecting={detecting}
+              copy={copy}
+            />
           )}
           <LangToggle lang="en" onLang={() => undefined} />
         </div>
@@ -402,6 +410,7 @@ function WelcomePreview({
   meters = 52,
   unavailable = false,
   noSites = false,
+  detecting = false,
   visitorBlocked = false,
   outside = false,
 }: {
@@ -409,11 +418,12 @@ function WelcomePreview({
   meters?: number | null
   unavailable?: boolean
   noSites?: boolean
+  detecting?: boolean
   visitorBlocked?: boolean
   outside?: boolean
 }) {
   return (
-    <KioskChrome siteName={siteName} meters={meters} unavailable={unavailable} noSites={noSites}>
+    <KioskChrome siteName={siteName} meters={meters} unavailable={unavailable} noSites={noSites} detecting={detecting}>
       {outside ? (
         <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
           <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
@@ -449,6 +459,7 @@ const HEADER_PREVIEWS: Record<string, Parameters<typeof WelcomePreview>[0]> = {
   "kiosk-header-noloc": { siteName: "Test Location", meters: null, unavailable: true, visitorBlocked: true, outside: true },
   "kiosk-header-outside": { siteName: "Test Location", meters: 1200, visitorBlocked: true, outside: true },
   "kiosk-header-nosites": { noSites: true, visitorBlocked: true },
+  "kiosk-header-detecting": { siteName: "", meters: null, detecting: true },
 }
 
 export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boolean }) {
@@ -476,6 +487,11 @@ export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boo
       {show("kiosk-welcome-after") ? (
         <Frame id="kiosk-welcome-after" title="Kiosk welcome after" width={1024} height={768}>
           <WelcomePreview />
+        </Frame>
+      ) : null}
+      {show("kiosk-header-detecting") ? (
+        <Frame id="kiosk-header-detecting" title="Kiosk header locating" width={1024} height={240}>
+          <WelcomePreview siteName="" meters={null} detecting />
         </Frame>
       ) : null}
       {show("kiosk-details-before") ? (
