@@ -143,7 +143,7 @@ export function RecentVisitors() {
                 <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                   <AvatarImage src={signIn.photo_url || undefined} alt={signIn.name} />
                   <AvatarFallback
-                    className={`text-xs sm:text-sm ${signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"}`}
+                    className={`text-xs sm:text-sm ${signIn.type === "employee" ? "bg-blue-100 text-blue-600" : "bg-accent text-primary-text"}`}
                   >
                     {signIn.initials}
                   </AvatarFallback>

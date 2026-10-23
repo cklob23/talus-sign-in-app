@@ -3335,7 +3335,7 @@ export default function KioskPage() {
                         Remember me on this device
                       </label>
                     </div>
-                    <Link href="/kiosk/forgot-password" className="text-sm text-primary hover:underline">
+                    <Link href="/kiosk/forgot-password" className="text-sm text-primary-text hover:underline">
                       Forgot password?
                     </Link>
                   </div>

@@ -77,7 +77,7 @@
   --popover-foreground: #e8efea;
   --primary: #00854c;
   --primary-foreground: #ffffff;
-  --primary-hover: #009656;
+  --primary-hover: #00703f;
   --primary-text: #4fd68f;
   --secondary: #17231c;
   --secondary-foreground: #e8efea;
@@ -121,7 +121,7 @@
   --lp-text: #e8efea;
   --lp-muted: #a0afa5;
   --lp-primary: #00854c;
-  --lp-primary-hover: #009656;
+  --lp-primary-hover: #00703f;
   --lp-on-primary: #ffffff;
   --lp-primary-text: #4fd68f;
   --lp-accent-soft: #123a26;
@@ -267,11 +267,13 @@
     --lp-text: #e8efea;
     --lp-muted: #a0afa5;
     --lp-primary: #00854c;
-    --lp-primary-hover: #009656;
+    --lp-primary-hover: #00703f;
     --lp-on-primary: #ffffff;
     --lp-primary-text: #4fd68f;
     --lp-accent-soft: #123a26;
     --lp-focus: #7fe3ad;
+    background-color: var(--lp-bg);
+    color: var(--lp-text);
   }
 
   .dark .landing-page header img {

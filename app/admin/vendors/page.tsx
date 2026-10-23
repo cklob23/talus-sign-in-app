@@ -780,7 +780,7 @@ export default function VendorsPage() {
                                                         onCheckedChange={() => toggleRampVendorSelection(vendor.id)}
                                                     />
                                                     <Avatar className="h-10 w-10">
-                                                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                                                        <AvatarFallback className="bg-accent text-primary-text text-xs font-semibold">
                                                             {vendor.name
                                                                 .split(/[\s&]+/)
                                                                 .map((w) => w[0])

@@ -35,7 +35,7 @@ export const V2_TOKENS = {
     text: "#e8efea",
     muted: "#a0afa5",
     primary: "#00854c",
-    primaryHover: "#009656",
+    primaryHover: "#00703f",
     onPrimary: "#ffffff",
     primaryText: "#4fd68f",
     accent: "#00b162",

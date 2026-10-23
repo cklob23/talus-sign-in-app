@@ -487,7 +487,7 @@ export default function UsersPage() {
           {roleConfig.label}
         </Badge>
         {customRole && (
-          <Badge variant="outline" className="border-primary/50 text-primary gap-1">
+          <Badge variant="outline" className="border-primary/50 text-primary-text gap-1">
             <Shield className="w-2.5 h-2.5" />
             {customRole.name}
           </Badge>

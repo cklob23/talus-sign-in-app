@@ -237,7 +237,7 @@ export default function CurrentVisitorsPage() {
                         >
                           <Avatar className="h-10 w-10 shrink-0">
                             <AvatarImage src={signIn.visitor?.photo_url || undefined} alt={`${signIn.visitor?.first_name} ${signIn.visitor?.last_name}`} />
-                            <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                            <AvatarFallback className="bg-accent text-primary-text text-xs">
                               {signIn.visitor?.first_name?.[0]}{signIn.visitor?.last_name?.[0]}
                             </AvatarFallback>
                           </Avatar>
