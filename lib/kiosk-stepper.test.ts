@@ -19,6 +19,7 @@ describe("kiosk stepper labels", () => {
 
   it("hides word labels on narrow viewports so numbers are not truncated", () => {
     assert.equal(KIOSK_STEPPER_LABEL_BREAKPOINT, "md")
+    assert.match(stepperSrc, /mb-6 flex w-full items-center/)
     assert.match(stepperSrc, /hidden truncate text-15 font-semibold md:inline/)
     assert.match(stepperSrc, /index \+ 1/)
     assert.match(stepperSrc, /aria-label=\{`\$\{index \+ 1\}\. \$\{label\}`\}/)
