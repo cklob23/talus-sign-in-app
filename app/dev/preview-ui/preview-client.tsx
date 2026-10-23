@@ -5,9 +5,11 @@ import { Bell, Calendar, Check, Home, LogOut, MapPin, MoreHorizontal, PlayCircle
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
+import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
 import { LangToggle } from "@/components/lang-toggle"
 import { StatusPill } from "@/components/v2/status-pill"
 import { TalusAgLogo } from "@/components/talusag-logo"
+import { unlockedHeaderSiteLineClassName } from "@/lib/kiosk-site"
 import { visitorCopy } from "@/lib/visitor-i18n"
 import { cn } from "@/lib/utils"
 import type { VisitorType } from "@/types/database"
@@ -29,13 +31,16 @@ const VISITORS = [
 function KioskChrome({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full min-h-svh flex-col bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-        <TalusAgLogo />
-        <div className="flex items-center gap-3">
-          <span className="hidden items-center gap-2 text-sm font-medium sm:flex">
-            <MapPin className="h-4 w-4 text-primary-text" />
-            Houston HQ
-          </span>
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-card px-4 py-3">
+        <TalusAgLogo className="order-1 shrink-0" />
+        <KioskSiteLine
+          siteName="Test Location"
+          meters={52}
+          unavailable={false}
+          copy={copy}
+          className={unlockedHeaderSiteLineClassName()}
+        />
+        <div className="order-2 ml-auto flex items-center gap-3 md:order-4">
           <LangToggle lang="en" onLang={() => undefined} />
         </div>
       </header>
