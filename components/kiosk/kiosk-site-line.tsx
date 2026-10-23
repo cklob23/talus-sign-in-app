@@ -21,6 +21,16 @@ export function KioskSiteLine({
   compact?: boolean
   detecting?: boolean
 }) {
+  const label = formatHeaderSiteLine({
+    siteName,
+    meters,
+    unavailable,
+    copy,
+    includeDistance: !compact,
+    detecting,
+  })
+  const spinnerOnly = detecting && compact && !siteName
+
   return (
     <span
       className={`flex min-w-0 items-center gap-2 text-sm font-medium text-[#0f1a13] ${className}`}
@@ -31,16 +41,11 @@ export function KioskSiteLine({
       ) : (
         <MapPin className="h-4 w-4 shrink-0 text-[#00703f]" aria-hidden />
       )}
-      <span className="truncate">
-        {formatHeaderSiteLine({
-          siteName,
-          meters,
-          unavailable,
-          copy,
-          includeDistance: !compact,
-          detecting,
-        })}
-      </span>
+      {spinnerOnly ? (
+        <span className="sr-only">{copy.checkingLocation}</span>
+      ) : (
+        <span className="truncate">{label}</span>
+      )}
     </span>
   )
 }
