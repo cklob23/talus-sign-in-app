@@ -36,6 +36,7 @@ import {
 import type { Location, Host } from "@/types/database"
 import { AvatarUpload } from "@/components/admin/avatar-upload"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import type { Role } from "@/lib/permissions"
 import { Shield } from "lucide-react"
 import { UserDetailBlade, type UserProfileDetail } from "@/components/admin/user-detail-blade"
@@ -281,13 +282,16 @@ export default function UsersPage() {
         })
       }
 
+      notifySuccess(editingProfile ? "User updated" : "User created")
       setIsDialogOpen(false)
       loadData()
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save profile"
       setSyncMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to save profile",
+        text: message,
       })
+      notifyError("Could not save user", message)
     } finally {
       setIsLoading(false)
     }
@@ -315,12 +319,15 @@ export default function UsersPage() {
         description: `Admin deleted user: ${profileToDelete?.full_name || profileToDelete?.email || id}`,
       })
 
+      notifySuccess("User deleted")
       loadData()
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete profile"
       setSyncMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to delete profile",
+        text: message,
       })
+      notifyError("Could not delete user", message)
     }
   }
 
@@ -349,10 +356,12 @@ export default function UsersPage() {
       setAzureUsers(usersWithSelection)
       setIsAzurePreviewOpen(true)
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to fetch Azure AD users"
       setSyncMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to fetch Azure AD users",
+        text: message,
       })
+      notifyError("Could not fetch Azure users", message)
     } finally {
       setIsSyncing(false)
     }
@@ -436,18 +445,21 @@ export default function UsersPage() {
 
       if (progress.status === "completed") {
         setSyncMessage({ type: "success", text: summary })
-        // Auto-close after a delay so user can see the final summary
+        notifySuccess("Users imported", summary)
         setTimeout(() => {
           setIsAzurePreviewOpen(false)
           setAzureUsers([])
           setAzureSyncProgress(null)
           loadData()
         }, 2000)
+      } else {
+        notifyError("Could not import users", progress.errors[0] || summary)
       }
     } catch (error) {
       progress.status = "failed"
       progress.errors.push(error instanceof Error ? error.message : "Import failed")
       setAzureSyncProgress({ ...progress })
+      notifyError("Could not import users", error)
     } finally {
       setIsSyncing(false)
     }
@@ -546,6 +558,7 @@ export default function UsersPage() {
           })
         }
         setSyncMessage({ type: "success", text: `Updated role for ${selectedProfiles.length} users` })
+        notifySuccess("Users updated", `Updated role for ${selectedProfiles.length} users`)
       } else if (bulkAction === "location") {
         // Update locations
         for (const profile of selectedProfiles) {
@@ -556,6 +569,7 @@ export default function UsersPage() {
           })
         }
         setSyncMessage({ type: "success", text: `Updated location for ${selectedProfiles.length} users` })
+        notifySuccess("Users updated", `Updated location for ${selectedProfiles.length} users`)
       } else if (bulkAction === "host") {
         // Set users as hosts
         const setAsHost = bulkValue === "true"
@@ -575,7 +589,9 @@ export default function UsersPage() {
             await supabase.from("hosts").delete().eq("id", existingHost.id)
           }
         }
-        setSyncMessage({ type: "success", text: setAsHost ? `Added ${selectedProfiles.length} users as hosts` : `Removed ${selectedProfiles.length} users from hosts` })
+        const hostMessage = setAsHost ? `Added ${selectedProfiles.length} users as hosts` : `Removed ${selectedProfiles.length} users from hosts`
+        setSyncMessage({ type: "success", text: hostMessage })
+        notifySuccess("Users updated", hostMessage)
       }
 
       setSelectedUserIds(new Set())
@@ -584,7 +600,9 @@ export default function UsersPage() {
       setBulkValue("")
       loadData()
     } catch (error) {
-      setSyncMessage({ type: "error", text: error instanceof Error ? error.message : "Bulk action failed" })
+      const message = error instanceof Error ? error.message : "Bulk action failed"
+      setSyncMessage({ type: "error", text: message })
+      notifyError("Could not update users", message)
     } finally {
       setIsLoading(false)
     }
@@ -628,9 +646,12 @@ export default function UsersPage() {
     setSelectedUserIds(new Set())
 
     if (errors.length > 0) {
-      setSyncMessage({ type: "error", text: `Deleted ${deleted} users. ${errors.length} failed: ${errors[0]}` })
+      const message = `Deleted ${deleted} users. ${errors.length} failed: ${errors[0]}`
+      setSyncMessage({ type: "error", text: message })
+      notifyError("Could not delete all users", message)
     } else {
       setSyncMessage({ type: "success", text: `Successfully deleted ${deleted} users` })
+      notifySuccess("Users deleted", `Deleted ${deleted} users`)
     }
     loadData()
   }
@@ -658,6 +679,7 @@ export default function UsersPage() {
         }
 
         setSyncMessage({ type: "success", text: `Password reset email sent to ${profile.email}` })
+        notifySuccess("Password reset sent", `Sent to ${profile.email}`)
       } else {
         if (temporaryPassword.length < 8) {
           setSyncMessage({ type: "error", text: "Password must be at least 8 characters" })
@@ -677,6 +699,7 @@ export default function UsersPage() {
         }
 
         setSyncMessage({ type: "success", text: `Temporary password set for ${profile.full_name || profile.email}` })
+        notifySuccess("Temporary password set")
       }
 
       setIsPasswordResetDialogOpen(false)
@@ -685,7 +708,9 @@ export default function UsersPage() {
       setShowTempPassword(false)
       setPasswordResetMode("email")
     } catch (error) {
-      setSyncMessage({ type: "error", text: error instanceof Error ? error.message : "Password reset failed" })
+      const message = error instanceof Error ? error.message : "Password reset failed"
+      setSyncMessage({ type: "error", text: message })
+      notifyError("Could not reset password", message)
     } finally {
       setIsResettingPassword(false)
     }

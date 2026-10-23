@@ -25,6 +25,13 @@ import {
   type ReportSchedule,
   type ReportScheduleInput,
 } from "@/lib/reports/types"
+import { showAdminToast } from "@/hooks/admin-notify"
+import {
+  scheduleDeleteToast,
+  scheduleSaveToast,
+  scheduleSendNowToast,
+  scheduleToggleToast,
+} from "@/lib/reports/action-toasts"
 import type { FilterOption } from "./filter-bar"
 import { ScheduleForm } from "./schedule-form"
 
@@ -109,9 +116,12 @@ export function ScheduledTab({
     const body = await res.json().catch(() => ({}))
     setSubmitting(false)
     if (!res.ok) {
-      setError(body.error || "Could not save schedule")
+      const message = body.error || "Could not save schedule"
+      setError(message)
+      showAdminToast(scheduleSaveToast(false, Boolean(editing), message))
       return
     }
+    showAdminToast(scheduleSaveToast(true, Boolean(editing)))
     setFormOpen(false)
     setEditing(null)
     await load()
@@ -122,9 +132,12 @@ export function ScheduledTab({
     const res = await fetch(`/api/admin/reports/schedules/${schedule.id}`, { method: "DELETE" })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      setError(body.error || "Could not delete schedule")
+      const message = body.error || "Could not delete schedule"
+      setError(message)
+      showAdminToast(scheduleDeleteToast(false, message))
       return
     }
+    showAdminToast(scheduleDeleteToast(true))
     if (historyId === schedule.id) {
       setHistoryId(null)
       setRuns([])
@@ -139,9 +152,12 @@ export function ScheduledTab({
     const body = await res.json().catch(() => ({}))
     setSendingId(null)
     if (!res.ok) {
-      setError(body.error || "Could not send report")
+      const message = body.error || "Could not send report"
+      setError(message)
+      showAdminToast(scheduleSendNowToast(false, message))
       return
     }
+    showAdminToast(scheduleSendNowToast(true))
     if (historyId === schedule.id) await loadRuns(schedule.id)
   }
 
@@ -153,9 +169,12 @@ export function ScheduledTab({
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      setError(body.error || "Could not update schedule")
+      const message = body.error || "Could not update schedule"
+      setError(message)
+      showAdminToast(scheduleToggleToast(false, enabled, message))
       return
     }
+    showAdminToast(scheduleToggleToast(true, enabled))
     await load()
   }
 

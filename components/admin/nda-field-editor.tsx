@@ -12,6 +12,7 @@ import {
     type NdaFieldRole,
 } from "@/lib/nda-fields"
 import type { NdaDocument } from "@/types/database"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 
 interface PageSize {
     width: number
@@ -156,10 +157,13 @@ export function NdaFieldEditor({
             })
             const json = await res.json()
             if (!res.ok) throw new Error(json.error || "Could not save")
+            notifySuccess("NDA fields saved")
             onSaved(json.positions ?? positions)
             onOpenChange(false)
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Could not save field positions")
+            const message = e instanceof Error ? e.message : "Could not save field positions"
+            setError(message)
+            notifyError("Could not save NDA fields", message)
         } finally {
             setSaving(false)
         }

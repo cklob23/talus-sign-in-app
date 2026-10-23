@@ -48,6 +48,7 @@ import {
 import type { Vendor } from "@/types/database"
 import { SyncProgress, type SyncProgressData } from "@/components/admin/sync-progress"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { TierGate } from "@/components/admin/tier-gate"
 
 interface RampPreviewVendor {
@@ -175,7 +176,9 @@ export default function VendorsPage() {
             setRampVendors(vendorsWithSelection)
             setIsPreviewOpen(true)
         } catch (err) {
-            setSyncResult({ success: false, message: err instanceof Error ? err.message : "Failed to fetch vendors from Ramp" })
+            const message = err instanceof Error ? err.message : "Failed to fetch vendors from Ramp"
+            setSyncResult({ success: false, message })
+            notifyError("Could not fetch Ramp vendors", message)
         } finally {
             setIsSyncing(false)
         }
@@ -277,6 +280,7 @@ export default function VendorsPage() {
 
             if (progress.status === "completed") {
                 setSyncResult({ success: true, message: summary })
+                notifySuccess("Vendors imported", summary)
                 setTimeout(() => {
                     setIsPreviewOpen(false)
                     setRampVendors([])
@@ -284,11 +288,14 @@ export default function VendorsPage() {
                     loadVendors(page, pageSize, search, filterActive)
                     loadStats()
                 }, 2000)
+            } else {
+                notifyError("Could not import vendors", progress.errors[0] || summary)
             }
         } catch (err) {
             progress.status = "failed"
             progress.errors.push(err instanceof Error ? err.message : "Import failed")
             setVendorSyncProgress({ ...progress })
+            notifyError("Could not import vendors", err)
         } finally {
             setIsImporting(false)
         }
@@ -310,13 +317,15 @@ export default function VendorsPage() {
             .from("vendors")
             .update({ is_active: !vendor.is_active })
             .eq("id", vendor.id)
-        if (!error) {
-            setVendors((prev) =>
-                prev.map((v) => (v.id === vendor.id ? { ...v, is_active: !v.is_active } : v))
-            )
-            // Update stats
-            setActiveCount((prev) => vendor.is_active ? prev - 1 : prev + 1)
+        if (error) {
+            notifyError("Could not update vendor", error.message)
+            return
         }
+        setVendors((prev) =>
+            prev.map((v) => (v.id === vendor.id ? { ...v, is_active: !v.is_active } : v))
+        )
+        setActiveCount((prev) => vendor.is_active ? prev - 1 : prev + 1)
+        notifySuccess(vendor.is_active ? "Vendor disabled" : "Vendor enabled")
     }
 
     async function handleAddVendor() {
@@ -324,19 +333,27 @@ export default function VendorsPage() {
         setIsAdding(true)
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        if (!user) {
+            notifyError("Could not add vendor", "You must be signed in.")
+            setIsAdding(false)
+            return
+        }
 
         const { error } = await supabase.from("vendors").insert({
             name: newVendorName.trim(),
             is_active: true,
         })
 
-        if (!error) {
-            setNewVendorName("")
-            setIsAddOpen(false)
-            await loadVendors(page, pageSize, search, filterActive)
-            await loadStats()
+        if (error) {
+            notifyError("Could not add vendor", error.message)
+            setIsAdding(false)
+            return
         }
+        setNewVendorName("")
+        setIsAddOpen(false)
+        notifySuccess("Vendor added")
+        await loadVendors(page, pageSize, search, filterActive)
+        await loadStats()
         setIsAdding(false)
     }
 
@@ -385,12 +402,15 @@ export default function VendorsPage() {
             })
 
             setSyncResult({ success: true, message: `Successfully deleted ${result.deleted} vendors` })
+            notifySuccess("Vendors deleted", `Deleted ${result.deleted} vendors`)
             setSelectedVendorIds(new Set())
             setBulkDeleteConfirmOpen(false)
             await loadVendors(page, pageSize, search, filterActive)
             await loadStats()
         } catch (error) {
-            setSyncResult({ success: false, message: error instanceof Error ? error.message : "Failed to delete vendors" })
+            const message = error instanceof Error ? error.message : "Failed to delete vendors"
+            setSyncResult({ success: false, message })
+            notifyError("Could not delete vendors", message)
         } finally {
             setIsBulkDeleting(false)
         }

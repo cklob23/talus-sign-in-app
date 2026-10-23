@@ -14,6 +14,8 @@ import { ReportFilterBar, type FilterOption } from "./filter-bar"
 import { downloadReportCsv } from "./download"
 import { SendReportButton } from "./send-dialog"
 import { ReportRowCapNotice } from "./row-cap"
+import { showAdminToast } from "@/hooks/admin-notify"
+import { exportCsvFailedToast } from "@/lib/reports/action-toasts"
 
 const TABLE_LIMIT = 250
 
@@ -138,7 +140,9 @@ export function TrainingTab({
         to: toIso,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not export CSV")
+      const message = err instanceof Error ? err.message : "Could not export CSV"
+      setError(message)
+      showAdminToast(exportCsvFailedToast(message))
     } finally {
       setExporting(false)
     }

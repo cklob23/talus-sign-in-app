@@ -6,6 +6,7 @@ import { useState, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Camera, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 
 interface AvatarUploadProps {
   profileId: string
@@ -77,8 +78,11 @@ export function AvatarUpload({
       }
 
       onUploadComplete?.(result.url)
+      notifySuccess("Avatar uploaded")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed")
+      const message = err instanceof Error ? err.message : "Upload failed"
+      setError(message)
+      notifyError("Could not upload avatar", message)
       setPreviewUrl(null)
     } finally {
       setIsUploading(false)

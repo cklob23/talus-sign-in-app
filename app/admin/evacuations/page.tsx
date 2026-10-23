@@ -25,6 +25,7 @@ import type { Evacuation, SignIn, EmployeeSignIn, Profile, Location } from "@/ty
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { formatDateTime, formatFullDateTime } from "@/lib/timezone"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { useTimezone } from "@/contexts/timezone-context"
 
 interface EmployeeSignInWithJoins extends Omit<EmployeeSignIn, 'profile' | 'location'> {
@@ -166,13 +167,17 @@ export default function EvacuationsPage() {
     
     const supabase = createClient()
 
-    const { data: newEvac } = await supabase.from("evacuations").insert({
+    const { data: newEvac, error } = await supabase.from("evacuations").insert({
       location_id: selectedLocationId,
       reason: reason || null,
       initiated_by: currentUserId,
     }).select().single()
 
-    // Log evacuation start
+    if (error) {
+      notifyError("Could not start evacuation", error.message)
+      return
+    }
+
     await logAudit({
       action: "evacuation.started",
       entityType: "evacuation",
@@ -186,9 +191,9 @@ export default function EvacuationsPage() {
       }
     })
 
-    // Export CSV automatically when evacuation starts
     exportEvacuationCSV()
 
+    notifySuccess("Evacuation started")
     setReason("")
     setIsDialogOpen(false)
     loadData()
@@ -199,7 +204,7 @@ export default function EvacuationsPage() {
     const supabase = createClient()
     const evacLocation = (activeEvacuation as Evacuation & { location?: Location }).location
     
-    await supabase
+    const { error } = await supabase
       .from("evacuations")
       .update({
         all_clear: true,
@@ -207,8 +212,12 @@ export default function EvacuationsPage() {
         completed_by: currentUserId,
       })
       .eq("id", activeEvacuation.id)
-    
-    // Log evacuation end
+
+    if (error) {
+      notifyError("Could not end evacuation", error.message)
+      return
+    }
+
     await logAudit({
       action: "evacuation.ended",
       entityType: "evacuation",
@@ -219,7 +228,8 @@ export default function EvacuationsPage() {
         duration_ms: new Date().getTime() - new Date(activeEvacuation.started_at).getTime()
       }
     })
-    
+
+    notifySuccess("All clear recorded")
     loadData()
   }
 

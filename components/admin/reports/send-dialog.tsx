@@ -15,8 +15,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { toast } from "@/hooks/use-toast"
+import { showAdminToast } from "@/hooks/admin-notify"
 import { dashboardPeriodLabel } from "@/lib/reports/period"
+import { adhocSendToast } from "@/lib/reports/action-toasts"
 import {
   FORMAT_LABELS,
   REPORT_KIND_LABELS,
@@ -83,25 +84,14 @@ export function SendReportDialog({
       })
       const body = (await res.json().catch(() => null)) as { error?: string; rowCount?: number; recipientCount?: number } | null
       if (!res.ok) {
-        toast({
-          variant: "destructive",
-          title: "Could not send report",
-          description: body?.error || "Try again in a moment.",
-        })
+        showAdminToast(adhocSendToast(false, body, kind, recipients.length))
         return
       }
-      toast({
-        title: "Report sent",
-        description: `Sent ${REPORT_KIND_LABELS[kind].toLowerCase()} to ${body?.recipientCount ?? recipients.length} recipients (${body?.rowCount ?? 0} rows).`,
-      })
+      showAdminToast(adhocSendToast(true, body, kind, recipients.length))
       onOpenChange(false)
       setRecipientText("")
     } catch {
-      toast({
-        variant: "destructive",
-        title: "Could not send report",
-        description: "The request did not complete.",
-      })
+      showAdminToast(adhocSendToast(false, null, kind, recipients.length, true))
     } finally {
       setSending(false)
     }

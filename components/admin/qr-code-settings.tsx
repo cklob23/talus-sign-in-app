@@ -20,6 +20,7 @@ import {
 import { BrandedQrCode, useQrDownloads } from "@/components/branded-qr-code"
 import { hasGeofence, effectiveRadius } from "@/lib/checkin-geofence"
 import { formatRadiusMeters } from "@/lib/location-radius"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import {
     QrCode,
     Copy,
@@ -130,6 +131,7 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
         setEnabled(next)
         setSavingToggle(true)
         await writeFlag(supabase, "qr_checkin_enabled", next)
+        notifySuccess(next ? "QR check-in enabled" : "QR check-in disabled")
         setSavingToggle(false)
     }
 
@@ -137,6 +139,7 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
         setGeofenceEnabled(next)
         setSavingGeofence(true)
         await writeFlag(supabase, "qr_checkin_geofence_enabled", next)
+        notifySuccess(next ? "QR geofence enabled" : "QR geofence disabled")
         setSavingGeofence(false)
     }
 
@@ -154,8 +157,11 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
             const json = await res.json()
             if (!res.ok) throw new Error(json.error ?? "Could not generate QR code")
             setCodes((prev) => ({ ...prev, [location.id]: json.code as QrCodeRecord }))
+            notifySuccess("QR code generated")
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not generate QR code")
+            const message = err instanceof Error ? err.message : "Could not generate QR code"
+            setError(message)
+            notifyError("Could not generate QR code", message)
         } finally {
             setBusyLocationId(null)
         }
@@ -177,8 +183,11 @@ export function QrCodeSettings({ locations }: { locations: LocationOption[] }) {
                 delete next[location.id]
                 return next
             })
+            notifySuccess("QR code deactivated")
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not deactivate QR code")
+            const message = err instanceof Error ? err.message : "Could not deactivate QR code"
+            setError(message)
+            notifyError("Could not deactivate QR code", message)
         } finally {
             setBusyLocationId(null)
         }
