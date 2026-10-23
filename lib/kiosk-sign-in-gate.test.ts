@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { describe, it } from "node:test"
-import { kioskBlockedCopy, kioskHomeSignInVisibility } from "./kiosk-sign-in-gate.ts"
+import { kioskBlockedCopy, kioskHomeSignInVisibility, shouldOfferGeofenceOverride } from "./kiosk-sign-in-gate.ts"
 import { visitorCopy } from "./visitor-i18n.ts"
 
 const welcomeSrc = readFileSync(new URL("../components/kiosk/kiosk-welcome.tsx", import.meta.url), "utf8")
@@ -53,6 +53,21 @@ describe("kiosk home sign-in visibility", () => {
       welcomeSrc,
       /disabled=\{visitorBlocked\}/,
       "blocked visitors must not still see a disabled sign-in action",
+    )
+  })
+
+  it("never offers Allow sign-in anyway on visitor or employee surfaces", () => {
+    assert.equal(shouldOfferGeofenceOverride("visitor"), false)
+    assert.equal(shouldOfferGeofenceOverride("employee"), false)
+    assert.equal(shouldOfferGeofenceOverride("reception"), true)
+    assert.match(pageSrc, /shouldOfferGeofenceOverride\("visitor"\)/)
+    assert.match(pageSrc, /shouldOfferGeofenceOverride\("employee"\)/)
+    assert.doesNotMatch(pageSrc, /onOverride=\{receptionistUser/)
+    assert.doesNotMatch(pageSrc, /onClick=\{\(\) => void allowSignInAnyway\(\)\}/)
+    assert.doesNotMatch(
+      welcomeSrc,
+      /onOverride=\{receptionistUser/,
+      "welcome must not gate the override on receptionist unlock",
     )
   })
 

@@ -9,6 +9,16 @@ export type KioskHomeSignInVisibility = {
   showBlockedState: boolean
 }
 
+export type KioskGeofenceOverrideSurface = "visitor" | "employee" | "reception"
+
+/**
+ * "Allow sign-in anyway" is receptionist-only. Visitor home / visitor flows
+ * and employee login must never show it — including after receptionist unlock.
+ */
+export function shouldOfferGeofenceOverride(surface: KioskGeofenceOverrideSurface): boolean {
+  return surface === "reception"
+}
+
 /**
  * Home-screen sign-in actions (visitor, staff, booking) are offered only when
  * the shared kiosk/QR fence says the device is on site, or staff overrode it.

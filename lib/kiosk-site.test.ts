@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
   formatHeaderSiteLine,
+  formatHeaderSiteParts,
   formatSiteDistance,
   headerLocationKind,
   isEmployeeNearestSiteOnly,
@@ -237,8 +238,29 @@ describe("kiosk header site line", () => {
     assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "none", hasLocation: false }), false)
     assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "distance", hasLocation: false }), false)
     assert.match(unlockedHeaderSiteLineClassName(), /min-w-0/)
+    assert.match(unlockedHeaderSiteLineClassName(), /order-3/)
+    assert.match(unlockedHeaderSiteLineClassName(), /basis-full/)
+    assert.doesNotMatch(unlockedHeaderSiteLineClassName(), /max-w-\[42%\]/)
     assert.doesNotMatch(unlockedHeaderSiteLineClassName(), /(?:^|\s)hidden(?:\s|$)/)
     assert.doesNotMatch(unlockedHeaderSiteLineClassName(), /md:hidden/)
+    assert.deepEqual(
+      formatHeaderSiteParts({ siteName: "Test Location", meters: 52, unavailable: false, copy }),
+      { name: "Test Location", detail: "52 m" },
+    )
+    assert.deepEqual(
+      formatHeaderSiteParts({ siteName: "Test Location", meters: null, unavailable: true, copy }),
+      { name: "Test Location", detail: copy.locationUnavailable },
+    )
+    assert.deepEqual(
+      formatHeaderSiteParts({
+        siteName: "Test Location",
+        meters: null,
+        unavailable: false,
+        detecting: true,
+        copy,
+      }),
+      { name: "Test Location", detail: null },
+    )
   })
 
   it("does not treat welcome or staff screens as mid sign-in", () => {

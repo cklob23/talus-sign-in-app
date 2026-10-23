@@ -54,7 +54,7 @@ import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
 import { kioskClientGate, shouldEnforceGeofence } from "@/lib/checkin-geofence"
-import { kioskBlockedCopy, kioskHomeSignInVisibility } from "@/lib/kiosk-sign-in-gate"
+import { kioskBlockedCopy, kioskHomeSignInVisibility, shouldOfferGeofenceOverride } from "@/lib/kiosk-sign-in-gate"
 import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-device-coords"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
@@ -666,7 +666,7 @@ export default function KioskPage() {
   const siteMeters = siteKind === "distance" ? selectedLocationDistance : null
 
   // Geofence enforcement (same rules as QR, via lib/checkin-geofence).
-  // Visitor unlock is PR #9's geofenceOverride ("Allow sign-in anyway").
+  // "Allow sign-in anyway" is receptionist-only — never on visitor/employee surfaces.
   const geofenceRadius = currentLocation?.auto_signin_radius_meters
   const deviceCoords = userCoords
     ? {
@@ -2470,38 +2470,40 @@ export default function KioskPage() {
         </header>
       ) : (
         <header className="sticky top-0 z-50 border-b border-border bg-card">
-          <div className="container mx-auto flex items-center justify-between gap-2 px-3 py-3 sm:px-4">
-            <div className="shrink-0">
+          <div className="container mx-auto flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-3 sm:px-4">
+            <div className="order-1 shrink-0">
               <Link href="/">
                 <TalusAgLogo />
               </Link>
             </div>
-            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-4">
-              <div className="hidden shrink-0 items-center gap-2 border-r border-border pr-3 text-sm md:flex">
-                <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
-                <span className="font-medium">
-                  {currentTime.toLocaleTimeString("en-US", {
-                    timeZone: toIANATimezone(currentTimezone),
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
-              {shouldShowUnlockedHeaderSiteLine({
-                siteKind,
-                hasLocation: Boolean(currentLocation),
-              }) ? (
-                <KioskSiteLine
-                  siteName={currentLocation?.name ?? ""}
-                  meters={siteMeters}
-                  unavailable={siteUnavailable}
-                  detecting={siteKind === "detecting"}
-                  copy={copy}
-                  className={unlockedHeaderSiteLineClassName()}
-                />
-              ) : siteKind === "none" && receptionistUser ? (
-                <span className="min-w-0 truncate text-xs text-warning md:text-sm">{copy.noSitesStaff}</span>
-              ) : null}
+            <div className="order-2 hidden shrink-0 items-center gap-2 border-r border-border pr-3 text-sm md:flex">
+              <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
+              <span className="font-medium">
+                {currentTime.toLocaleTimeString("en-US", {
+                  timeZone: toIANATimezone(currentTimezone),
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+            {shouldShowUnlockedHeaderSiteLine({
+              siteKind,
+              hasLocation: Boolean(currentLocation),
+            }) ? (
+              <KioskSiteLine
+                siteName={currentLocation?.name ?? ""}
+                meters={siteMeters}
+                unavailable={siteUnavailable}
+                detecting={siteKind === "detecting"}
+                copy={copy}
+                className={unlockedHeaderSiteLineClassName()}
+              />
+            ) : siteKind === "none" && receptionistUser ? (
+              <span className={`${unlockedHeaderSiteLineClassName()} break-words text-xs text-warning md:truncate md:text-sm`}>
+                {copy.noSitesStaff}
+              </span>
+            ) : null}
+            <div className="order-2 ml-auto flex items-center gap-1.5 sm:gap-4 md:order-4">
               <LangToggle
                 lang={lang}
                 onLang={(next) => {
@@ -2678,7 +2680,7 @@ export default function KioskPage() {
               blockedTitle={blockedCopy.title}
               blockedHelp={blockedCopy.help}
               blockedStaffDetail={receptionistUser ? staffFenceDetail : null}
-              onOverride={receptionistUser && signInOffer.showBlockedState ? () => void allowSignInAnyway() : null}
+              onOverride={shouldOfferGeofenceOverride("visitor") ? () => void allowSignInAnyway() : null}
             />
             <div className="mt-6">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
@@ -2828,8 +2830,8 @@ export default function KioskPage() {
                   title={blockedCopy.title}
                   help={blockedCopy.help}
                   staffDetail={receptionistUser ? staffFenceDetail : null}
-                  onOverride={receptionistUser ? () => void allowSignInAnyway() : null}
-                  overrideLabel={copy.geofenceOverride}
+                  onOverride={shouldOfferGeofenceOverride("visitor") ? () => void allowSignInAnyway() : null}
+                  overrideLabel={shouldOfferGeofenceOverride("visitor") ? copy.geofenceOverride : undefined}
                   compact
                 />
               </div>
@@ -3080,22 +3082,15 @@ export default function KioskPage() {
                   {isOutsideGeofence && (
                     <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
                       <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                      {receptionistUser && (
-                        <div className="mt-2 space-y-2 text-sm text-warning">
-                          {fenceDistance != null && fenceRadius != null ? (
-                            <p>
-                              {fill(copy.geofenceStaff, {
-                                distance: formatDistance(fenceDistance, ""),
-                                site: currentLocation?.name || "this site",
-                                radius: formatDistance(fenceRadius, ""),
-                              })}
-                            </p>
-                          ) : null}
-                          <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
-                            {copy.geofenceOverride}
-                          </Button>
-                        </div>
-                      )}
+                      {receptionistUser && fenceDistance != null && fenceRadius != null ? (
+                        <p className="mt-2 text-sm text-warning">
+                          {fill(copy.geofenceStaff, {
+                            distance: formatDistance(fenceDistance, ""),
+                            site: currentLocation?.name || "this site",
+                            radius: formatDistance(fenceRadius, ""),
+                          })}
+                        </p>
+                      ) : null}
                     </div>
                   )}
 
@@ -3248,22 +3243,15 @@ export default function KioskPage() {
                     {isOutsideGeofence && (
                       <div className="rounded-xl border border-warning/40 bg-warning-soft p-4">
                         <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                        {receptionistUser && (
-                          <div className="mt-2 space-y-2 text-sm text-warning">
-                            {fenceDistance != null && fenceRadius != null ? (
-                              <p>
-                                {fill(copy.geofenceStaff, {
-                                  distance: formatDistance(fenceDistance, ""),
-                                  site: currentLocation?.name || "this site",
-                                  radius: formatDistance(fenceRadius, ""),
-                                })}
-                              </p>
-                            ) : null}
-                            <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
-                              {copy.geofenceOverride}
-                            </Button>
-                          </div>
-                        )}
+                        {receptionistUser && fenceDistance != null && fenceRadius != null ? (
+                          <p className="mt-2 text-sm text-warning">
+                            {fill(copy.geofenceStaff, {
+                              distance: formatDistance(fenceDistance, ""),
+                              site: currentLocation?.name || "this site",
+                              radius: formatDistance(fenceRadius, ""),
+                            })}
+                          </p>
+                        ) : null}
                       </div>
                     )}
 
@@ -3357,8 +3345,8 @@ export default function KioskPage() {
                 title={blockedCopy.title}
                 help={blockedCopy.help}
                 staffDetail={receptionistUser ? staffFenceDetail : null}
-                onOverride={receptionistUser ? () => void allowSignInAnyway() : null}
-                overrideLabel={copy.geofenceOverride}
+                onOverride={shouldOfferGeofenceOverride("employee") ? () => void allowSignInAnyway() : null}
+                overrideLabel={shouldOfferGeofenceOverride("employee") ? copy.geofenceOverride : undefined}
               />
             ) : (
             <Card>

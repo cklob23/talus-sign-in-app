@@ -173,7 +173,6 @@ function KioskBlockedScreen() {
         blockedTitle={copy.geofenceVisitor}
         blockedHelp={copy.geofenceBlockedHelp}
         blockedStaffDetail="This kiosk is about 76.2 km from Houston HQ. Sign-in only works within 200 m."
-        onOverride={() => undefined}
       />
     </KioskChrome>
   )

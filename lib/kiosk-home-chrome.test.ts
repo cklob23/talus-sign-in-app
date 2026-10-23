@@ -28,6 +28,7 @@ describe("unlocked kiosk home chrome", () => {
     assert.doesNotMatch(unlockedHeader, /receptionistUser && siteKind !== "detecting"/)
     assert.match(page, /shouldShowUnlockedHeaderSiteLine/)
     assert.match(page, /unlockedHeaderSiteLineClassName/)
+    assert.match(unlockedHeader, /flex-wrap/)
     const siteLineOpen = unlockedHeader.match(/<KioskSiteLine[\s\S]*?\/>/)
     assert.ok(siteLineOpen, "KioskSiteLine JSX is missing")
     assert.doesNotMatch(siteLineOpen[0], /(?:^|\s)hidden(?:\s|$)/)
@@ -38,6 +39,13 @@ describe("unlocked kiosk home chrome", () => {
       lastHiddenMdFlex === -1 || lastCloseDiv > lastHiddenMdFlex,
       "KioskSiteLine must not sit inside a hidden md:flex clock wrapper",
     )
+  })
+
+  it("stacks site name and distance on mobile instead of truncating the header line", () => {
+    assert.match(siteLine, /flex-col md:hidden/)
+    assert.match(siteLine, /hidden truncate md:inline/)
+    assert.match(siteLine, /formatHeaderSiteParts/)
+    assert.doesNotMatch(siteLine, /<span className="truncate">/)
   })
 
   it("keeps booking and staff as outline buttons", () => {

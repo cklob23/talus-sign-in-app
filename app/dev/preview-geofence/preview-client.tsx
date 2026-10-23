@@ -111,12 +111,9 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
         <section id="kiosk-blocked" className="mx-auto max-w-5xl rounded-2xl bg-card p-6 shadow-sm">
           <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
             <p className="font-medium text-warning">Sign in is paused. Please ask reception.</p>
-            <div className="mt-2 space-y-2 text-sm text-warning">
-              <p>This kiosk looks 73.00km from Test Location. Sign-in is set to stay within 200 m.</p>
-              <Button type="button" variant="outline" className="min-h-12">
-                Allow sign-in anyway
-              </Button>
-            </div>
+            <p className="mt-2 text-sm text-warning">
+              This kiosk looks 73.00km from Test Location. Sign-in is set to stay within 200 m.
+            </p>
           </div>
         </section>
       ) : null}
