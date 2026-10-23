@@ -20,6 +20,7 @@ import {
   ymdInZone,
 } from "@/lib/reports/period"
 import { fetchPages } from "@/lib/reports/query"
+import { durationUnitShortLabel, formatAverageDuration } from "@/lib/reports/rows"
 import { ReportFilterBar, type FilterOption } from "@/components/admin/reports/filter-bar"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
 import { ScheduledTab } from "@/components/admin/reports/scheduled-tab"
@@ -28,6 +29,7 @@ import { SendReportButton } from "@/components/admin/reports/send-dialog"
 import { ReportRowCapNotice } from "@/components/admin/reports/row-cap"
 import { showAdminToast } from "@/hooks/admin-notify"
 import { exportCsvFailedToast } from "@/lib/reports/action-toasts"
+import type { DurationUnit } from "@/lib/reports/types"
 
 interface VisitorRow {
   sign_in_time: string
@@ -101,6 +103,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<"visitors" | "employees" | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>("minutes")
 
   const windowTz = reportWindowTimezone({ selectedLocationIds: selectedLocations, locations })
   const window = useMemo(
@@ -277,6 +280,7 @@ export default function ReportsPage() {
         visitorTypes: kind === "visitors" ? selectedVisitorTypes : [],
         from: fromIso,
         to: toIso,
+        durationUnit,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not export CSV"
@@ -320,6 +324,8 @@ export default function ReportsPage() {
               selectedVisitorTypes={selectedVisitorTypes}
               onVisitorTypesChange={setSelectedVisitorTypes}
               showVisitorTypes
+              durationUnit={durationUnit}
+              onDurationUnitChange={setDurationUnit}
             />
             <div className="flex flex-wrap gap-2">
               {canSchedule && (
@@ -331,6 +337,7 @@ export default function ReportsPage() {
                   timezone={windowTz}
                   locationIds={selectedLocations}
                   visitorTypeIds={selectedVisitorTypes}
+                  durationUnit={durationUnit}
                 />
               )}
               <Button variant="outline" size="sm" onClick={() => exportKind("visitors")} disabled={exporting !== null}>
@@ -368,7 +375,7 @@ export default function ReportsPage() {
                     <CardTitle className="text-xs font-medium text-muted-foreground">Avg. duration</CardTitle>
                   </CardHeader>
                   <CardContent className="p-3 pt-0">
-                    <div className="text-xl sm:text-2xl font-bold">{visitorMetrics.avg}<span className="text-sm">m</span></div>
+                    <div className="text-xl sm:text-2xl font-bold">{formatAverageDuration(visitorMetrics.avg, durationUnit)}<span className="text-sm">{durationUnitShortLabel(durationUnit)}</span></div>
                   </CardContent>
                 </Card>
                 <Card>
@@ -481,6 +488,8 @@ export default function ReportsPage() {
               locations={locations}
               selectedLocations={selectedLocations}
               onLocationsChange={setSelectedLocations}
+              durationUnit={durationUnit}
+              onDurationUnitChange={setDurationUnit}
             />
             <div className="flex flex-wrap gap-2">
               {canSchedule && (
@@ -492,6 +501,7 @@ export default function ReportsPage() {
                   timezone={windowTz}
                   locationIds={selectedLocations}
                   visitorTypeIds={[]}
+                  durationUnit={durationUnit}
                 />
               )}
               <Button variant="outline" size="sm" onClick={() => exportKind("employees")} disabled={exporting !== null}>
@@ -552,7 +562,7 @@ export default function ReportsPage() {
                     <CardTitle className="text-xs font-medium text-muted-foreground">Avg. duration</CardTitle>
                   </CardHeader>
                   <CardContent className="p-3 pt-0">
-                    <div className="text-xl sm:text-2xl font-bold">{employeeMetrics.avg}<span className="text-sm">m</span></div>
+                    <div className="text-xl sm:text-2xl font-bold">{formatAverageDuration(employeeMetrics.avg, durationUnit)}<span className="text-sm">{durationUnitShortLabel(durationUnit)}</span></div>
                   </CardContent>
                 </Card>
               </div>

@@ -40,6 +40,7 @@ describe("visit page actions", () => {
     assert.ok(writes.some((w) => w.table === "sign_ins" && w.op === "update"))
     const update = writes.find((w) => w.table === "sign_ins" && w.op === "update")
     assert.equal((update?.payload as { sign_out_time?: string }).sign_out_time, json.signedOutAt)
+    assert.equal((update?.payload as { sign_out_source?: string }).sign_out_source, "manual")
     assert.ok(writes.some((w) => w.table === "audit_logs" && w.op === "insert"))
   })
 

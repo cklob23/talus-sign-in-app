@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
+import { applySignOut } from "@/lib/sign-out-source"
 import { printVisitorBadge } from "@/lib/print-badge"
 import { SignInDetailBlade, type SignInRecord } from "@/components/admin/sign-in-detail-blade"
 import { useTimezone } from "@/contexts/timezone-context"
@@ -127,7 +128,11 @@ export default function CurrentVisitorsPage() {
 
   async function handleVisitorSignOut(signInId: string) {
     const supabase = createClient()
-    const { error } = await supabase.from("sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    const { error } = await applySignOut(
+      (payload) => supabase.from("sign_ins").update(payload).eq("id", signInId),
+      "manual",
+      new Date().toISOString(),
+    )
     if (error) {
       notifyError("Could not sign out visitor", error.message)
       return
@@ -138,7 +143,11 @@ export default function CurrentVisitorsPage() {
 
   async function handleEmployeeSignOut(signInId: string) {
     const supabase = createClient()
-    const { error } = await supabase.from("employee_sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    const { error } = await applySignOut(
+      (payload) => supabase.from("employee_sign_ins").update(payload).eq("id", signInId),
+      "manual",
+      new Date().toISOString(),
+    )
     if (error) {
       notifyError("Could not sign out employee", error.message)
       return

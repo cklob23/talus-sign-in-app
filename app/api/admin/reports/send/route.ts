@@ -47,13 +47,18 @@ export async function POST(request: Request) {
   const scheduleName = adhocScheduleName(input.kind)
 
   try {
-    const report = await buildReport(admin, {
-      kind: input.kind,
-      locationIds: input.locationIds,
-      visitorTypeIds: input.kind === "employees" ? [] : input.visitorTypeIds,
-      from: window.start.toISOString(),
-      to: window.end.toISOString(),
-    })
+    const report = await buildReport(
+      admin,
+      {
+        kind: input.kind,
+        locationIds: input.locationIds,
+        visitorTypeIds: input.kind === "employees" ? [] : input.visitorTypeIds,
+        from: window.start.toISOString(),
+        to: window.end.toISOString(),
+      },
+      Date.now(),
+      input.durationUnit,
+    )
     const sent = await sendBuiltReport({
       admin,
       scheduleName,
@@ -68,6 +73,7 @@ export async function POST(request: Request) {
       badge: "Ad-hoc report",
       periodLabel,
       extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
+      durationUnit: input.durationUnit,
     })
     if (!sent.sent) {
       await admin.from("audit_logs").insert({

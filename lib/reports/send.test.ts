@@ -18,6 +18,7 @@ describe("parseAdhocSendBody", () => {
     assert.equal(parsed.value.kind, "visitors")
     assert.equal(parsed.value.period, "all")
     assert.deepEqual(parsed.value.recipients, ["caleb@talusag.com", "ops@partner.com"])
+    assert.equal(parsed.value.durationUnit, "minutes")
     assert.equal(adhocScheduleName("visitors"), "Ad-hoc visitor sign-ins")
     assert.equal(adhocPeriodLabel(parsed.value), "All time")
   })
@@ -28,6 +29,8 @@ describe("parseAdhocSendBody", () => {
     assert.equal(parseAdhocSendBody({ ...base, period: "custom", customStart: "2026-10-20", customEnd: "2026-10-10" }).ok, false)
     assert.equal(parseAdhocSendBody({ ...base, period: "custom", customStart: "2026-10-10", customEnd: "2026-10-20" }).ok, true)
     assert.equal(parseAdhocSendBody({ ...base, timezone: "Not/AZone" }).ok, false)
+    assert.equal(parseAdhocSendBody({ ...base, durationUnit: "hours" }).ok, true)
+    assert.equal(parseAdhocSendBody({ ...base, durationUnit: "days" }).ok, false)
   })
 
   it("resolves all-time and custom windows from the send payload", () => {

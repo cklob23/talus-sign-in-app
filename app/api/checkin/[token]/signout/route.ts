@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getAdminClient } from "@/lib/supabase/server"
 import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token"
 import { BADGE_NUMBER_INPUT_RE } from "@/lib/badge-number"
+import { applySignOut } from "@/lib/sign-out-source"
 
 /**
  * Public visitor sign-out from a scanned location QR code.
@@ -97,12 +98,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const signOutTime = new Date().toISOString()
     // Re-assert the active filter so two simultaneous taps can't double-write.
-    const { data: updated, error: updateError } = await admin
-        .from("sign_ins")
-        .update({ sign_out_time: signOutTime })
-        .eq("id", signIn.id)
-        .is("sign_out_time", null)
-        .select("id")
+    const { data: updated, error: updateError } = await applySignOut(
+        (payload) =>
+            admin.from("sign_ins").update(payload).eq("id", signIn.id).is("sign_out_time", null).select("id"),
+        "manual",
+        signOutTime,
+    )
 
     if (updateError) {
         console.log("[v0] QR sign-out update failed:", updateError.message)

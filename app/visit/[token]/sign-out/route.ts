@@ -3,6 +3,7 @@ import { getAdminClient } from "@/lib/supabase/server"
 import { readVisitToken } from "@/lib/visit-token"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
 import { visitorFullName } from "@/lib/visit-page"
+import { applySignOut } from "@/lib/sign-out-source"
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const limited = rateLimit(`visit-signout:${clientIp(request)}`, 15, 10 * 60 * 1000)
@@ -33,10 +34,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   }
 
   const signedOutAt = new Date().toISOString()
-  const { error } = await admin
-    .from("sign_ins")
-    .update({ sign_out_time: signedOutAt })
-    .eq("id", signIn.id)
+  const { error } = await applySignOut(
+    (payload) => admin.from("sign_ins").update(payload).eq("id", signIn.id),
+    "manual",
+    signedOutAt,
+  )
   if (error) {
     return NextResponse.json({ error: "Could not sign the visitor out." }, { status: 500 })
   }

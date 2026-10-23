@@ -2,10 +2,12 @@ import { dashboardPeriodLabel, DEFAULT_REPORT_TIMEZONE, resolveOnDemandWindow } 
 import { parseUuidList } from "./schedule.ts"
 import {
   invalidRecipientTokens,
+  isDurationUnit,
   isReportFormat,
   isReportKind,
   parseRecipientList,
   REPORT_KIND_LABELS,
+  type DurationUnit,
   type ReportFormat,
   type ReportKind,
 } from "./types.ts"
@@ -20,6 +22,7 @@ export interface AdhocSendInput {
   timezone: string
   recipients: string[]
   format: ReportFormat
+  durationUnit: DurationUnit
 }
 
 function isLikelyTimezone(value: string): boolean {
@@ -39,6 +42,14 @@ export function parseAdhocSendBody(
 
   const formatRaw = typeof body.format === "string" ? body.format : "both"
   if (!isReportFormat(formatRaw)) return { ok: false, error: "Choose CSV attachment, inline summary, or both" }
+
+  const durationRaw =
+    typeof body.durationUnit === "string"
+      ? body.durationUnit
+      : typeof body.duration_unit === "string"
+        ? body.duration_unit
+        : "minutes"
+  if (!isDurationUnit(durationRaw)) return { ok: false, error: "Choose minutes or hours for duration" }
 
   const period = typeof body.period === "string" && body.period.trim() ? body.period.trim() : "7"
   const customStart = typeof body.customStart === "string" ? body.customStart.trim() : typeof body.custom_start === "string" ? body.custom_start.trim() : ""
@@ -74,6 +85,7 @@ export function parseAdhocSendBody(
       timezone,
       recipients,
       format: formatRaw,
+      durationUnit: durationRaw,
     },
   }
 }

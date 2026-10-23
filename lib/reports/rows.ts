@@ -1,5 +1,5 @@
 import { resolveDisplayTimeZone, toIANATimezone } from "@/lib/timezone"
-import { TRAINING_METHOD_LABELS } from "./types.ts"
+import { TRAINING_METHOD_LABELS, type DurationUnit } from "./types.ts"
 
 export interface VisitorSignInSource {
   sign_in_time: string
@@ -75,11 +75,37 @@ export function formatReportDateTime(iso: string | null | undefined, timezone?: 
 }
 
 export function durationMinutes(startIso: string, endIso?: string | null): string {
+  return formatVisitDuration(startIso, endIso, "minutes")
+}
+
+export function formatVisitDuration(
+  startIso: string,
+  endIso: string | null | undefined,
+  unit: DurationUnit = "minutes",
+): string {
   if (!endIso) return ""
   const start = new Date(startIso).getTime()
   const end = new Date(endIso).getTime()
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return ""
-  return String(Math.round((end - start) / (1000 * 60)))
+  const minutes = (end - start) / (1000 * 60)
+  if (unit === "hours") {
+    return String(Math.round((minutes / 60) * 100) / 100)
+  }
+  return String(Math.round(minutes))
+}
+
+export function durationColumnHeader(unit: DurationUnit = "minutes"): string {
+  return unit === "hours" ? "Duration (hr)" : "Duration (min)"
+}
+
+export function durationUnitShortLabel(unit: DurationUnit = "minutes"): string {
+  return unit === "hours" ? "h" : "m"
+}
+
+export function formatAverageDuration(avgMinutes: number, unit: DurationUnit = "minutes"): string {
+  if (!Number.isFinite(avgMinutes)) return "0"
+  if (unit === "hours") return String(Math.round((avgMinutes / 60) * 10) / 10)
+  return String(Math.round(avgMinutes))
 }
 
 export function visitorDisplayName(visitor?: VisitorSignInSource["visitor"]): string {
@@ -99,19 +125,23 @@ export function trainingMethodLabel(source?: string | null): string {
   return TRAINING_METHOD_LABELS[source] || source
 }
 
-export const VISITOR_HEADERS = [
-  "Visitor name",
-  "Email",
-  "Company",
-  "Visitor type",
-  "Host",
-  "Site",
-  "Sign in",
-  "Sign out",
-  "Duration (min)",
-]
+export function visitorHeaders(unit: DurationUnit = "minutes"): string[] {
+  return [
+    "Visitor name",
+    "Email",
+    "Company",
+    "Visitor type",
+    "Host",
+    "Site",
+    "Sign in",
+    "Sign out",
+    durationColumnHeader(unit),
+  ]
+}
 
-export function visitorSignInRow(row: VisitorSignInSource): string[] {
+export const VISITOR_HEADERS = visitorHeaders("minutes")
+
+export function visitorSignInRow(row: VisitorSignInSource, unit: DurationUnit = "minutes"): string[] {
   const zone = row.location?.timezone
   return [
     visitorDisplayName(row.visitor),
@@ -122,23 +152,27 @@ export function visitorSignInRow(row: VisitorSignInSource): string[] {
     row.location?.name || "",
     formatReportDateTime(row.sign_in_time, zone),
     formatReportDateTime(row.sign_out_time, zone),
-    durationMinutes(row.sign_in_time, row.sign_out_time),
+    formatVisitDuration(row.sign_in_time, row.sign_out_time, unit),
   ]
 }
 
-export const EMPLOYEE_HEADERS = [
-  "Employee name",
-  "Email",
-  "Role",
-  "Department",
-  "Site",
-  "Auto sign-in",
-  "Sign in",
-  "Sign out",
-  "Duration (min)",
-]
+export function employeeHeaders(unit: DurationUnit = "minutes"): string[] {
+  return [
+    "Employee name",
+    "Email",
+    "Role",
+    "Department",
+    "Site",
+    "Auto sign-in",
+    "Sign in",
+    "Sign out",
+    durationColumnHeader(unit),
+  ]
+}
 
-export function employeeSignInRow(row: EmployeeSignInSource): string[] {
+export const EMPLOYEE_HEADERS = employeeHeaders("minutes")
+
+export function employeeSignInRow(row: EmployeeSignInSource, unit: DurationUnit = "minutes"): string[] {
   const zone = row.location?.timezone
   return [
     row.profile?.full_name || "",
@@ -149,7 +183,7 @@ export function employeeSignInRow(row: EmployeeSignInSource): string[] {
     row.auto_signed_in ? "Yes" : "No",
     formatReportDateTime(row.sign_in_time, zone),
     formatReportDateTime(row.sign_out_time, zone),
-    durationMinutes(row.sign_in_time, row.sign_out_time),
+    formatVisitDuration(row.sign_in_time, row.sign_out_time, unit),
   ]
 }
 
@@ -181,12 +215,12 @@ export function trainingCompletionRow(row: TrainingCompletionSource, nowMs = Dat
   ]
 }
 
-export function buildVisitorCsvRows(rows: VisitorSignInSource[]): string[][] {
-  return [VISITOR_HEADERS, ...rows.map(visitorSignInRow)]
+export function buildVisitorCsvRows(rows: VisitorSignInSource[], unit: DurationUnit = "minutes"): string[][] {
+  return [visitorHeaders(unit), ...rows.map((row) => visitorSignInRow(row, unit))]
 }
 
-export function buildEmployeeCsvRows(rows: EmployeeSignInSource[]): string[][] {
-  return [EMPLOYEE_HEADERS, ...rows.map(employeeSignInRow)]
+export function buildEmployeeCsvRows(rows: EmployeeSignInSource[], unit: DurationUnit = "minutes"): string[][] {
+  return [employeeHeaders(unit), ...rows.map((row) => employeeSignInRow(row, unit))]
 }
 
 export function buildTrainingCsvRows(rows: TrainingCompletionSource[], nowMs = Date.now()): string[][] {

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { DASHBOARD_PERIODS } from "@/lib/reports/types"
+import { DASHBOARD_PERIODS, DURATION_UNIT_LABELS, type DurationUnit } from "@/lib/reports/types"
 
 export interface FilterOption {
   id: string
@@ -89,6 +89,8 @@ export function ReportFilterBar({
   onVisitorTypesChange,
   showVisitorTypes = false,
   previewOpen = false,
+  durationUnit,
+  onDurationUnitChange,
 }: {
   period: string
   onPeriodChange: (value: string) => void
@@ -104,6 +106,8 @@ export function ReportFilterBar({
   onVisitorTypesChange?: (next: string[]) => void
   showVisitorTypes?: boolean
   previewOpen?: boolean
+  durationUnit?: DurationUnit
+  onDurationUnitChange?: (value: DurationUnit) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -161,6 +165,20 @@ export function ReportFilterBar({
           onChange={onVisitorTypesChange}
           emptyLabel="All types"
         />
+      )}
+      {durationUnit && onDurationUnitChange && (
+        <Select value={durationUnit} onValueChange={(value) => onDurationUnitChange(value as DurationUnit)}>
+          <SelectTrigger className="w-36 sm:w-40">
+            <SelectValue placeholder="Duration" />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(DURATION_UNIT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                Duration: {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
     </div>
   )

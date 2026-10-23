@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/server"
 import { csvFilename } from "@/lib/reports/csv"
 import { REPORT_EXPORT_MAX_ROWS, resolveOnDemandWindow } from "@/lib/reports/period"
 import { parseUuidList } from "@/lib/reports/schedule"
-import { isReportKind } from "@/lib/reports/types"
+import { isDurationUnit, isReportKind } from "@/lib/reports/types"
 import { buildReport, reportCsvChunks } from "@/lib/reports/run"
 
 function canExport(role: string, permissions: Set<PermissionKey>) {
@@ -48,14 +48,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "from and to must be valid ISO datetimes with to after from" }, { status: 400 })
   }
 
+  const durationRaw = url.searchParams.get("durationUnit") || url.searchParams.get("duration_unit") || "minutes"
+  const durationUnit = isDurationUnit(durationRaw) ? durationRaw : "minutes"
+
   const admin = createAdminClient()
-  const report = await buildReport(admin, {
-    kind,
-    locationIds: parseUuidList(url.searchParams.get("locations") || ""),
-    visitorTypeIds: parseUuidList(url.searchParams.get("visitorTypes") || ""),
-    from: new Date(fromMs).toISOString(),
-    to: new Date(toMs).toISOString(),
-  })
+  const report = await buildReport(
+    admin,
+    {
+      kind,
+      locationIds: parseUuidList(url.searchParams.get("locations") || ""),
+      visitorTypeIds: parseUuidList(url.searchParams.get("visitorTypes") || ""),
+      from: new Date(fromMs).toISOString(),
+      to: new Date(toMs).toISOString(),
+    },
+    Date.now(),
+    durationUnit,
+  )
 
   const filename = csvFilename(kind, new Date(fromMs).toISOString(), new Date(toMs).toISOString())
   const encoder = new TextEncoder()

@@ -6,6 +6,7 @@ import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock, formatMailTime } from "@/lib/email-shell"
 import { resolveDisplayTimeZone } from "@/lib/timezone"
+import { applySignOut } from "@/lib/sign-out-source"
 
 export const maxDuration = 60
 
@@ -132,11 +133,16 @@ async function handleLocationSignout(request: Request) {
 
         let employeesSignedOut = 0
         if (activeEmployees && activeEmployees.length > 0 && !dryRun) {
-            const { error: empErr } = await supabase
-                .from("employee_sign_ins")
-                .update({ sign_out_time: now })
-                .eq("location_id", location.id)
-                .is("sign_out_time", null)
+            const { error: empErr } = await applySignOut(
+                (payload) =>
+                    supabase
+                        .from("employee_sign_ins")
+                        .update(payload)
+                        .eq("location_id", location.id)
+                        .is("sign_out_time", null),
+                "auto",
+                now,
+            )
             if (!empErr) {
                 employeesSignedOut = activeEmployees.length
                 await supabase.from("audit_logs").insert({
@@ -170,11 +176,16 @@ async function handleLocationSignout(request: Request) {
 
         let visitorsSignedOut = 0
         if (activeVisitors && activeVisitors.length > 0 && !dryRun) {
-            const { error: visErr } = await supabase
-                .from("sign_ins")
-                .update({ sign_out_time: now })
-                .eq("location_id", location.id)
-                .is("sign_out_time", null)
+            const { error: visErr } = await applySignOut(
+                (payload) =>
+                    supabase
+                        .from("sign_ins")
+                        .update(payload)
+                        .eq("location_id", location.id)
+                        .is("sign_out_time", null),
+                "auto",
+                now,
+            )
             if (!visErr) {
                 visitorsSignedOut = activeVisitors.length
                 await supabase.from("audit_logs").insert({
@@ -201,7 +212,7 @@ async function handleLocationSignout(request: Request) {
                 const hostVisitors: Record<string, {
                     hostName: string
                     hostEmail: string
-                    visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null }[]
+                    visitors: { name: string; company: string | null; badge?: string | null; signedInAt?: string | null; signedOutAt?: string | null }[]
                 }> = {}
 
                 for (const signIn of activeVisitors) {
@@ -224,6 +235,7 @@ async function handleLocationSignout(request: Request) {
                         signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
                             ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, resolveDisplayTimeZone(location.timezone))
                             : null,
+                        signedOutAt: formatMailClock(now, resolveDisplayTimeZone(location.timezone)),
                     })
                 }
 

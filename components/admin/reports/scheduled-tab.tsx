@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatReportDateTime } from "@/lib/reports/rows"
 import {
   FREQUENCY_LABELS,
+  DURATION_UNIT_LABELS,
   RANGE_TYPE_LABELS,
   REPORT_KIND_LABELS,
   WEEKDAYS,
@@ -47,8 +48,11 @@ function cadenceLabel(schedule: ReportSchedule): string {
 }
 
 function rangeLabel(schedule: ReportSchedule): string {
-  if (schedule.rangeType === "last_n_days") return `Last ${schedule.lastNDays || 7} days`
-  return RANGE_TYPE_LABELS[schedule.rangeType]
+  const range = schedule.rangeType === "last_n_days" ? `Last ${schedule.lastNDays || 7} days` : RANGE_TYPE_LABELS[schedule.rangeType]
+  if (schedule.kind === "visitors" || schedule.kind === "employees") {
+    return `${range} · ${DURATION_UNIT_LABELS[schedule.durationUnit || "minutes"]}`
+  }
+  return range
 }
 
 export function ScheduledTab({

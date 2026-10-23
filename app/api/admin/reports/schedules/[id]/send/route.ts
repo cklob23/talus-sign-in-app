@@ -32,13 +32,18 @@ export async function POST(_request: Request, context: RouteContext) {
   })
 
   try {
-    const report = await buildReport(admin, {
-      kind: schedule.kind,
-      locationIds: schedule.locationIds,
-      visitorTypeIds: schedule.visitorTypeIds,
-      from: period.start.toISOString(),
-      to: period.end.toISOString(),
-    })
+    const report = await buildReport(
+      admin,
+      {
+        kind: schedule.kind,
+        locationIds: schedule.locationIds,
+        visitorTypeIds: schedule.visitorTypeIds,
+        from: period.start.toISOString(),
+        to: period.end.toISOString(),
+      },
+      Date.now(),
+      schedule.durationUnit,
+    )
     const sent = await sendBuiltReport({
       admin,
       scheduleName: schedule.name,
@@ -50,6 +55,7 @@ export async function POST(_request: Request, context: RouteContext) {
       timezone: schedule.timezone,
       locationIds: schedule.locationIds,
       report,
+      durationUnit: schedule.durationUnit,
     })
     if (!sent.sent) {
       await finishRun(admin, runId, { status: "failed", rowCount: report.rowCount, error: sent.reason || "send_failed" })

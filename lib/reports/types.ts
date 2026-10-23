@@ -13,6 +13,9 @@ export type ReportFormat = (typeof REPORT_FORMATS)[number]
 export const REPORT_TRIGGERS = ["scheduled", "manual"] as const
 export type ReportTrigger = (typeof REPORT_TRIGGERS)[number]
 
+export const DURATION_UNITS = ["minutes", "hours"] as const
+export type DurationUnit = (typeof DURATION_UNITS)[number]
+
 export const REPORT_RUN_STATUSES = ["queued", "running", "sent", "failed", "skipped"] as const
 export type ReportRunStatus = (typeof REPORT_RUN_STATUSES)[number]
 
@@ -68,6 +71,11 @@ export const FORMAT_LABELS: Record<ReportFormat, string> = {
   both: "CSV and summary",
 }
 
+export const DURATION_UNIT_LABELS: Record<DurationUnit, string> = {
+  minutes: "Minutes",
+  hours: "Hours",
+}
+
 export const TRAINING_METHOD_LABELS: Record<string, string> = {
   kiosk: "Kiosk",
   qr: "QR",
@@ -95,6 +103,7 @@ export interface ReportScheduleInput {
   timezone: string
   recipients: string[]
   format: ReportFormat
+  durationUnit: DurationUnit
   enabled: boolean
 }
 
@@ -142,6 +151,10 @@ export function isReportFrequency(value: string): value is ReportFrequency {
 
 export function isReportFormat(value: string): value is ReportFormat {
   return (REPORT_FORMATS as readonly string[]).includes(value)
+}
+
+export function isDurationUnit(value: string): value is DurationUnit {
+  return (DURATION_UNITS as readonly string[]).includes(value)
 }
 
 export function isTalusRecipient(email: string): boolean {

@@ -39,6 +39,22 @@ describe("CSV builders", () => {
     assert.match(stamp, /2026/)
     assert.match(stamp, /CDT|CST|GMT-/)
     assert.equal(rows[1][8], "90")
+    assert.equal(rows[0][8], "Duration (min)")
+    const hours = buildVisitorCsvRows(
+      [
+        {
+          sign_in_time: "2026-10-22T15:30:00.000Z",
+          sign_out_time: "2026-10-22T17:00:00.000Z",
+          visitor: { first_name: "Ada", last_name: "Lovelace", email: "ada@example.com", company: "Analytical" },
+          host: { name: "Hiro Iwanaga" },
+          visitor_type: { name: "Contractor" },
+          location: { name: "Houston HQ", timezone: "America/Chicago" },
+        },
+      ],
+      "hours",
+    )
+    assert.equal(hours[0][8], "Duration (hr)")
+    assert.equal(hours[1][8], "1.5")
     assert.equal(stamp.includes("UTC"), false)
     assert.equal(csvFilename("visitors", "2026-10-15T00:00:00.000Z", "2026-10-22T00:00:00.000Z"), "visitor-sign-ins-2026-10-15-to-2026-10-22.csv")
   })
