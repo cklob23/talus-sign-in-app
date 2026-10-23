@@ -3584,8 +3584,6 @@ export default function KioskPage() {
                         title={selectedVisitorType.training_title || copy.trainingTitle}
                         autoPlay={videoStarted}
                         unmuteLabel={copy.tapToUnmute}
-                        soundOnLabel={copy.soundOn}
-                        soundOffLabel={copy.soundOff}
                         onPlaybackReady={(controls) => {
                           trainingPlaybackRef.current = controls
                         }}
