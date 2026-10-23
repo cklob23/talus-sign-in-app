@@ -125,3 +125,18 @@ export function headerLocationKind(input: {
   if (input.meters != null && Number.isFinite(input.meters)) return "distance"
   return "name-only"
 }
+
+/** One unlocked header site line, shown on mobile and desktop when a site exists or GPS is settling. */
+export function shouldShowUnlockedHeaderSiteLine(input: {
+  siteKind: HeaderLocationKind
+  hasLocation: boolean
+}): boolean {
+  if (input.siteKind === "none") return false
+  if (input.siteKind === "detecting") return true
+  return input.hasLocation
+}
+
+/** Wrapper classes for that single site line. Must stay visible at ~390px — never `hidden`. */
+export function unlockedHeaderSiteLineClassName(): string {
+  return "min-w-0 max-w-[42%] md:max-w-none"
+}

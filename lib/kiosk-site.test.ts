@@ -8,6 +8,8 @@ import {
   isVisitorFlowMode,
   nearestOnlyLocations,
   resolveKioskSite,
+  shouldShowUnlockedHeaderSiteLine,
+  unlockedHeaderSiteLineClassName,
 } from "./kiosk-site.ts"
 import { visitorCopy } from "./visitor-i18n.ts"
 
@@ -225,6 +227,18 @@ describe("kiosk header site line", () => {
       }),
       "none",
     )
+  })
+
+  it("shows one unlocked header site line on mobile when a site is resolved or locating", () => {
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "distance", hasLocation: true }), true)
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "name-only", hasLocation: true }), true)
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "unavailable", hasLocation: true }), true)
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "detecting", hasLocation: false }), true)
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "none", hasLocation: false }), false)
+    assert.equal(shouldShowUnlockedHeaderSiteLine({ siteKind: "distance", hasLocation: false }), false)
+    assert.match(unlockedHeaderSiteLineClassName(), /min-w-0/)
+    assert.doesNotMatch(unlockedHeaderSiteLineClassName(), /(?:^|\s)hidden(?:\s|$)/)
+    assert.doesNotMatch(unlockedHeaderSiteLineClassName(), /md:hidden/)
   })
 
   it("does not treat welcome or staff screens as mid sign-in", () => {
