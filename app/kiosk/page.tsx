@@ -56,6 +56,7 @@ import { TrainingPlayer } from "@/components/training-player"
 import { kioskClientGate, shouldEnforceGeofence } from "@/lib/checkin-geofence"
 import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-device-coords"
 import { LangToggle } from "@/components/lang-toggle"
+import { KioskHelpFooter } from "@/components/kiosk/kiosk-help-footer"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
@@ -2354,7 +2355,7 @@ export default function KioskPage() {
   }
 
   return (
-    <div className="kiosk-touch min-h-screen bg-background text-foreground">
+    <div className="kiosk-touch flex min-h-screen flex-col bg-background text-foreground">
       {mode === "receptionist-login" ? (
         <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
           <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-center">
@@ -2441,7 +2442,7 @@ export default function KioskPage() {
         </header>
       )}
 
-      <main className="container mx-auto px-3 py-4 sm:px-4 sm:py-8">
+      <main className="container mx-auto flex-1 px-3 py-4 sm:px-4 sm:py-8">
         {idleSeconds !== null && (
           <button
             type="button"
@@ -4025,6 +4026,7 @@ export default function KioskPage() {
           </div>
         )}
       </main>
+      <KioskHelpFooter lead={copy.itSupportHelp} />
     </div>
   )
 }

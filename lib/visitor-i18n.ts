@@ -112,6 +112,7 @@ const en = {
   details: "Details",
   safety: "Safety video",
   photo: "Photo",
+  itSupportHelp: "Need help? Contact IT Support at",
 }
 
 const es: typeof en = {
@@ -204,6 +205,7 @@ const es: typeof en = {
   details: "Datos",
   safety: "Video",
   photo: "Foto",
+  itSupportHelp: "¿Necesita ayuda? Escriba a IT Support en",
 }
 
 export type VisitorCopy = typeof en

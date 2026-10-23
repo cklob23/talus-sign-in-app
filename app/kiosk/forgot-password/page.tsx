@@ -12,6 +12,7 @@ import { ArrowLeft, Mail, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { useBranding } from "@/hooks/use-branding"
+import { KioskHelpFooter } from "@/components/kiosk/kiosk-help-footer"
 import { TalusAgLogo } from "@/components/talusag-logo"
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -145,6 +146,7 @@ export default function ForgotPasswordPage() {
                     </CardContent>
                 </Card>
             </main>
+            <KioskHelpFooter />
         </div>
     )
 }

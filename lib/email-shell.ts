@@ -1,7 +1,8 @@
 import { escapeHtml } from "@/lib/html-escape"
+import { IT_SUPPORT } from "@/lib/it-support"
 import { formatDateTimeWithZone, resolveDisplayTimeZone, toIANATimezone } from "@/lib/timezone"
 
-export const IT_SUPPORT = "it_support@talusag.com"
+export { IT_SUPPORT }
 
 export const EMAIL_FOOTER_EN =
   `Talus Ag Visitor Management. This is an automated message.\nNeed help? Contact IT Support at ${IT_SUPPORT}.`

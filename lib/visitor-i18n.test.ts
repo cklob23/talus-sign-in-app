@@ -16,6 +16,8 @@ describe("visitor copy", () => {
     assert.equal(/toque entrar/i.test(es.bookingHint), false)
     assert.equal(en.locationUnavailable, "Location unavailable")
     assert.equal(es.locationUnavailable, "Ubicación no disponible")
+    assert.equal(en.itSupportHelp, "Need help? Contact IT Support at")
+    assert.equal(es.itSupportHelp, "¿Necesita ayuda? Escriba a IT Support en")
     assert.equal(en.siteDistanceAway, "{site}, {distance} away")
     assert.equal(es.siteDistanceAway, "{site}, a {distance}")
   })
