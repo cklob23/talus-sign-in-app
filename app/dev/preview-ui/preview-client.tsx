@@ -1,7 +1,8 @@
 "use client"
 
-import { CalendarCheck, Check, Clock, LogOut, MoreHorizontal, PlayCircle, Search, UserPlus, Users } from "lucide-react"
+import { CalendarCheck, Check, Clock, LogOut, MoreHorizontal, PlayCircle, Search, Shield, UserPlus, Users } from "lucide-react"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
+import { KioskResolvedSite } from "@/components/kiosk/kiosk-resolved-site"
 import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
 import { LangToggle } from "@/components/lang-toggle"
 import { TalusAgLogo } from "@/components/talusag-logo"
@@ -363,6 +364,39 @@ function AfterVisitors() {
   )
 }
 
+function EmployeeLoginPreview() {
+  return (
+    <div className="mx-auto mt-10 max-w-sm px-4">
+      <div className="mb-8 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+          <Shield className="h-8 w-8 text-primary" aria-hidden />
+        </div>
+        <h1 className="text-2xl font-bold">Kiosk Login</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Employee sign-in required to activate the visitor kiosk</p>
+      </div>
+      <div className="rounded-xl border bg-white p-6">
+        <p className="text-center text-lg font-semibold">Employee Login</p>
+        <p className="mb-4 text-center text-xs text-muted-foreground">Sign in to unlock the visitor management kiosk</p>
+        <div className="space-y-4">
+          <label className="block text-sm">
+            Email
+            <input className="mt-1 h-11 w-full rounded-md border px-3" defaultValue="maya@talusag.com" />
+          </label>
+          <label className="block text-sm">
+            Password
+            <input className="mt-1 h-11 w-full rounded-md border px-3" type="password" defaultValue="password" />
+          </label>
+          <KioskResolvedSite
+            label={copy.chooseSite}
+            siteName="Test Location"
+            distanceText="52 m from your location"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WelcomePreview({
   siteName = "Houston HQ",
   meters = 52,
@@ -429,6 +463,11 @@ export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boo
   }
   return (
     <div className="space-y-16 bg-[#eef4f0] p-6" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
+      {show("kiosk-employee-login") ? (
+        <Frame id="kiosk-employee-login" title="Kiosk employee login nearest site" width={390} height={844}>
+          <EmployeeLoginPreview />
+        </Frame>
+      ) : null}
       {show("kiosk-welcome-before") ? (
         <Frame id="kiosk-welcome-before" title="Kiosk welcome before" width={1024} height={768}>
           <BeforeWelcome />
