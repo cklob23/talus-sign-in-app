@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { isUndefinedColumn } from "@/lib/idempotency"
 import { parseLocationRadius } from "@/lib/location-radius"
+import {
+  parseBoolOverride,
+  parseTimeOverride,
+  stripLocationAutoSignOutColumns,
+} from "@/lib/auto-signout"
 
 async function requireSignedIn() {
   const supabase = await createClient()
@@ -18,7 +23,7 @@ function readLocationBody(body: Record<string, unknown>) {
   const name = typeof body.name === "string" ? body.name.trim() : ""
   if (!name) return { error: "Name is required" }
   const address = typeof body.address === "string" && body.address.trim() ? body.address.trim() : null
-  const timezone = typeof body.timezone === "string" && body.timezone.trim() ? body.timezone.trim() : "UTC"
+  const timezone = typeof body.timezone === "string" && body.timezone.trim() ? body.timezone.trim() : "America/Chicago"
   const latitude =
     body.latitude === null || body.latitude === undefined || body.latitude === ""
       ? null
@@ -34,6 +39,14 @@ function readLocationBody(body: Record<string, unknown>) {
     return { error: "Longitude must be between -180 and 180." }
   }
   const auto_signout_minutes = Number(body.auto_signout_minutes)
+  const employeesEnabled = parseBoolOverride(body.auto_sign_out_employees)
+  const employeesTime = parseTimeOverride(body.auto_sign_out_employees_time)
+  const visitorsEnabled = parseBoolOverride(body.auto_sign_out_visitors)
+  const visitorsTime = parseTimeOverride(body.auto_sign_out_visitors_time)
+  if (!employeesEnabled.ok) return { error: employeesEnabled.error }
+  if (!employeesTime.ok) return { error: employeesTime.error }
+  if (!visitorsEnabled.ok) return { error: visitorsEnabled.error }
+  if (!visitorsTime.ok) return { error: visitorsTime.error }
   return {
     name,
     address,
@@ -43,7 +56,40 @@ function readLocationBody(body: Record<string, unknown>) {
     auto_signout_minutes: Number.isFinite(auto_signout_minutes) ? Math.max(0, Math.round(auto_signout_minutes)) : 0,
     radiusValue: body.auto_signin_radius_meters,
     geofenceEnabledInput: body.geofence_enabled,
+    autoSignOut: {
+      employeesEnabled,
+      employeesTime,
+      visitorsEnabled,
+      visitorsTime,
+    },
   }
+}
+
+function applyAutoSignOutOverrides(
+  row: Record<string, unknown>,
+  parsed: Exclude<ReturnType<typeof readLocationBody>, { error: string }>,
+) {
+  if (parsed.autoSignOut.employeesEnabled.set) {
+    row.auto_sign_out_employees = parsed.autoSignOut.employeesEnabled.value
+  }
+  if (parsed.autoSignOut.employeesTime.set) {
+    row.auto_sign_out_employees_time = parsed.autoSignOut.employeesTime.value
+  }
+  if (parsed.autoSignOut.visitorsEnabled.set) {
+    row.auto_sign_out_visitors = parsed.autoSignOut.visitorsEnabled.value
+  }
+  if (parsed.autoSignOut.visitorsTime.set) {
+    row.auto_sign_out_visitors_time = parsed.autoSignOut.visitorsTime.value
+  }
+}
+
+function dropOptionalLocationColumns(row: Record<string, unknown>) {
+  const withoutOverrides = stripLocationAutoSignOutColumns(row)
+  if ("geofence_enabled" in withoutOverrides) {
+    const { geofence_enabled: _dropped, ...withoutFlag } = withoutOverrides
+    return withoutFlag
+  }
+  return withoutOverrides
 }
 
 async function insertLocation(
@@ -51,9 +97,8 @@ async function insertLocation(
   row: Record<string, unknown>,
 ) {
   const first = await supabase.from("locations").insert(row).select().single()
-  if (first.error && isUndefinedColumn(first.error) && "geofence_enabled" in row) {
-    const { geofence_enabled: _dropped, ...withoutFlag } = row
-    return supabase.from("locations").insert(withoutFlag).select().single()
+  if (first.error && isUndefinedColumn(first.error)) {
+    return supabase.from("locations").insert(dropOptionalLocationColumns(row)).select().single()
   }
   return first
 }
@@ -64,9 +109,8 @@ async function updateLocation(
   row: Record<string, unknown>,
 ) {
   const first = await supabase.from("locations").update(row).eq("id", id).select().single()
-  if (first.error && isUndefinedColumn(first.error) && "geofence_enabled" in row) {
-    const { geofence_enabled: _dropped, ...withoutFlag } = row
-    return supabase.from("locations").update(withoutFlag).eq("id", id).select().single()
+  if (first.error && isUndefinedColumn(first.error)) {
+    return supabase.from("locations").update(dropOptionalLocationColumns(row)).eq("id", id).select().single()
   }
   return first
 }
@@ -85,7 +129,7 @@ export async function POST(request: NextRequest) {
   const radius = parseLocationRadius(enabled ? 0 : parsed.radiusValue)
   if (!radius.ok) return NextResponse.json({ error: radius.error }, { status: 400 })
 
-  const row = {
+  const row: Record<string, unknown> = {
     name: parsed.name,
     address: parsed.address,
     timezone: parsed.timezone,
@@ -95,6 +139,7 @@ export async function POST(request: NextRequest) {
     auto_signout_minutes: parsed.auto_signout_minutes,
     geofence_enabled: radius.enabled,
   }
+  applyAutoSignOutOverrides(row, parsed)
 
   const { data, error } = await insertLocation(auth.supabase, row)
   if (error || !data) {
@@ -149,7 +194,7 @@ export async function PUT(request: NextRequest) {
   )
   if (!radius.ok) return NextResponse.json({ error: radius.error }, { status: 400 })
 
-  const row = {
+  const row: Record<string, unknown> = {
     name: parsed.name,
     address: parsed.address,
     timezone: parsed.timezone,
@@ -159,6 +204,7 @@ export async function PUT(request: NextRequest) {
     auto_signout_minutes: parsed.auto_signout_minutes,
     geofence_enabled: radius.enabled,
   }
+  applyAutoSignOutOverrides(row, parsed)
 
   const { data, error } = await updateLocation(auth.supabase, id, row)
   if (error || !data) {

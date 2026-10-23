@@ -107,5 +107,5 @@ limit 20;
 A healthy pair of runs shows `scheduled_sync.azure` and `scheduled_sync.ramp`. Failures show `scheduled_sync.azure_error` and/or `scheduled_sync.ramp_error` without blocking the other provider.
 
 5. Optional: the dry-run curls above. Confirm the log JSON has counts and the query in step 4 did not gain new rows.
-6. `talus-auto-signout` logs: HTTP 200 from `/api/auto-signout` within 120s.
+6. `talus-auto-signout` logs: HTTP 200 from `/api/auto-signout` within 120s. Each location uses its override when set, otherwise the global employee 18:00 / visitor 23:45 settings, in that location's timezone. After `scripts/015-location-auto-signout.sql`, confirm US sites are America/Chicago, Kenya sites are Africa/Nairobi, and Spain Site is Europe/Madrid.
 7. `talus-reports` logs: HTTP 200 from `POST /api/cron/reports` within 120s. The JSON includes `bookingInvites` and `reports`.
