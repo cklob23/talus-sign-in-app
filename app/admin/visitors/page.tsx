@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { LogOut, RefreshCw, Users, Briefcase, User, Printer, MoreHorizontal } from "lucide-react"
 import { AdminLoadError } from "@/components/admin/load-error"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,13 +127,23 @@ export default function CurrentVisitorsPage() {
 
   async function handleVisitorSignOut(signInId: string) {
     const supabase = createClient()
-    await supabase.from("sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    const { error } = await supabase.from("sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    if (error) {
+      notifyError("Could not sign out visitor", error.message)
+      return
+    }
+    notifySuccess("Visitor signed out")
     loadData()
   }
 
   async function handleEmployeeSignOut(signInId: string) {
     const supabase = createClient()
-    await supabase.from("employee_sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    const { error } = await supabase.from("employee_sign_ins").update({ sign_out_time: new Date().toISOString() }).eq("id", signInId)
+    if (error) {
+      notifyError("Could not sign out employee", error.message)
+      return
+    }
+    notifySuccess("Employee signed out")
     loadData()
   }
 

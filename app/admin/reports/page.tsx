@@ -26,6 +26,8 @@ import { ScheduledTab } from "@/components/admin/reports/scheduled-tab"
 import { downloadReportCsv } from "@/components/admin/reports/download"
 import { SendReportButton } from "@/components/admin/reports/send-dialog"
 import { ReportRowCapNotice } from "@/components/admin/reports/row-cap"
+import { showAdminToast } from "@/hooks/admin-notify"
+import { exportCsvFailedToast } from "@/lib/reports/action-toasts"
 
 interface VisitorRow {
   sign_in_time: string
@@ -277,7 +279,9 @@ export default function ReportsPage() {
         to: toIso,
       })
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Could not export CSV")
+      const message = err instanceof Error ? err.message : "Could not export CSV"
+      setExportError(message)
+      showAdminToast(exportCsvFailedToast(message))
     } finally {
       setExporting(null)
     }

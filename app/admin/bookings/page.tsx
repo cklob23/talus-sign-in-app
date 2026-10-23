@@ -28,6 +28,7 @@ import { DEFAULT_INVITE_LEAD_MINUTES, inviteCooldownActive } from "@/lib/booking
 import { useTimezone } from "@/contexts/timezone-context"
 import { logAudit } from "@/lib/audit-log"
 import { AdminLoadError } from "@/components/admin/load-error"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 export default function BookingsPage() {
@@ -162,9 +163,10 @@ export default function BookingsPage() {
         locationId: locations.length > 0 ? locations[0].id : "",
       })
       setIsDialogOpen(false)
+      notifySuccess("Booking created")
       loadData()
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not create the booking.")
+      notifyError("Could not create booking", err)
     } finally {
       setSaving(false)
     }
@@ -180,9 +182,10 @@ export default function BookingsPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Could not send the training link.")
-      alert(json.sent ? "Training link sent." : "Link created. Email was not sent (check SMTP).")
+      if (json.sent) notifySuccess("Training link sent")
+      else notifySuccess("Link created", "Email was not sent. Check SMTP.")
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not send the training link.")
+      notifyError("Could not send training link", err)
     } finally {
       setSendingLinkId(null)
     }
@@ -206,10 +209,11 @@ export default function BookingsPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Could not send the training link.")
-      alert(json.sent ? "Training link sent." : "Link created. Email was not sent (check SMTP).")
+      if (json.sent) notifySuccess("Training link sent")
+      else notifySuccess("Link created", "Email was not sent. Check SMTP.")
       setIsAdhocOpen(false)
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not send the training link.")
+      notifyError("Could not send training link", err)
     } finally {
       setAdhocSending(false)
     }
@@ -225,10 +229,11 @@ export default function BookingsPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Could not send the invite.")
-      alert(json.sent ? "Invite sent." : json.reason === "smtp_not_configured" ? "Invite was not sent (check SMTP)." : "Invite failed.")
+      if (json.sent) notifySuccess("Invite sent")
+      else notifyError("Could not send invite", json.reason === "smtp_not_configured" ? "Invite was not sent. Check SMTP." : "Invite failed.")
       loadData()
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not send the invite.")
+      notifyError("Could not send invite", err)
     } finally {
       setSendingInviteId(null)
     }
@@ -243,9 +248,10 @@ export default function BookingsPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Could not update the booking.")
+      notifySuccess(status === "completed" ? "Booking completed" : "Booking cancelled")
       loadData()
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not update the booking.")
+      notifyError("Could not update booking", err)
     }
   }
 
@@ -255,9 +261,12 @@ export default function BookingsPage() {
     
     const supabase = createClient()
     const idsToDelete = Array.from(selectedIds)
-    await supabase.from("bookings").delete().in("id", idsToDelete)
-    
-    // Log each deletion
+    const { error } = await supabase.from("bookings").delete().in("id", idsToDelete)
+    if (error) {
+      notifyError("Could not delete bookings", error.message)
+      return
+    }
+
     for (const id of idsToDelete) {
       await logAudit({
         action: "booking.cancelled",
@@ -266,7 +275,8 @@ export default function BookingsPage() {
         description: `Booking deleted`,
       })
     }
-    
+
+    notifySuccess(idsToDelete.length === 1 ? "Booking deleted" : "Bookings deleted")
     setSelectedIds(new Set())
     loadData()
   }

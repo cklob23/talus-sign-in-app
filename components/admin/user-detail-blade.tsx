@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import {
     DetailBlade,
     DetailBladeSection,
@@ -220,10 +221,13 @@ export function UserDetailBlade({
             })
 
             setFeedback({ type: "success", text: "User updated" })
+            notifySuccess("User updated")
             setMode("view")
             onChanged()
         } catch (error) {
-            setFeedback({ type: "error", text: error instanceof Error ? error.message : "Update failed" })
+            const message = error instanceof Error ? error.message : "Update failed"
+            setFeedback({ type: "error", text: message })
+            notifyError("Could not save user", message)
         } finally {
             setBusy(false)
         }
@@ -245,10 +249,13 @@ export function UserDetailBlade({
                 entityId: profile!.id,
                 description: `Admin deleted user: ${profile!.full_name || profile!.email || profile!.id}`,
             })
+            notifySuccess("User deleted")
             onDeleted()
             onOpenChange(false)
         } catch (error) {
-            setFeedback({ type: "error", text: error instanceof Error ? error.message : "Delete failed" })
+            const message = error instanceof Error ? error.message : "Delete failed"
+            setFeedback({ type: "error", text: message })
+            notifyError("Could not delete user", message)
         } finally {
             setBusy(false)
         }
@@ -266,9 +273,12 @@ export function UserDetailBlade({
             const result = await response.json()
             if (!response.ok) throw new Error(result.error || "Sync failed")
             setFeedback({ type: "success", text: "Synced from Entra ID" })
+            notifySuccess("Synced from Entra ID")
             onChanged()
         } catch (error) {
-            setFeedback({ type: "error", text: error instanceof Error ? error.message : "Sync failed" })
+            const message = error instanceof Error ? error.message : "Sync failed"
+            setFeedback({ type: "error", text: message })
+            notifyError("Could not sync user", message)
         } finally {
             setBusy(false)
         }
@@ -306,11 +316,15 @@ export function UserDetailBlade({
                         ? `Reset email sent to ${profile!.email}`
                         : "Temporary password set",
             })
+            if (pwMode === "email") notifySuccess("Password reset sent", `Sent to ${profile!.email}`)
+            else notifySuccess("Temporary password set")
             setPwOpen(false)
             setTempPassword("")
             setPwMode("email")
         } catch (error) {
-            setFeedback({ type: "error", text: error instanceof Error ? error.message : "Reset failed" })
+            const message = error instanceof Error ? error.message : "Reset failed"
+            setFeedback({ type: "error", text: message })
+            notifyError("Could not reset password", message)
         } finally {
             setBusy(false)
         }

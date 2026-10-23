@@ -25,6 +25,7 @@ import {
     Upload,
 } from "lucide-react"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { formatDateTime } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
 import type { Location, NdaAcknowledgement, NdaDocument } from "@/types/database"
@@ -203,6 +204,7 @@ export default function NdaAdminPage() {
 
         setSavingSettings(false)
         setSettingsNotice("NDA settings saved.")
+        notifySuccess("NDA settings saved")
         setTimeout(() => setSettingsNotice(null), 3000)
     }
 
@@ -253,6 +255,7 @@ export default function NdaAdminPage() {
         })
         setSavingCountersign(false)
         setCountersignNotice("Countersigning settings saved.")
+        notifySuccess("Countersigning saved")
         setTimeout(() => setCountersignNotice(null), 3000)
     }
 
@@ -270,6 +273,7 @@ export default function NdaAdminPage() {
         })
         setSavingSharepoint(false)
         setSharepointNotice("SharePoint settings saved.")
+        notifySuccess("SharePoint settings saved")
         setTimeout(() => setSharepointNotice(null), 3000)
     }
 
@@ -284,12 +288,17 @@ export default function NdaAdminPage() {
             })
             const json = await res.json()
             if (json.ok) {
-                setSharepointTest({ ok: true, message: `Connected to ${json.siteName || "the site"}.` })
+                const message = `Connected to ${json.siteName || "the site"}.`
+                setSharepointTest({ ok: true, message })
+                notifySuccess("SharePoint connected", message)
             } else {
-                setSharepointTest({ ok: false, message: json.error || "Connection failed." })
+                const message = json.error || "Connection failed."
+                setSharepointTest({ ok: false, message })
+                notifyError("Could not connect to SharePoint", message)
             }
         } catch {
             setSharepointTest({ ok: false, message: "Connection test failed." })
+            notifyError("Could not connect to SharePoint", "Connection test failed.")
         } finally {
             setTestingSharepoint(false)
         }
@@ -309,10 +318,13 @@ export default function NdaAdminPage() {
         const json = await res.json()
 
         if (!res.ok) {
-            setError(json.error || "Upload failed")
+            const message = json.error || "Upload failed"
+            setError(message)
+            notifyError("Could not upload NDA", message)
         } else {
             setUploadFile(null)
             if (fileInputRef.current) fileInputRef.current.value = ""
+            notifySuccess("NDA uploaded")
             await loadSettingsAndDocuments()
         }
         setUploading(false)

@@ -22,6 +22,7 @@ import { Plus, Pencil, Trash2, Building2, MapPin, Loader2, Crosshair, Search } f
 import { Switch } from "@/components/ui/switch"
 import type { Location } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import {
   DEFAULT_RADIUS_METERS,
   MAX_RADIUS_METERS,
@@ -233,14 +234,18 @@ export default function LocationsPage() {
       })
       const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        setSaveError(typeof json.error === "string" ? json.error : "Could not save location.")
+        const message = typeof json.error === "string" ? json.error : "Could not save location."
+        setSaveError(message)
+        notifyError("Could not save location", message)
         return
       }
+      notifySuccess(editingLocation ? "Location updated" : "Location created")
       setIsDialogOpen(false)
       loadData()
     } catch (error) {
       console.error("Location save failed:", error)
       setSaveError("Could not save location.")
+      notifyError("Could not save location", "Could not save location.")
     } finally {
       setIsSaving(false)
     }
@@ -250,13 +255,18 @@ export default function LocationsPage() {
     if (!confirm("Are you sure you want to delete this location? This will affect all associated data.")) return
     const supabase = createClient()
     const locationToDelete = locations.find(l => l.id === id)
-    await supabase.from("locations").delete().eq("id", id)
+    const { error } = await supabase.from("locations").delete().eq("id", id)
+    if (error) {
+      notifyError("Could not delete location", error.message)
+      return
+    }
     await logAudit({
       action: "location.deleted",
       entityType: "location",
       entityId: id,
       description: `Location deleted: ${locationToDelete?.name || id}`,
     })
+    notifySuccess("Location deleted")
     loadData()
   }
 

@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { hasFeature } from "@/lib/tier"
 import { formatNextSyncLabel } from "@/lib/sync/schedule"
 import { SyncLiveCard } from "@/components/admin/sync-live-card"
@@ -229,6 +230,7 @@ export default function SyncPage() {
       metadata: { ramp_api_base_url: rampConfig.ramp_api_base_url },
     })
 
+    notifySuccess("Ramp settings saved")
     setRampConfigResult({ success: true, message: "Ramp API settings saved successfully." })
     setTimeout(() => setRampConfigResult(null), 3000)
     setSavingRamp(false)
@@ -269,11 +271,13 @@ export default function SyncPage() {
         description: `Sync schedules updated: Azure=${syncScheduleAzure} starting ${syncStartAzure || "immediately"}, Ramp=${syncScheduleRamp} starting ${syncStartRamp || "immediately"}`,
       })
 
+      notifySuccess("Sync schedules saved")
       setSyncScheduleSuccess("Sync schedules saved successfully.")
       setTimeout(() => setSyncScheduleSuccess(null), 3000)
       await loadRuns()
     } catch {
       setSyncScheduleError("Failed to save sync schedules.")
+      notifyError("Could not save sync schedules", "Failed to save sync schedules.")
     } finally {
       setSavingSyncSchedule(false)
     }
@@ -303,6 +307,7 @@ export default function SyncPage() {
       if (!res.ok) {
         const errMsg = data.error || `${label} sync failed.`
         setSyncScheduleError(errMsg)
+        notifyError(`Could not sync ${label}`, errMsg)
         return
       }
       const msg =
@@ -310,12 +315,15 @@ export default function SyncPage() {
           ? `${label} sync complete: ${data.created || 0} created, ${data.updated || 0} updated, ${data.deactivated || 0} deactivated.`
           : `${label} sync complete: ${data.synced || 0} synced, ${data.deactivated || 0} deactivated.`
       setSyncScheduleSuccess(msg)
+      notifySuccess(`${label} sync complete`, msg)
       if (type === "azure") setLastAzureSync(new Date().toISOString())
       else setLastRampSync(new Date().toISOString())
       await loadRuns()
       await loadConnectorSettings()
     } catch (err) {
-      setSyncScheduleError(err instanceof Error ? err.message : "Sync failed.")
+      const message = err instanceof Error ? err.message : "Sync failed."
+      setSyncScheduleError(message)
+      notifyError("Could not run sync", message)
     } finally {
       if (type === "azure") setRunningSyncAzure(false)
       else setRunningSyncRamp(false)
