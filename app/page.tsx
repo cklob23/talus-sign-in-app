@@ -4,9 +4,7 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import {
-  ClipboardList,
   Clock,
-  Mail,
   PlayCircle,
   Shield,
   User,
@@ -40,40 +38,27 @@ export default function HomePage() {
             {`Welcome to ${companyName}`}
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-[var(--lp-muted)] lg:text-[17px]">
-            Sign in for a visit, check in with a booking, or open the admin portal.
+            Open the kiosk to sign in, or go to the admin portal.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mx-auto grid w-full max-w-[880px] grid-cols-1 gap-6 md:grid-cols-2">
           <LandingCard
             href="/kiosk"
             primary
             icon={<UserPlus className="h-7 w-7" aria-hidden />}
-            title="Visitor Sign In"
-            subtitle="I am visiting or here to work today."
+            title="Kiosk Sign In"
+            subtitle="Open the visitor and staff sign-in kiosk."
             bullets={[
               { icon: <Clock className="h-4 w-4" aria-hidden />, text: "About 2 minutes" },
               { icon: <PlayCircle className="h-4 w-4" aria-hidden />, text: "Safety video if your visit needs it" },
               { icon: <UserPlus className="h-4 w-4" aria-hidden />, text: "We tell your host you are here." },
             ]}
-            cta="Sign in →"
-          />
-
-          <LandingCard
-            href="/kiosk?mode=booking"
-            icon={<ClipboardList className="h-7 w-7" aria-hidden />}
-            title="Check In"
-            subtitle="Already have a booking? Enter your code."
-            bullets={[
-              { icon: <Mail className="h-4 w-4" aria-hidden />, text: "Code from your booking email" },
-              { icon: <Clock className="h-4 w-4" aria-hidden />, text: "About 30 seconds" },
-            ]}
-            cta="Check in →"
+            cta="Open kiosk →"
           />
 
           <LandingCard
             href="/auth/login"
-            className="md:col-span-2 lg:col-span-1"
             icon={<Shield className="h-7 w-7" aria-hidden />}
             title="Admin Portal"
             subtitle="Staff access to visitors, hosts, and reports."
