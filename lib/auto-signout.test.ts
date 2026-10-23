@@ -183,6 +183,7 @@ describe("resolveAutoSignOutSettings override vs fallback", () => {
     assert.deepEqual(parseTimeOverride("6:05"), { ok: true, set: true, value: "06:05" })
     assert.equal(parseTimeOverride("25:00").ok, false)
     assert.equal(parseTimeToMinutes("18:00"), EMPLOYEE_TARGET)
+    assert.equal(parseTimeToMinutes("18:00:00"), EMPLOYEE_TARGET)
     assert.equal(formatMinutesAsTime(EMPLOYEE_TARGET), "18:00")
   })
 })
