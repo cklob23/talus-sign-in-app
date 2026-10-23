@@ -1,3 +1,5 @@
+import { formatRadiusMeters } from "@/lib/location-radius"
+
 export type VisitorLang = "en" | "es"
 
 export const VISITOR_LANG_KEY = "talus_visitor_lang"
@@ -33,9 +35,14 @@ const en = {
   signOutHelp: "I am leaving the site.",
   signOutHow: "Type your badge number or name",
   signOutMinutes: "About 10 seconds",
-  bookingHint: "Have a booking? Tap Sign in. We will find it.",
+  bookingHint: "Booked ahead? Tap I have a booking.",
+  haveBooking: "I have a booking",
   staffHint: "Talus staff: Staff sign in",
   staffSignIn: "Staff sign in",
+  locationUnavailable: "Location unavailable",
+  siteDistanceAway: "{site}, {distance} away",
+  noSitesStaff: "No sites are set up. Staff: add a location in Admin before visitors can sign in.",
+  chooseSite: "Site",
   whyHere: "Why are you here today?",
   whyHereHelp: "Pick the option that fits your visit.",
   changeType: "Change",
@@ -57,6 +64,9 @@ const en = {
   nextTraining: "Next: safety video",
   nextPhoto: "Next: photo",
   completeSignIn: "Finish sign in",
+  checkingLocation: "Checking your location...",
+  retry: "Retry",
+  staleLocation: "Your location reading is too old. Refresh your position and try again.",
   typeRequired: "Please pick why you are here.",
   firstNameRequired: "Please type your first name.",
   lastNameRequired: "Please type your last name.",
@@ -67,6 +77,7 @@ const en = {
   trainingTitle: "Safety video",
   trainingHelp: "Watch the full video before you continue.",
   tapToStart: "Tap to start the video",
+  tapToUnmute: "Turn on sound",
   trainingAck: "I watched the video. I will follow the safety rules.",
   hostTold: "We told {host} you are here.",
   hostNotTold: "We could not notify a host. Please ask reception.",
@@ -80,7 +91,7 @@ const en = {
   done: "Done",
   startingOver: "Starting over in {seconds}s. Tap to keep going.",
   geofenceVisitor: "Sign in is paused. Please ask reception.",
-  geofenceStaff: "This kiosk looks {distance} from {site}. Sign-in is set to stay within {radius}.",
+  geofenceStaff: "This kiosk is about {distance} from {site}. Sign-in only works within {radius}.",
   geofenceOverride: "Allow sign-in anyway",
   photoTitle: "Add a photo",
   photoHelp: "This goes on your visitor badge so your host can recognise you.",
@@ -90,6 +101,9 @@ const en = {
   skipPhoto: "Skip photo",
   skipPhotoStaff: "Skip photo (staff)",
   photoStaffHelp: "Reception can skip the photo if the camera is not working.",
+  photoCameraUnavailable: "This device has no usable camera. Ask reception to take your photo.",
+  photoCameraDenied: "Camera access was blocked. Ask reception to take your photo.",
+  askReception: "Ask reception",
   alreadyHere: "Already signed in and leaving?",
   signOutOf: "Sign out of {site}",
   idleNotice: "Your sign-in was cleared after a period without activity. Please start again.",
@@ -113,9 +127,14 @@ const es: typeof en = {
   signOutHelp: "Me voy del sitio.",
   signOutHow: "Escriba su número de gafete o su nombre",
   signOutMinutes: "Unos 10 segundos",
-  bookingHint: "¿Tiene una reserva? Toque Entrar. La buscamos.",
+  bookingHint: "¿Reservó de antemano? Toque Tengo una reserva.",
+  haveBooking: "Tengo una reserva",
   staffHint: "Personal de Talus: Entrada de personal",
   staffSignIn: "Entrada de personal",
+  locationUnavailable: "Ubicación no disponible",
+  siteDistanceAway: "{site}, a {distance}",
+  noSitesStaff: "No hay sitios configurados. Personal: agregue una ubicación en Administración antes de que los visitantes puedan registrarse.",
+  chooseSite: "Sitio",
   whyHere: "¿Por qué está aquí hoy?",
   whyHereHelp: "Elija la opción que corresponde a su visita.",
   changeType: "Cambiar",
@@ -137,6 +156,9 @@ const es: typeof en = {
   nextTraining: "Siguiente: video de seguridad",
   nextPhoto: "Siguiente: foto",
   completeSignIn: "Terminar registro",
+  checkingLocation: "Comprobando su ubicación...",
+  retry: "Reintentar",
+  staleLocation: "La lectura de su ubicación es demasiado antigua. Actualice su posición e inténtelo de nuevo.",
   typeRequired: "Elija por qué está aquí.",
   firstNameRequired: "Escriba su nombre.",
   lastNameRequired: "Escriba su apellido.",
@@ -147,6 +169,7 @@ const es: typeof en = {
   trainingTitle: "Video de seguridad",
   trainingHelp: "Vea el video completo antes de continuar.",
   tapToStart: "Toque para iniciar el video",
+  tapToUnmute: "Activar sonido",
   trainingAck: "Vi el video. Seguiré las reglas de seguridad.",
   hostTold: "Avisamos a {host} que usted está aquí.",
   hostNotTold: "No pudimos avisar a un anfitrión. Pregunte en recepción.",
@@ -160,7 +183,7 @@ const es: typeof en = {
   done: "Listo",
   startingOver: "Empezamos de nuevo en {seconds}s. Toque para seguir.",
   geofenceVisitor: "El registro está en pausa. Pregunte en recepción.",
-  geofenceStaff: "Este kiosco parece estar a {distance} de {site}. El registro debe estar dentro de {radius}.",
+  geofenceStaff: "Este kiosco está a unos {distance} de {site}. El registro solo funciona dentro de {radius}.",
   geofenceOverride: "Permitir el registro de todos modos",
   photoTitle: "Agregar una foto",
   photoHelp: "Va en su gafete para que su anfitrión lo reconozca.",
@@ -170,6 +193,9 @@ const es: typeof en = {
   skipPhoto: "Omitir foto",
   skipPhotoStaff: "Omitir foto (personal)",
   photoStaffHelp: "Recepción puede omitir la foto si la cámara no funciona.",
+  photoCameraUnavailable: "Este dispositivo no tiene cámara. Pida en recepción que le tomen la foto.",
+  photoCameraDenied: "Se bloqueó el acceso a la cámara. Pida en recepción que le tomen la foto.",
+  askReception: "Pregunte en recepción",
   alreadyHere: "¿Ya está registrado y se va?",
   signOutOf: "Salir de {site}",
   idleNotice: "Se borró su registro por inactividad. Empiece de nuevo.",
@@ -188,4 +214,31 @@ export function visitorCopy(lang: VisitorLang): VisitorCopy {
 
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? ""))
+}
+
+/** Staff geofence banner: same metre/km formatter as the kiosk header. */
+export function staffGeofenceLine(opts: {
+  copy: Pick<VisitorCopy, "geofenceStaff">
+  distanceMeters: number
+  site: string
+  radiusMeters: number
+}): string {
+  return fill(opts.copy.geofenceStaff, {
+    distance: formatRadiusMeters(opts.distanceMeters),
+    site: opts.site,
+    radius: formatRadiusMeters(opts.radiusMeters),
+  })
+}
+
+/** Host arrival copy is only for the success screen after notify was queued. */
+export function hostArrivalMessage(opts: {
+  signedIn: boolean
+  hostName?: string | null
+  hostNotified?: boolean | null
+  copy: Pick<VisitorCopy, "hostTold" | "hostNotTold" | "hostNotifyOff">
+}): string | null {
+  if (!opts.signedIn) return null
+  if (opts.hostNotified && opts.hostName) return fill(opts.copy.hostTold, { host: opts.hostName })
+  if (opts.hostNotified === false) return opts.copy.hostNotifyOff
+  return opts.copy.hostNotTold
 }

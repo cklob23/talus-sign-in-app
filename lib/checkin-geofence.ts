@@ -22,7 +22,7 @@
  *   It does not stop a determined attacker who sends the site's coordinates.
  */
 
-import { DEFAULT_RADIUS_METERS } from "@/lib/location-radius"
+import { DEFAULT_RADIUS_METERS, formatRadiusMeters } from "@/lib/location-radius"
 
 export { DEFAULT_RADIUS_METERS, formatRadiusMeters, MAX_RADIUS_METERS, MIN_RADIUS_METERS } from "@/lib/location-radius"
 
@@ -170,8 +170,7 @@ export function parseDeviceCoords(input: unknown): DeviceCoords | null {
 }
 
 export function formatMeters(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)} m`
-  return `${(meters / 1000).toFixed(1)} km`
+  return formatRadiusMeters(meters)
 }
 
 export function kioskClientGate(input: {

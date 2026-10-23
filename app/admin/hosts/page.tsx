@@ -25,6 +25,7 @@ import { Plus, Pencil, Trash2, UserCog } from "lucide-react"
 import type { Host, Location, Profile } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
 import { AdminLoadError } from "@/components/admin/load-error"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 
 type ProfileBasic = Pick<Profile, "id" | "full_name" | "email" | "phone" | "department" | "avatar_url">
 
@@ -127,7 +128,11 @@ export default function HostsPage() {
     }
 
     if (editingHost) {
-      await supabase.from("hosts").update(data).eq("id", editingHost.id)
+      const { error } = await supabase.from("hosts").update(data).eq("id", editingHost.id)
+      if (error) {
+        notifyError("Could not save host", error.message)
+        return
+      }
       await logAudit({
         action: "host.updated",
         entityType: "host",
@@ -135,8 +140,13 @@ export default function HostsPage() {
         description: `Host updated: ${data.name}`,
         metadata: { host_name: data.name, email: data.email }
       })
+      notifySuccess("Host updated")
     } else {
-      const { data: newHost } = await supabase.from("hosts").insert(data).select().single()
+      const { data: newHost, error } = await supabase.from("hosts").insert(data).select().single()
+      if (error) {
+        notifyError("Could not save host", error.message)
+        return
+      }
       await logAudit({
         action: "host.created",
         entityType: "host",
@@ -144,6 +154,7 @@ export default function HostsPage() {
         description: `Host created: ${data.name}`,
         metadata: { host_name: data.name, email: data.email }
       })
+      notifySuccess("Host created")
     }
 
     setIsDialogOpen(false)
@@ -154,19 +165,30 @@ export default function HostsPage() {
     if (!confirm("Are you sure you want to delete this host?")) return
     const supabase = createClient()
     const hostToDelete = hosts.find(h => h.id === id)
-    await supabase.from("hosts").delete().eq("id", id)
+    const { error } = await supabase.from("hosts").delete().eq("id", id)
+    if (error) {
+      notifyError("Could not delete host", error.message)
+      return
+    }
     await logAudit({
       action: "host.deleted",
       entityType: "host",
       entityId: id,
       description: `Host deleted: ${hostToDelete?.name || id}`,
     })
+    notifySuccess("Host deleted")
     loadData()
   }
 
   async function toggleActive(host: Host) {
     const supabase = createClient()
-    await supabase.from("hosts").update({ is_active: !host.is_active }).eq("id", host.id)
+    const nextActive = !host.is_active
+    const { error } = await supabase.from("hosts").update({ is_active: nextActive }).eq("id", host.id)
+    if (error) {
+      notifyError("Could not update host", error.message)
+      return
+    }
+    notifySuccess(nextActive ? "Host enabled" : "Host disabled")
     loadData()
   }
 

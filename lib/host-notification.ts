@@ -4,6 +4,7 @@ import {
   sendResolvedHostNotification,
   type HostNotificationType,
 } from "@/lib/host-notify-send"
+import type { HostEntrySource } from "@/lib/host-entry"
 
 export type { HostNotificationType }
 
@@ -39,6 +40,10 @@ export async function sendHostNotification(args: {
     visitorPhotoUrl?: string | null
     purpose?: string | null
     signInId?: string | null
+    entrySource?: HostEntrySource | null
+    kioskName?: string | null
+    visitorTypeId?: string | null
+    trainingDurationSeconds?: number | null
 }): Promise<{ sent: boolean; reason?: string }> {
     if (!args.hostId) return { sent: false, reason: "no_host" }
 
@@ -63,6 +68,10 @@ export async function sendHostNotification(args: {
             purpose: args.purpose ?? null,
             signInId: args.signInId ?? null,
             hostId: args.hostId,
+            entrySource: args.entrySource ?? null,
+            kioskName: args.kioskName ?? null,
+            visitorTypeId: args.visitorTypeId ?? null,
+            trainingDurationSeconds: args.trainingDurationSeconds ?? null,
         })
 
         if (results.email === "sent" || results.sms === "sent" || results.loggedOnly) {

@@ -22,6 +22,15 @@ import { Plus, Pencil, Trash2, Building2, MapPin, Loader2, Crosshair, Search } f
 import { Switch } from "@/components/ui/switch"
 import type { Location } from "@/types/database"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
+import { COMMON_TIMEZONES } from "@/hooks/use-user-timezone"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   DEFAULT_RADIUS_METERS,
   MAX_RADIUS_METERS,
@@ -30,6 +39,31 @@ import {
   parseLocationRadius,
   radiusOverCap,
 } from "@/lib/location-radius"
+
+function endOfDayOverrideLabel(location: Location): string {
+  const parts: string[] = []
+  if (location.auto_sign_out_employees != null || location.auto_sign_out_employees_time) {
+    const enabled =
+      location.auto_sign_out_employees == null
+        ? "global on/off"
+        : location.auto_sign_out_employees
+          ? "on"
+          : "off"
+    const time = location.auto_sign_out_employees_time ? ` ${location.auto_sign_out_employees_time}` : ""
+    parts.push(`Emp ${enabled}${time}`)
+  }
+  if (location.auto_sign_out_visitors != null || location.auto_sign_out_visitors_time) {
+    const enabled =
+      location.auto_sign_out_visitors == null
+        ? "global on/off"
+        : location.auto_sign_out_visitors
+          ? "on"
+          : "off"
+    const time = location.auto_sign_out_visitors_time ? ` ${location.auto_sign_out_visitors_time}` : ""
+    parts.push(`Vis ${enabled}${time}`)
+  }
+  return parts.length ? parts.join(", ") : "Global default"
+}
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([])
@@ -41,12 +75,16 @@ export default function LocationsPage() {
   const [form, setForm] = useState({
     name: "",
     address: "",
-    timezone: "America/New_York",
+    timezone: "America/Chicago",
     latitude: null as number | null,
     longitude: null as number | null,
     auto_signin_radius_meters: DEFAULT_RADIUS_METERS,
     auto_signout_minutes: 30,
     geofence_enabled: true,
+    auto_sign_out_employees: null as boolean | null,
+    auto_sign_out_employees_time: null as string | null,
+    auto_sign_out_visitors: null as boolean | null,
+    auto_sign_out_visitors_time: null as string | null,
   })
   const [radiusError, setRadiusError] = useState<string | null>(null)
   const [geocodeError, setGeocodeError] = useState<string | null>(null)
@@ -163,12 +201,16 @@ export default function LocationsPage() {
     setForm({
       name: "",
       address: "",
-      timezone: "America/New_York",
+      timezone: "America/Chicago",
       latitude: null,
       longitude: null,
       auto_signin_radius_meters: DEFAULT_RADIUS_METERS,
       auto_signout_minutes: 30,
       geofence_enabled: true,
+      auto_sign_out_employees: null,
+      auto_sign_out_employees_time: null,
+      auto_sign_out_visitors: null,
+      auto_sign_out_visitors_time: null,
     })
     setRadiusError(null)
     setGeocodeError(null)
@@ -191,6 +233,10 @@ export default function LocationsPage() {
           : location.auto_signin_radius_meters ?? DEFAULT_RADIUS_METERS,
       auto_signout_minutes: location.auto_signout_minutes ?? 30,
       geofence_enabled: location.geofence_enabled !== false && location.auto_signin_radius_meters !== 0,
+      auto_sign_out_employees: location.auto_sign_out_employees ?? null,
+      auto_sign_out_employees_time: location.auto_sign_out_employees_time ?? null,
+      auto_sign_out_visitors: location.auto_sign_out_visitors ?? null,
+      auto_sign_out_visitors_time: location.auto_sign_out_visitors_time ?? null,
     })
     setRadiusError(null)
     setGeocodeError(null)
@@ -225,6 +271,10 @@ export default function LocationsPage() {
         auto_signin_radius_meters: radius.meters,
         auto_signout_minutes: form.auto_signout_minutes,
         geofence_enabled: radius.enabled,
+        auto_sign_out_employees: form.auto_sign_out_employees,
+        auto_sign_out_employees_time: form.auto_sign_out_employees_time,
+        auto_sign_out_visitors: form.auto_sign_out_visitors,
+        auto_sign_out_visitors_time: form.auto_sign_out_visitors_time,
       }
       const response = await fetch("/api/admin/locations", {
         method: editingLocation ? "PUT" : "POST",
@@ -233,14 +283,18 @@ export default function LocationsPage() {
       })
       const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        setSaveError(typeof json.error === "string" ? json.error : "Could not save location.")
+        const message = typeof json.error === "string" ? json.error : "Could not save location."
+        setSaveError(message)
+        notifyError("Could not save location", message)
         return
       }
+      notifySuccess(editingLocation ? "Location updated" : "Location created")
       setIsDialogOpen(false)
       loadData()
     } catch (error) {
       console.error("Location save failed:", error)
       setSaveError("Could not save location.")
+      notifyError("Could not save location", "Could not save location.")
     } finally {
       setIsSaving(false)
     }
@@ -250,13 +304,18 @@ export default function LocationsPage() {
     if (!confirm("Are you sure you want to delete this location? This will affect all associated data.")) return
     const supabase = createClient()
     const locationToDelete = locations.find(l => l.id === id)
-    await supabase.from("locations").delete().eq("id", id)
+    const { error } = await supabase.from("locations").delete().eq("id", id)
+    if (error) {
+      notifyError("Could not delete location", error.message)
+      return
+    }
     await logAudit({
       action: "location.deleted",
       entityType: "location",
       entityId: id,
       description: `Location deleted: ${locationToDelete?.name || id}`,
     })
+    notifySuccess("Location deleted")
     loadData()
   }
 
@@ -326,12 +385,115 @@ export default function LocationsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="timezone">Timezone</Label>
-                <Input
-                  id="timezone"
+                <Select
                   value={form.timezone}
-                  onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                  placeholder="America/New_York"
-                />
+                  onValueChange={(value) => setForm({ ...form, timezone: value })}
+                >
+                  <SelectTrigger id="timezone">
+                    <SelectValue placeholder="America/Chicago" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(COMMON_TIMEZONES.some((zone) => zone.value === form.timezone)
+                      ? COMMON_TIMEZONES
+                      : [{ value: form.timezone, label: form.timezone }, ...COMMON_TIMEZONES]
+                    ).map((zone) => (
+                      <SelectItem key={zone.value} value={zone.value}>
+                        {zone.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  End-of-day times use this timezone. US sites should be America/Chicago (6 PM CT). Kenya sites should be Africa/Nairobi. Spain Site should be Europe/Madrid.
+                </p>
+              </div>
+              <div className="space-y-3 rounded-lg border p-3">
+                <div>
+                  <Label>End-of-day auto sign-out</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Leave a field on Global default to use Settings (employees 18:00, visitors 23:45 unless changed). A custom value applies only at this location, in the timezone above.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="employeeSignoutEnabled" className="text-xs">Employees</Label>
+                    <select
+                      id="employeeSignoutEnabled"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.auto_sign_out_employees === null ? "" : form.auto_sign_out_employees ? "on" : "off"}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          auto_sign_out_employees: e.target.value === "" ? null : e.target.value === "on",
+                        })
+                      }
+                    >
+                      <option value="">Global default</option>
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="employeeSignoutTime" className="text-xs">Employee time</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="employeeSignoutTime"
+                        type="time"
+                        value={form.auto_sign_out_employees_time ?? ""}
+                        onChange={(e) =>
+                          setForm({ ...form, auto_sign_out_employees_time: e.target.value || null })
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => setForm({ ...form, auto_sign_out_employees_time: null })}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="visitorSignoutEnabled" className="text-xs">Visitors</Label>
+                    <select
+                      id="visitorSignoutEnabled"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={form.auto_sign_out_visitors === null ? "" : form.auto_sign_out_visitors ? "on" : "off"}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          auto_sign_out_visitors: e.target.value === "" ? null : e.target.value === "on",
+                        })
+                      }
+                    >
+                      <option value="">Global default</option>
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="visitorSignoutTime" className="text-xs">Visitor time</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="visitorSignoutTime"
+                        type="time"
+                        value={form.auto_sign_out_visitors_time ?? ""}
+                        onChange={(e) =>
+                          setForm({ ...form, auto_sign_out_visitors_time: e.target.value || null })
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => setForm({ ...form, auto_sign_out_visitors_time: null })}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -508,6 +670,7 @@ export default function LocationsPage() {
                             : "default 500 m"}
                       </span>
                       <span>Auto SO Time (minutes): {location.auto_signout_minutes || "-"}</span>
+                      <span>End of day: {endOfDayOverrideLabel(location)}</span>
                       {location.latitude && location.longitude ? (
                         <span className="flex items-center gap-1 text-success">
                           <MapPin className="w-3 h-3" />
@@ -541,6 +704,7 @@ export default function LocationsPage() {
                       <TableHead>Timezone</TableHead>
                       <TableHead>On-site radius</TableHead>
                       <TableHead>Auto Sign-Out Time (minutes)</TableHead>
+                      <TableHead>End of day</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -568,6 +732,7 @@ export default function LocationsPage() {
                               : "500 m"}
                         </TableCell>
                         <TableCell>{location.auto_signout_minutes || "-"}</TableCell>
+                        <TableCell>{endOfDayOverrideLabel(location)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(location)}>

@@ -158,6 +158,22 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Always emit landing tokens so production optimize cannot drop unused @theme vars. */
+@theme static inline {
+  --color-lp-bg: var(--lp-bg);
+  --color-lp-surface: var(--lp-surface);
+  --color-lp-surface-2: var(--lp-surface-2);
+  --color-lp-border: var(--lp-border);
+  --color-lp-text: var(--lp-text);
+  --color-lp-muted: var(--lp-muted);
+  --color-lp-primary: var(--lp-primary);
+  --color-lp-primary-hover: var(--lp-primary-hover);
+  --color-lp-on-primary: var(--lp-on-primary);
+  --color-lp-primary-text: var(--lp-primary-text);
+  --color-lp-accent-soft: var(--lp-accent-soft);
+  --color-lp-focus: var(--lp-focus);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

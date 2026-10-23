@@ -4,13 +4,16 @@ import { enforceCheckinGeofence, resolveCheckinToken } from "@/lib/checkin-token
 import { generateUniqueBadgeNumber } from "@/lib/badge-number"
 import { resolveAppOrigin, resolveNdaRequirement, signNda } from "@/lib/nda"
 import { findActiveHost } from "@/lib/active-hosts"
-import { asOptionalEmail } from "@/lib/kiosk-input"
+import { asOptionalEmail, asOptionalUuid } from "@/lib/kiosk-input"
+import { checkInMatchedBooking } from "@/lib/booking-invite"
 import { createSignInIdempotent, parseIdempotencyKey } from "@/lib/idempotency"
 import { supabaseSignInStore } from "@/lib/sign-in-store"
 import { scheduleHostNotification } from "@/lib/host-notify-once"
 import { parseTrainingProof, qrTrainingScope, requiredWatchMs, verifyTrainingProof } from "@/lib/training-gate"
 import { getTrainingClearance, recordTrainingCompletion } from "@/lib/training-clearance"
 import { readTrainingCodeProof } from "@/lib/training-codes"
+import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
+import { photoRequirementMet } from "@/lib/camera-fallback"
 
 /**
  * Public visitor sign-in from a scanned location QR code.
@@ -41,11 +44,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorTypeId?: string
         hostId?: string
         photoDataUrl?: string
+        photoMissing?: boolean
         ndaDocumentId?: string
         ndaSignatureDataUrl?: string
         coords?: unknown
         idempotencyKey?: string
         training?: unknown
+        bookingId?: string
     }
     try {
         body = await request.json()
@@ -67,6 +72,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const visitorEmail = asOptionalEmail(body.email ?? null)
     if (visitorEmail === undefined) {
         return NextResponse.json({ error: "Invalid email address" }, { status: 400 })
+    }
+
+    const bookingId = asOptionalUuid(body.bookingId)
+    if (bookingId === undefined) {
+        return NextResponse.json({ error: "Invalid booking" }, { status: 400 })
     }
 
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
@@ -98,18 +108,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         requires_company: boolean
         requires_nda: boolean
         requires_training: boolean
+        requires_photo: boolean
         training_video_url: string | null
     } | null = null
     if (body.visitorTypeId) {
-        const { data } = await admin
-            .from("visitor_types")
-            .select("id, name, requires_host, requires_company, requires_nda, requires_training, training_video_url")
-            .eq("id", body.visitorTypeId)
-            .maybeSingle()
-        if (!data) {
+        const loaded = await fetchVisitorTypesWithPhoto(async (columns) => {
+            const { data, error } = await admin
+                .from("visitor_types")
+                .select(columns)
+                .eq("id", body.visitorTypeId)
+                .maybeSingle()
+            if (error) return { data: null, error }
+            return { data: data ? [data] : [], error: null }
+        })
+        if (loaded.error || !loaded.data[0]) {
             return NextResponse.json({ error: "Invalid visitor type" }, { status: 400 })
         }
-        visitorType = data
+        visitorType = loaded.data[0]
     }
 
     const company = body.company?.trim() || null
@@ -210,6 +225,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
     }
 
+    const photoMissing = body.photoMissing === true
+    if (!photoRequirementMet({
+        required: typeRequiresPhoto(visitorType),
+        hasPhoto: Boolean(photoUrl),
+        photoMissing,
+    })) {
+        return NextResponse.json(
+            { error: "A photo is required for this visitor type. Ask reception if this device has no camera." },
+            { status: 400 },
+        )
+    }
+
     const { data: visitor, error: visitorError } = await admin
         .from("visitors")
         .insert({
@@ -308,11 +335,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Record the completion so admins can see it and returning visitors are
     // tracked the same way as kiosk visitors. Failure is logged, not fatal:
     // the visitor did watch the video and is already signed in.
+    let matchedBookingId = bookingId
+    if (!replayed) {
+        const linked = await checkInMatchedBooking(admin, {
+            bookingId,
+            visitorId: visitor.id,
+            email: visitorEmail,
+            locationId: location.id,
+            timezone: location.timezone || "UTC",
+        })
+        if (linked) matchedBookingId = linked.id
+    }
+
     if (!replayed && trainingRequired && visitorType && trainingMethod === "video") {
         const recorded = await recordTrainingCompletion(admin, {
             visitorId: visitor.id,
             visitorTypeId: visitorType.id,
             source: "qr",
+            locationId: location.id,
         })
         if (!recorded.ok) {
             console.log("[QR check-in] training completion insert failed:", recorded.error)
@@ -334,7 +374,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 host_id: hostId,
                 visitor_type_id: visitorType?.id ?? null,
                 source: "qr_checkin",
+                booking_id: matchedBookingId,
                 idempotency_key: idempotencyKey,
+                photo_missing: photoMissing && !photoUrl,
                 geofence: geofence.verdict?.ok
                     ? {
                         distance_meters: Math.round(geofence.verdict.distance),
@@ -343,6 +385,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                     : null,
             },
         })
+        if (photoMissing && !photoUrl) {
+            await admin.from("audit_logs").insert({
+                user_id: null,
+                action: "visitor.photo_missing",
+                entity_type: "visitor",
+                entity_id: visitor.id,
+                description: `Visitor signed in via QR without a photo: ${visitorName}`,
+                metadata: {
+                    visitor_id: visitor.id,
+                    sign_in_id: signIn.id,
+                    location_id: location.id,
+                    visitor_type_id: visitorType?.id ?? null,
+                    source: "qr_checkin",
+                    reason: "camera_unavailable",
+                },
+            })
+        }
     }
 
     // Arrival email is sent after the response so SMTP cannot hang the visitor.
@@ -358,6 +417,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         visitorPhotoUrl: (signIn.photo_url as string | null) || photoUrl,
         signInId: String(signIn.id),
         idempotencyKey,
+        entrySource: "qr",
+        visitorTypeId: visitorType?.id ?? null,
     })
 
     return NextResponse.json({
@@ -368,6 +429,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         locationName: location.name,
         signInTime: signIn.sign_in_time,
         replayed,
+        hostNotified: Boolean(hostId),
     })
 }
 
@@ -403,6 +465,7 @@ async function replayedCheckinResponse(
         visitorPhotoUrl: existing.photo_url,
         signInId: existing.id,
         idempotencyKey,
+        entrySource: "qr",
     })
 
     return NextResponse.json({
@@ -413,5 +476,6 @@ async function replayedCheckinResponse(
         locationName,
         signInTime: existing.sign_in_time,
         replayed: true,
+        hostNotified: Boolean(existing.host_id),
     })
 }

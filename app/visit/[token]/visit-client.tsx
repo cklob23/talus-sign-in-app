@@ -21,8 +21,7 @@ export function VisitPageClient({
   badgeNumber,
   purpose,
   photoUrl,
-  trainingDone,
-  trainingMessage,
+  trainingLine,
   companyName,
   logoUrl,
   signedOut,
@@ -40,8 +39,7 @@ export function VisitPageClient({
   badgeNumber: string
   purpose: string
   photoUrl: string
-  trainingDone: boolean
-  trainingMessage: string | null
+  trainingLine: string
   companyName: string
   logoUrl: string | null
   signedOut: boolean
@@ -123,7 +121,7 @@ export function VisitPageClient({
         {purpose ? <Row label="Purpose" value={purpose} /> : null}
         <Row
           label="Training"
-          value={trainingDone ? trainingMessage || "Done" : "Not cleared"}
+          value={trainingLine}
           last
           emphasis={trainingDone}
         />

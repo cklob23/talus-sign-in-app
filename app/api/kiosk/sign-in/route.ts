@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     const purpose = asOptionalString(raw.purpose, 300)
     const visitor_type_name = asOptionalString(raw.visitor_type_name, 120)
     const idempotency_key = parseIdempotencyKey(raw.idempotency_key)
+    const photo_missing = raw.photo_missing === true
 
     if (!visitor_id || !location_id) {
       return NextResponse.json(
@@ -136,11 +137,15 @@ export async function POST(request: Request) {
 
     const signInRecord = created.signIn
 
-    if (!created.replayed && booking_id) {
-      await adminClient
-        .from("bookings")
-        .update({ status: "checked_in" })
-        .eq("id", booking_id)
+    if (!created.replayed) {
+      const { checkInMatchedBooking } = await import("@/lib/booking-invite")
+      await checkInMatchedBooking(adminClient, {
+        bookingId: booking_id,
+        visitorId: visitor_id,
+        email: visitor_email,
+        locationId: location_id,
+        timezone: timezone || location.timezone || "UTC",
+      })
     }
 
     if (!created.replayed) {
@@ -166,8 +171,28 @@ export async function POST(request: Request) {
           visitor_type_id,
           booking_id,
           idempotency_key,
+          photo_missing: photo_missing && !photo_url,
         },
       })
+      if (photo_missing && !photo_url) {
+        await adminClient.from("audit_logs").insert({
+          user_id: auth.context.source === "receptionist" ? auth.context.session.id : null,
+          action: "visitor.photo_missing",
+          entity_type: "visitor",
+          entity_id: visitor_id,
+          description: visitor_name
+            ? `Visitor signed in at kiosk without a photo: ${visitor_name}`
+            : "Visitor signed in at kiosk without a photo",
+          metadata: {
+            visitor_id,
+            sign_in_id: signInRecord.id,
+            location_id,
+            visitor_type_id,
+            source: "kiosk",
+            reason: "camera_unavailable",
+          },
+        })
+      }
     }
 
     scheduleHostNotification({
@@ -182,6 +207,8 @@ export async function POST(request: Request) {
       purpose: purpose ?? null,
       signInId: String(signInRecord.id),
       idempotencyKey: idempotency_key,
+      entrySource: "kiosk",
+      visitorTypeId: visitor_type_id,
     })
 
     return NextResponse.json({

@@ -31,6 +31,7 @@ import {
 import { Plus, Pencil, Trash2, Shield, ShieldCheck } from "lucide-react"
 import { ALL_PERMISSIONS, PERMISSION_LABELS, type PermissionKey, type Role } from "@/lib/permissions"
 import { logAudit } from "@/lib/audit-log"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { Textarea } from "@/components/ui/textarea"
 
 export default function RolesPage() {
@@ -127,6 +128,7 @@ export default function RolesPage() {
 
             if (error) {
                 console.error("Failed to update role:", error)
+                notifyError("Could not save role", error.message)
                 return
             }
 
@@ -137,6 +139,7 @@ export default function RolesPage() {
                 description: `Updated role: ${form.name}`,
                 metadata: { permissions: form.permissions },
             })
+            notifySuccess("Role updated")
         } else {
             const { error } = await supabase.from("roles").insert({
                 name: form.name,
@@ -146,6 +149,7 @@ export default function RolesPage() {
 
             if (error) {
                 console.error("Failed to create role:", error)
+                notifyError("Could not save role", error.message)
                 return
             }
 
@@ -155,6 +159,7 @@ export default function RolesPage() {
                 description: `Created role: ${form.name}`,
                 metadata: { permissions: form.permissions },
             })
+            notifySuccess("Role created")
         }
 
         setIsDialogOpen(false)
@@ -175,6 +180,7 @@ export default function RolesPage() {
         const { error } = await supabase.from("roles").delete().eq("id", deleteRole.id)
         if (error) {
             console.error("Failed to delete role:", error)
+            notifyError("Could not delete role", error.message)
             setDeleteRole(null)
             return
         }
@@ -186,6 +192,7 @@ export default function RolesPage() {
             description: `Deleted role: ${deleteRole.name}`,
         })
 
+        notifySuccess("Role deleted")
         setDeleteRole(null)
         loadData()
     }

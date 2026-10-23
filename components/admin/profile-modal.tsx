@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AvatarUpload } from "@/components/admin/avatar-upload"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { Loader2 } from "lucide-react"
 
 interface ProfileModalProps {
@@ -94,12 +95,15 @@ export function ProfileModal({ open, onOpenChange, userId, userEmail }: ProfileM
       })
       .eq("id", userId)
 
-    if (!error) {
-      // Refresh profile
-      await loadProfile()
-      onOpenChange(false)
+    if (error) {
+      notifyError("Could not save profile", error.message)
+      setSaving(false)
+      return
     }
-    
+
+    notifySuccess("Profile saved")
+    await loadProfile()
+    onOpenChange(false)
     setSaving(false)
   }
 

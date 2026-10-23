@@ -36,6 +36,7 @@ import { parseTrainingMedia } from "@/lib/training-media"
 import { contrastWarning } from "@/lib/color-contrast"
 import { isUndefinedColumn } from "@/lib/idempotency"
 import { typeRequiresPhoto } from "@/lib/requires-photo"
+import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 
 interface SystemSettings {
   auto_sign_out: boolean
@@ -113,8 +114,8 @@ export default function SettingsPage() {
     use_miles: false,
   })
   const [settingsLoading, setSettingsLoading] = useState(true)
-  // Auto sign-out settings are GLOBAL (apply to all locations, each in its own
-  // timezone) and are read by the /api/auto-signout cron.
+  // Auto sign-out settings are GLOBAL defaults. A location override wins when
+  // set. Otherwise the cron uses these values in that location's timezone.
   const [autoSignOut, setAutoSignOut] = useState({
     visitors_enabled: true,
     visitors_time: "23:45",
@@ -350,6 +351,7 @@ export default function SettingsPage() {
       metadata: { twilio_from_number: sms.twilio_from_number }
     })
 
+    notifySuccess("SMS settings saved")
     setSmsTestResult({ success: true, message: "SMS settings saved successfully." })
     setTimeout(() => setSmsTestResult(null), 3000)
     setSavingSms(false)
@@ -525,6 +527,7 @@ export default function SettingsPage() {
       metadata: { colorSettings }
     })
 
+    notifySuccess("Color settings saved")
     setSavingColors(false)
   }
 
@@ -575,6 +578,7 @@ export default function SettingsPage() {
     // kiosk, login, etc.) update immediately without a page reload.
     await refreshBranding()
 
+    notifySuccess("Branding saved")
     setSavingBranding(false)
   }
 
@@ -618,6 +622,7 @@ export default function SettingsPage() {
       metadata: { smtp_host: smtp.smtp_host, smtp_from_email: smtp.smtp_from_email }
     })
 
+    notifySuccess("SMTP settings saved")
     setSavingSmtp(false)
   }
 
@@ -687,12 +692,15 @@ export default function SettingsPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        setMicrosoftSsoError(data.error || "Failed to save Microsoft SSO config")
+        const message = data.error || "Failed to save Microsoft SSO config"
+        setMicrosoftSsoError(message)
+        notifyError("Could not save Microsoft SSO", message)
         return
       }
 
       setSupabaseCallbackUrl(data.callback_url || "")
       setMicrosoftSsoSuccess(data.message || "Settings saved successfully")
+      notifySuccess("Microsoft SSO saved")
 
       await logAudit({
         action: "settings.updated",
@@ -708,6 +716,7 @@ export default function SettingsPage() {
       await loadMicrosoftSsoSettings()
     } catch {
       setMicrosoftSsoError("Failed to save Microsoft SSO settings")
+      notifyError("Could not save Microsoft SSO", "Failed to save Microsoft SSO settings")
     } finally {
       setSavingMicrosoftSso(false)
     }
@@ -779,6 +788,7 @@ export default function SettingsPage() {
       metadata: { passwordPolicy }
     })
 
+    notifySuccess("Password policy saved")
     setSavingPasswordPolicy(false)
   }
 
@@ -824,10 +834,10 @@ export default function SettingsPage() {
         setBranding(prev => ({ ...prev, company_logo_small: urlWithCacheBuster }))
         setSmallLogoPreview(null)
       }
+      notifySuccess(type === "full" ? "Logo uploaded" : "Small logo uploaded")
     } catch (error) {
       console.error("Upload error:", error)
-      alert(error instanceof Error ? error.message : "Failed to upload image")
-      // Clear preview on error
+      notifyError("Could not upload logo", error)
       if (type === "full") setLogoPreview(null)
       else setSmallLogoPreview(null)
     } finally {
@@ -855,6 +865,7 @@ export default function SettingsPage() {
     } else {
       setBranding(prev => ({ ...prev, company_logo_small: "" }))
     }
+    notifySuccess(type === "full" ? "Logo removed" : "Small logo removed")
   }
 
   // Load the global auto sign-out settings (visitors + employees, each with a
@@ -928,6 +939,7 @@ export default function SettingsPage() {
       entityType: "settings",
       description: `Auto sign-out setting updated: ${keyMap[field]} = ${value}`,
     })
+    notifySuccess("Auto sign-out saved")
   }
 
   async function updateSetting(key: keyof SystemSettings, value: boolean) {
@@ -963,6 +975,7 @@ export default function SettingsPage() {
         location_id: selectedLocationId
       })
     }
+    notifySuccess("Setting saved")
   }
 
   // Set mounted state for hydration
@@ -1062,6 +1075,11 @@ export default function SettingsPage() {
         : await supabase.from("visitor_types").insert(withoutPhoto).select().single()
     }
 
+    if (result.error) {
+      notifyError(editingType ? "Could not save visitor type" : "Could not create visitor type", result.error.message)
+      return
+    }
+
     if (editingType) {
       await logAudit({
         action: "visitor_type.updated",
@@ -1070,6 +1088,7 @@ export default function SettingsPage() {
         description: `Visitor type updated: ${data.name}`,
         metadata: { name: data.name }
       })
+      notifySuccess("Visitor type updated")
     } else {
       const createdId = (result.data as { id?: string } | null)?.id
       await logAudit({
@@ -1079,6 +1098,7 @@ export default function SettingsPage() {
         description: `Visitor type created: ${data.name}`,
         metadata: { name: data.name }
       })
+      notifySuccess("Visitor type created")
     }
 
     setIsDialogOpen(false)
@@ -1089,13 +1109,18 @@ export default function SettingsPage() {
     if (!confirm("Are you sure you want to delete this visitor type?")) return
     const supabase = createClient()
     const typeToDelete = visitorTypes.find(t => t.id === id)
-    await supabase.from("visitor_types").delete().eq("id", id)
+    const { error } = await supabase.from("visitor_types").delete().eq("id", id)
+    if (error) {
+      notifyError("Could not delete visitor type", error.message)
+      return
+    }
     await logAudit({
       action: "visitor_type.deleted",
       entityType: "visitor_type",
       entityId: id,
       description: `Visitor type deleted: ${typeToDelete?.name || id}`,
     })
+    notifySuccess("Visitor type deleted")
     loadData()
   }
 
@@ -1385,7 +1410,7 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
                   <Label className="text-sm font-medium">Auto Sign-Out</Label>
-                  <span className="text-xs text-muted-foreground">(applies to all locations, each in its local time)</span>
+                  <span className="text-xs text-muted-foreground">(global defaults when a location has no override)</span>
                 </div>
 
                 {/* Visitor auto sign-out */}
@@ -1393,7 +1418,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <Label className="text-sm">Visitors</Label>
-                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all visitors at the end of the day</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all visitors at this time in each location timezone. Used when that location has no visitor override. Set per-location times on the Locations page.</p>
                     </div>
                     <Switch
                       checked={autoSignOut.visitors_enabled}
@@ -1422,7 +1447,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <Label className="text-sm">Employees</Label>
-                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all employees at the end of the day (a 14-hour safety limit always applies)</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically sign out all employees at this time in each location timezone (a 14-hour safety limit always applies). 18:00 is 6 PM local. US sites should use America/Chicago so this is 6 PM Central. Used when that location has no employee override.</p>
                     </div>
                     <Switch
                       checked={autoSignOut.employees_enabled}

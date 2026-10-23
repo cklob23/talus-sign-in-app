@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useRef, useState, useMemo } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { shouldUseMobileSiteSelect } from "@/lib/site-filter-layout"
 import { MapPin, Users, Briefcase, Building2 } from "lucide-react"
 
 interface LocationWithStats {
@@ -24,6 +26,8 @@ export function LocationMap({ locations }: LocationMapProps) {
   const initializingRef = useRef(false)
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<LocationWithStats | null>(null)
+  const filterRef = useRef<HTMLDivElement>(null)
+  const [useMobileSelect, setUseMobileSelect] = useState(true)
 
   // Memoize locations with valid coordinates to prevent unnecessary re-renders
   // Only recompute when location IDs or coordinates actually change
@@ -211,6 +215,49 @@ export function LocationMap({ locations }: LocationMapProps) {
   const totalVisitors = locations.reduce((sum, l) => sum + l.currentVisitors, 0)
   const totalEmployees = locations.reduce((sum, l) => sum + l.currentEmployees, 0)
 
+  function showAllSites() {
+    if (mapInstanceRef.current && locationsWithCoords.length > 0) {
+      const L = (window as unknown as { L: typeof import("leaflet") }).L
+      if (L) {
+        const bounds = L.latLngBounds(
+          locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
+        )
+        ;(mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
+      }
+      setSelectedLocation(null)
+    }
+  }
+
+  function focusLocation(loc: LocationWithStats) {
+    if (loc.latitude && loc.longitude && mapInstanceRef.current) {
+      (mapInstanceRef.current as import("leaflet").Map).setView([loc.latitude, loc.longitude], 14)
+      setSelectedLocation(loc)
+    }
+  }
+
+  useLayoutEffect(() => {
+    const el = filterRef.current
+    if (!el) return
+
+    const update = () => {
+      setUseMobileSelect(
+        shouldUseMobileSiteSelect({
+          containerWidthPx: el.getBoundingClientRect().width,
+          viewportWidthPx: window.innerWidth,
+        })
+      )
+    }
+
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    window.addEventListener("resize", update)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", update)
+    }
+  }, [locationsWithCoords.length])
+
   return (
     <Card className="col-span-full overflow-hidden">
       <CardHeader className="pb-2">
@@ -232,59 +279,72 @@ export function LocationMap({ locations }: LocationMapProps) {
         </div>
       </CardHeader>
 
-      {/* Location selector - horizontal scroll on mobile, wrapping on desktop */}
+      {/* Site filter: Select under sm (by card or viewport CSS px), pills only at sm+ */}
       {locationsWithCoords.length > 0 && (
-        <div className="px-4 pb-3 sm:px-6">
-          <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 sm:flex-wrap scrollbar-thin">
-            {/* Show all locations button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (mapInstanceRef.current && locationsWithCoords.length > 0) {
-                  const L = (window as unknown as { L: typeof import("leaflet") }).L
-                  if (L) {
-                    const bounds = L.latLngBounds(
-                      locationsWithCoords.map((l) => [l.latitude!, l.longitude!])
-                    )
-                      ; (mapInstanceRef.current as import("leaflet").Map).fitBounds(bounds, { padding: [50, 50] })
-                  }
-                  setSelectedLocation(null)
+        <div ref={filterRef} className="px-4 pb-3 sm:px-6">
+          {useMobileSelect ? (
+            <Select
+              value={selectedLocation?.id ?? "all"}
+              onValueChange={(id) => {
+                if (id === "all") {
+                  showAllSites()
+                  return
                 }
+                const loc = locations.find((item) => item.id === id)
+                if (loc) focusLocation(loc)
               }}
-              className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${!selectedLocation
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-muted/50 hover:bg-muted border-transparent"
-                }`}
             >
-              All Sites
-            </button>
-            {locations.map((loc) => (
+              <SelectTrigger
+                className="h-11 w-full min-h-11"
+                aria-label="Site"
+                data-slot="select-trigger"
+              >
+                <SelectValue placeholder="All Sites" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sites</SelectItem>
+                {locations.map((loc) => (
+                  <SelectItem key={loc.id} value={loc.id}>
+                    {loc.name} ({loc.currentVisitors} visitors, {loc.currentEmployees} staff)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                key={loc.id}
-                className={`shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors border ${selectedLocation?.id === loc.id
+                onClick={showAllSites}
+                className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${!selectedLocation
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-muted/50 hover:bg-muted border-transparent"
                   }`}
-                onClick={() => {
-                  if (loc.latitude && loc.longitude && mapInstanceRef.current) {
-                    (mapInstanceRef.current as import("leaflet").Map).setView([loc.latitude, loc.longitude], 14)
-                    setSelectedLocation(loc)
-                  }
-                }}
               >
-                <span className="font-medium truncate max-w-[120px]">{loc.name}</span>
-                <span className={`flex items-center gap-1 ${selectedLocation?.id === loc.id ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                  <Users className="w-3 h-3" />
-                  {loc.currentVisitors}
-                </span>
-                <span className={`flex items-center gap-1 ${selectedLocation?.id === loc.id ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                  <Briefcase className="w-3 h-3" />
-                  {loc.currentEmployees}
-                </span>
+                All Sites
               </button>
-            ))}
-          </div>
+              {locations.map((loc) => (
+                <button
+                  type="button"
+                  key={loc.id}
+                  className={`shrink-0 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors border ${selectedLocation?.id === loc.id
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/50 hover:bg-muted border-transparent"
+                    }`}
+                  onClick={() => focusLocation(loc)}
+                >
+                  <span className="font-medium truncate max-w-[120px]">{loc.name}</span>
+                  <span className={`flex items-center gap-1 ${selectedLocation?.id === loc.id ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                    <Users className="w-3 h-3" />
+                    {loc.currentVisitors}
+                  </span>
+                  <span className={`flex items-center gap-1 ${selectedLocation?.id === loc.id ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                    <Briefcase className="w-3 h-3" />
+                    {loc.currentEmployees}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { TrainingPlayer } from "@/components/training-player"
 import { PublicVisitorChrome } from "@/lib/public-visitor-chrome"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { parseTrainingCompleteResponse, trainingLinkShowsCleared } from "@/lib/training-watch"
 
 export function TrainingLinkClient({
   token,
@@ -109,11 +110,12 @@ export function TrainingLinkClient({
           videoSeconds,
         }),
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error || "Could not save your training.")
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      const parsed = parseTrainingCompleteResponse(res, json, copy.cleared)
+      if (!parsed.ok) throw new Error(parsed.error)
       setDone(true)
-      setDoneMessage(typeof json.message === "string" ? json.message : copy.cleared)
-      setDoneMessageEs(typeof json.messageEs === "string" ? json.messageEs : copy.cleared)
+      setDoneMessage(parsed.message)
+      setDoneMessageEs(parsed.messageEs)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save your training.")
     } finally {

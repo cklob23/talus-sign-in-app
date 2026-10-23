@@ -47,7 +47,7 @@ export function isUnexpiredCompletion(row: { expires_at?: string | null }, now: 
   return Number.isFinite(at) && at >= now
 }
 
-function formatMonthDay(iso: string, locale: "en" | "es"): string {
+export function formatTrainingDay(iso: string, locale: "en" | "es"): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ""
   if (locale === "es") {
@@ -56,7 +56,7 @@ function formatMonthDay(iso: string, locale: "en" | "es"): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date)
 }
 
-function formatMonthYear(iso: string, locale: "en" | "es"): string {
+export function formatTrainingMonthYear(iso: string, locale: "en" | "es"): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ""
   if (locale === "es") {
@@ -71,8 +71,8 @@ export function formatClearanceMessage(
   expiresAt: string | null,
   locale: "en" | "es" = "en",
 ): string {
-  const done = formatMonthDay(completedAt, locale)
-  const until = expiresAt ? formatMonthYear(expiresAt, locale) : null
+  const done = formatTrainingDay(completedAt, locale)
+  const until = expiresAt ? formatTrainingMonthYear(expiresAt, locale) : null
   if (locale === "es") {
     if (until) return `Hizo el video de seguridad el ${done}. Queda autorizado hasta ${until}.`
     return `Hizo el video de seguridad el ${done}. Queda autorizado.`
@@ -201,6 +201,97 @@ export async function getTrainingClearance(
   return clearance
 }
 
+export type HostTrainingState = "cleared" | "expired" | "not_completed" | "not_required"
+
+export type HostTrainingSnapshot = {
+  state: HostTrainingState
+  completedAt: string | null
+  expiresAt: string | null
+}
+
+function completionDates(row: {
+  completed_at?: string | null
+  created_at?: string | null
+  expires_at?: string | null
+}): { completedAt: string | null; expiresAt: string | null } {
+  return {
+    completedAt: row.completed_at || row.created_at || null,
+    expiresAt: row.expires_at || null,
+  }
+}
+
+/** Host visit page: classify training without changing visitor-facing clearance copy. */
+export function hostTrainingFromCompletions(
+  requiresTraining: boolean,
+  rows: Array<{
+    completed_at?: string | null
+    created_at?: string | null
+    expires_at?: string | null
+    source?: string | null
+  }>,
+  now = Date.now(),
+): HostTrainingSnapshot {
+  if (!requiresTraining) {
+    return { state: "not_required", completedAt: null, expiresAt: null }
+  }
+  const cleared = clearanceFromCompletions(rows, now)
+  if (cleared.cleared) {
+    return { state: "cleared", completedAt: cleared.completedAt, expiresAt: cleared.expiresAt }
+  }
+  const expired = rows
+    .map((row) => {
+      const dates = completionDates(row)
+      const expMs = dates.expiresAt ? new Date(dates.expiresAt).getTime() : Number.NaN
+      return { ...dates, expMs }
+    })
+    .filter((row) => Number.isFinite(row.expMs) && row.expMs < now)
+    .sort((a, b) => b.expMs - a.expMs)
+  if (expired[0]) {
+    return { state: "expired", completedAt: expired[0].completedAt, expiresAt: expired[0].expiresAt }
+  }
+  return { state: "not_completed", completedAt: null, expiresAt: null }
+}
+
+export async function getHostTrainingSnapshot(
+  admin: AnyClient,
+  email: string | null | undefined,
+  visitorTypeId: string | null | undefined,
+  requiresTraining: boolean,
+  now = Date.now(),
+): Promise<HostTrainingSnapshot> {
+  if (!requiresTraining) {
+    return { state: "not_required", completedAt: null, expiresAt: null }
+  }
+  const empty: HostTrainingSnapshot = { state: "not_completed", completedAt: null, expiresAt: null }
+  const normalized = normalizeVisitorEmail(email)
+  if (!normalized || !visitorTypeId) return empty
+
+  const visitors = await visitorIdsForNormalizedEmail(admin, normalized)
+  if (visitors.length === 0) return empty
+
+  const ids = visitors.map((v) => v.id)
+  let { data: completions, error } = await admin
+    .from("training_completions")
+    .select("visitor_id, completed_at, created_at, expires_at, source")
+    .in("visitor_id", ids)
+    .eq("visitor_type_id", visitorTypeId)
+    .order("expires_at", { ascending: false })
+    .limit(20)
+  if (error?.code === "42703") {
+    const retry = await admin
+      .from("training_completions")
+      .select("visitor_id, completed_at, created_at, expires_at")
+      .in("visitor_id", ids)
+      .eq("visitor_type_id", visitorTypeId)
+      .order("expires_at", { ascending: false })
+      .limit(20)
+    completions = retry.data
+    error = retry.error
+  }
+  if (error || !Array.isArray(completions)) return empty
+  return hostTrainingFromCompletions(true, completions, now)
+}
+
 export async function hasValidTrainingForVisitor(
   admin: AnyClient,
   visitorId: string,
@@ -255,32 +346,46 @@ export async function findOrCreateVisitorByEmail(
   return { id: data.id }
 }
 
+async function locationIdForVisitorType(admin: AnyClient, visitorTypeId: string): Promise<string | null> {
+  const { data } = await admin.from("visitor_types").select("location_id").eq("id", visitorTypeId).maybeSingle()
+  return typeof data?.location_id === "string" && data.location_id ? data.location_id : null
+}
+
 export async function recordTrainingCompletion(
   admin: AnyClient,
   args: {
     visitorId: string
     visitorTypeId: string
     source: TrainingSource
+    locationId?: string | null
     expiresAt?: string | null
     now?: number
   },
 ): Promise<{ ok: true; expiresAt: string } | { ok: false; error: string }> {
   const expiresAt = args.expiresAt || defaultTrainingExpiresAt(args.now)
   const completedAt = new Date(args.now ?? Date.now()).toISOString()
+  const locationId = args.locationId || (await locationIdForVisitorType(admin, args.visitorTypeId))
   const row = {
     visitor_id: args.visitorId,
     visitor_type_id: args.visitorTypeId,
     completed_at: completedAt,
     expires_at: expiresAt,
     source: args.source,
+    location_id: locationId,
   }
   const first = await admin.from("training_completions").insert(row).select("id").single()
   if (!first.error) return { ok: true, expiresAt }
   if (first.error?.code === "42703") {
-    const { source: _source, ...legacy } = row
-    const retry = await admin.from("training_completions").insert(legacy).select("id").single()
-    if (!retry.error) return { ok: true, expiresAt }
-    return { ok: false, error: retry.error.message || "Failed to record training" }
+    const { location_id: _locationId, ...withoutLocation } = row
+    const retryLocation = await admin.from("training_completions").insert(withoutLocation).select("id").single()
+    if (!retryLocation.error) return { ok: true, expiresAt }
+    if (retryLocation.error?.code === "42703") {
+      const { source: _source, ...legacy } = withoutLocation
+      const retry = await admin.from("training_completions").insert(legacy).select("id").single()
+      if (!retry.error) return { ok: true, expiresAt }
+      return { ok: false, error: retry.error.message || "Failed to record training" }
+    }
+    return { ok: false, error: retryLocation.error.message || "Failed to record training" }
   }
   return { ok: false, error: first.error.message || "Failed to record training" }
 }

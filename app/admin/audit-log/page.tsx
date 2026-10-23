@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   "visitor.auto_sign_out": "Visitor auto-sign out completed",
   "visitor.not_my_visitor": "Host said this is not their visitor",
   "visitor.training_link_sent": "Training link sent",
+  "visitor.photo_missing": "Visitor photo missing",
   // Employee actions
   "employee.sign_in": "Employee signed in",
   "employee.sign_out": "Employee signed out",
@@ -42,6 +43,8 @@ const ACTION_LABELS: Record<string, string> = {
   "booking.updated": "Booking updated",
   "booking.cancelled": "Booking cancelled",
   "booking.checked_in": "Booking checked in",
+  "booking.invite_sent": "Booking invite sent",
+  "booking.invite_failed": "Booking invite failed",
   // Host actions
   "host.created": "Host created",
   "host.updated": "Host updated",
@@ -79,6 +82,11 @@ const ACTION_LABELS: Record<string, string> = {
   // Kiosk actions
   "kiosk.receptionist_login": "Receptionist logged in",
   "kiosk.receptionist_logout": "Receptionist logged out",
+  "report.sent": "Report sent",
+  "report.failed": "Report send failed",
+  "report.schedule_created": "Report schedule created",
+  "report.schedule_updated": "Report schedule updated",
+  "report.schedule_deleted": "Report schedule deleted",
 }
 
 const ENTITY_TYPES = [
@@ -95,6 +103,7 @@ const ENTITY_TYPES = [
   { value: "visitor_type", label: "Visitor Types" },
   { value: "role", label: "Roles" },
   { value: "sync", label: "Syncs" },
+  { value: "report", label: "Reports" },
 ]
 
 type AuditLogWithUser = Omit<AuditLog, 'user'> & {

@@ -29,7 +29,10 @@ function jsonRequest(path: string, body: unknown) {
 
 const qrParams = { params: Promise.resolve({ token: TOKEN }) }
 
-function trainingType(videoUrl: string | null = "https://cdn.example.com/safety.mp4") {
+function trainingType(
+  videoUrl: string | null = "https://cdn.example.com/safety.mp4",
+  extra: Record<string, unknown> = {},
+) {
   setOverride("visitor_types", {
     single: {
       id: TYPE_ID,
@@ -39,6 +42,8 @@ function trainingType(videoUrl: string | null = "https://cdn.example.com/safety.
       requires_nda: false,
       requires_training: true,
       training_video_url: videoUrl,
+      location_id: LOCATION_ID,
+      ...extra,
     },
   })
 }
@@ -64,7 +69,7 @@ function qrLocation() {
   setOverride("hosts", { single: { id: HOST_ID } })
 }
 
-function qrBody(training?: unknown) {
+function qrBody(training?: unknown, extra: Record<string, unknown> = {}) {
   return {
     firstName: "QA TEST",
     lastName: "Visitor7",
@@ -73,6 +78,7 @@ function qrBody(training?: unknown) {
     hostId: HOST_ID,
     idempotencyKey: "11111111-2222-4333-8444-555555555555",
     training,
+    ...extra,
   }
 }
 
@@ -137,12 +143,16 @@ describe("QR check-in training enforcement", () => {
       now: Date.now() - (VIDEO_SECONDS + 30) * 1000,
     })
     const res = await qrSignInPost(
-      jsonRequest(`/api/checkin/${TOKEN}`, qrBody({ ticket, acknowledged: true, videoSeconds: VIDEO_SECONDS })) as never,
+      jsonRequest(
+        `/api/checkin/${TOKEN}`,
+        qrBody({ ticket, acknowledged: true, videoSeconds: VIDEO_SECONDS }, { photoMissing: true }),
+      ) as never,
       qrParams,
     )
     assert.equal(res.status, 200, await res.clone().text())
     const json = await res.json()
     assert.equal(json.success, true)
+    assert.equal(json.hostNotified, true)
     assert.match(json.badgeNumber, /^V\d{5}$/)
     const signIn = writes.find((w) => w.table === "sign_ins" && w.op === "insert")
     assert.ok(signIn)
@@ -167,7 +177,7 @@ describe("QR check-in training enforcement", () => {
     const res = await qrSignInPost(
       jsonRequest(
         `/api/checkin/${TOKEN}`,
-        qrBody({ via: "link", prior: true, acknowledged: true }),
+        qrBody({ via: "link", prior: true, acknowledged: true }, { photoMissing: true }),
       ) as never,
       qrParams,
     )
@@ -178,9 +188,57 @@ describe("QR check-in training enforcement", () => {
   it("does not require training proof when the type has no video", async () => {
     qrLocation()
     trainingType(null)
-    const res = await qrSignInPost(jsonRequest(`/api/checkin/${TOKEN}`, qrBody()) as never, qrParams)
+    const res = await qrSignInPost(
+      jsonRequest(`/api/checkin/${TOKEN}`, qrBody(undefined, { photoMissing: true })) as never,
+      qrParams,
+    )
     assert.equal(res.status, 200, await res.clone().text())
     assert.equal(writes.some((w) => w.table === "training_completions"), false)
+  })
+
+  it("refuses a required photo unless the camera fallback is flagged", async () => {
+    qrLocation()
+    trainingType(null)
+    const res = await qrSignInPost(jsonRequest(`/api/checkin/${TOKEN}`, qrBody()) as never, qrParams)
+    assert.equal(res.status, 400)
+    assert.match((await res.json()).error, /photo/i)
+    assert.equal(writes.some((w) => w.table === "sign_ins"), false)
+  })
+
+  it("accepts photo_missing, logs it, and reports the queued host notify", async () => {
+    qrLocation()
+    trainingType(null)
+    const res = await qrSignInPost(
+      jsonRequest(`/api/checkin/${TOKEN}`, qrBody(undefined, { photoMissing: true })) as never,
+      qrParams,
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+    const json = await res.json()
+    assert.equal(json.hostNotified, true)
+    const photoMissing = writes.find((w) => w.table === "audit_logs" && w.op === "insert" && (w.payload as { action?: string }).action === "visitor.photo_missing")
+    assert.ok(photoMissing)
+  })
+
+  it("allows QR sign-in without a photo when the type turns photo off", async () => {
+    qrLocation()
+    trainingType(null, { requires_photo: false })
+    const res = await qrSignInPost(jsonRequest(`/api/checkin/${TOKEN}`, qrBody()) as never, qrParams)
+    assert.equal(res.status, 200, await res.clone().text())
+    assert.equal(
+      writes.some((w) => w.table === "audit_logs" && (w.payload as { action?: string }).action === "visitor.photo_missing"),
+      false,
+    )
+  })
+
+  it("does not claim the host was told when no host was selected", async () => {
+    qrLocation()
+    trainingType(null, { requires_host: false })
+    const res = await qrSignInPost(
+      jsonRequest(`/api/checkin/${TOKEN}`, qrBody(undefined, { hostId: null, photoMissing: true })) as never,
+      qrParams,
+    )
+    assert.equal(res.status, 200, await res.clone().text())
+    assert.equal((await res.json()).hostNotified, false)
   })
 })
 

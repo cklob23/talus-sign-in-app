@@ -132,6 +132,32 @@ describe("kiosk sign-in / training / notify-host / sign-out payloads", () => {
     })
     const res = await signInPost(jsonRequest("/api/kiosk/sign-in", body))
     assert.equal(res.status, 200, await res.clone().text())
+    assert.equal(
+      writes.some((w) => w.table === "audit_logs" && (w.payload as { action?: string }).action === "visitor.photo_missing"),
+      false,
+    )
+  })
+
+  it("logs photo_missing when the kiosk camera fallback is used", async () => {
+    const body = wire({
+      visitor_id: VISITOR_ID,
+      visitor_name: "Jane Doe",
+      visitor_email: null,
+      location_id: LOCATION_ID,
+      host_id: HOST_ID,
+      badge_number: "V04821",
+      photo_url: null,
+      visitor_type_id: TYPE_ID,
+      booking_id: null,
+      timezone: "Pacific Standard Time",
+      photo_missing: true,
+    })
+    const res = await signInPost(jsonRequest("/api/kiosk/sign-in", body))
+    assert.equal(res.status, 200, await res.clone().text())
+    const audit = writes.find(
+      (w) => w.table === "audit_logs" && (w.payload as { action?: string }).action === "visitor.photo_missing",
+    )
+    assert.ok(audit)
   })
 
   it("records a walk-in sign-in with a photo and email", async () => {

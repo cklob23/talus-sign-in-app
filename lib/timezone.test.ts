@@ -1,9 +1,14 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
+  DEFAULT_DISPLAY_TIMEZONE,
   formatDateTimeWithZone,
   formatTimeWithZone,
   getTimezoneAbbreviation,
+  isSameLocalDay,
+  localDatetimeToUtc,
+  localDayBounds,
+  resolveDisplayTimeZone,
   startOfDayInTimezone,
   toIANATimezone,
   zonedTimeToUtc,
@@ -21,6 +26,16 @@ describe("toIANATimezone", () => {
     assert.equal(toIANATimezone("America/Chicago"), "America/Chicago")
     assert.equal(toIANATimezone("Africa/Nairobi"), "Africa/Nairobi")
     assert.equal(toIANATimezone(""), "UTC")
+  })
+})
+
+describe("resolveDisplayTimeZone", () => {
+  it("falls back to America/New_York when a location has no timezone", () => {
+    assert.equal(resolveDisplayTimeZone(null), DEFAULT_DISPLAY_TIMEZONE)
+    assert.equal(resolveDisplayTimeZone(""), "America/New_York")
+    assert.equal(resolveDisplayTimeZone("   "), "America/New_York")
+    assert.equal(resolveDisplayTimeZone("America/Chicago"), "America/Chicago")
+    assert.equal(resolveDisplayTimeZone("Eastern Standard Time"), "America/New_York")
   })
 })
 
@@ -51,6 +66,43 @@ describe("zonedTimeToUtc", () => {
   it("converts a Nairobi wall-clock midnight to UTC", () => {
     const utc = zonedTimeToUtc(2026, 10, 22, 0, 0, 0, "Africa/Nairobi")
     assert.equal(utc.toISOString(), "2026-10-21T21:00:00.000Z")
+  })
+})
+
+describe("localDatetimeToUtc", () => {
+  it("interprets datetime-local in the location timezone, not the runtime timezone", () => {
+    const chicago = localDatetimeToUtc("2026-10-22T09:00", "America/Chicago")
+    const nairobi = localDatetimeToUtc("2026-10-22T09:00", "Africa/Nairobi")
+    const naive = new Date("2026-10-22T09:00")
+
+    assert.ok(chicago)
+    assert.ok(nairobi)
+    assert.equal(chicago.toISOString(), "2026-10-22T14:00:00.000Z")
+    assert.equal(nairobi.toISOString(), "2026-10-22T06:00:00.000Z")
+    assert.notEqual(chicago.toISOString(), naive.toISOString())
+    assert.notEqual(nairobi.toISOString(), chicago.toISOString())
+  })
+
+  it("accepts seconds and Windows timezone names", () => {
+    const utc = localDatetimeToUtc("2026-10-22T00:00:00", "Central Standard Time")
+    assert.ok(utc)
+    assert.equal(utc.toISOString(), localDatetimeToUtc("2026-10-22T00:00", "America/Chicago")?.toISOString())
+  })
+
+  it("returns null for an invalid value", () => {
+    assert.equal(localDatetimeToUtc("", "America/Chicago"), null)
+    assert.equal(localDatetimeToUtc("not-a-date", "America/Chicago"), null)
+  })
+})
+
+describe("localDayBounds and isSameLocalDay", () => {
+  it("covers the Chicago calendar day around a UTC midnight instant", () => {
+    const now = new Date("2026-10-22T03:30:00.000Z")
+    const { start, end } = localDayBounds("America/Chicago", now)
+    assert.equal(start.toISOString(), "2026-10-21T05:00:00.000Z")
+    assert.equal(end.toISOString(), "2026-10-22T05:00:00.000Z")
+    assert.equal(isSameLocalDay("2026-10-21T18:00:00.000Z", "America/Chicago", now), true)
+    assert.equal(isSameLocalDay("2026-10-22T12:00:00.000Z", "America/Chicago", now), false)
   })
 })
 

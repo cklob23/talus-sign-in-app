@@ -29,7 +29,6 @@ import {
   Building2,
   PlayCircle,
   AlertTriangle,
-  MapPin,
   Briefcase,
   Loader2,
   User,
@@ -48,13 +47,14 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/signature-pa
 import type { VisitorType, Host, Location, Profile } from "@/types/database"
 import Link from "next/link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, toIANATimezone } from "@/lib/timezone"
+import { formatTime, formatDate, formatDateTime, getTimezoneAbbreviation, localDayBounds, toIANATimezone } from "@/lib/timezone"
 import { logAudit, logAuditViaApi } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication, getDaysUntilExpiration } from "@/lib/password-policy"
 import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
-import { kioskClientGate } from "@/lib/checkin-geofence"
+import { kioskClientGate, shouldEnforceGeofence } from "@/lib/checkin-geofence"
+import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-device-coords"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
@@ -62,6 +62,9 @@ import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
 import { StatusPill } from "@/components/v2/status-pill"
 import { fill, readVisitorLang, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
+import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
+import { attachAndPlayCamera } from "@/lib/camera-preview"
+import type { TrainingPlaybackControls } from "@/components/training-player"
 import { KIOSK_DONE_RESET_MS, KIOSK_IDLE_MS, idleSecondsLeft, shouldIdleReset, shouldShowIdleWarning } from "@/lib/checkin-idle"
 
 type KioskMode = "receptionist-login" | "home" | "visitor-type" | "sign-in" | "booking" | "training" | "cleared" | "code" | "nda" | "sign-out" | "employee-login" | "employee-dashboard" | "success" | "photo"
@@ -118,6 +121,7 @@ export default function KioskPage() {
   const [receptionistEmail, setReceptionistEmail] = useState("")
   const [receptionistPassword, setReceptionistPassword] = useState("")
   const [receptionistLoading, setReceptionistLoading] = useState(true)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [receptionistError, setReceptionistError] = useState<string | null>(null)
   const [visitorTypes, setVisitorTypes] = useState<VisitorType[]>([])
   const [hosts, setHosts] = useState<Host[]>([])
@@ -212,9 +216,12 @@ export default function KioskPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraReady, setCameraReady] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraIssue, setCameraIssue] = useState<CameraIssue | null>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [videoStarted, setVideoStarted] = useState(false)
+  const trainingPlaybackRef = useRef<TrainingPlaybackControls | null>(null)
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null)
   const [clearanceMessage, setClearanceMessage] = useState<string | null>(null)
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null)
@@ -315,6 +322,7 @@ export default function KioskPage() {
       } catch (err) {
         console.error("Failed to check receptionist session:", err)
       } finally {
+        setSessionChecked(true)
         setReceptionistLoading(false)
       }
     }
@@ -604,21 +612,37 @@ export default function KioskPage() {
     reverseGeocode()
   }, [userCoords])
 
-  // Track whether the user has manually changed the location dropdown
-  const [userManuallySelectedLocation, setUserManuallySelectedLocation] = useState(false)
-
-  // Auto-select nearest location when geolocation finds one
-  // Always update unless the user has explicitly picked a different location
+  // Auto-select the nearest site from a fresh fix. Freeze mid visitor sign-in
+  // so the site cannot jump while a guest is mid-flow.
   useEffect(() => {
-    if (nearestLocation && !userManuallySelectedLocation) {
-      setSelectedLocation(nearestLocation.location.id)
+    const freeze = isVisitorFlowMode(mode) || (isDetectingLocation && !userCoords)
+    const resolved = resolveKioskSite({
+      locations,
+      nearestId: nearestLocation?.location.id ?? null,
+      persistedId: readStaffSite(),
+      currentId: selectedLocation || null,
+      gpsReady: Boolean(userCoords) && !isDetectingLocation,
+      freeze,
+    })
+    if (resolved.id && resolved.id !== selectedLocation) {
+      setSelectedLocation(resolved.id)
+      setGeofenceOverride(false)
     }
-  }, [nearestLocation, userManuallySelectedLocation])
+  }, [locations, nearestLocation, userCoords, isDetectingLocation, mode, selectedLocation])
 
   // Get the current selected location object
   const currentLocation = locations.find(l => l.id === selectedLocation)
-  const isSelectedDifferentFromNearest = nearestLocation && selectedLocation !== nearestLocation.location.id
   const currentTimezone = currentLocation?.timezone || "UTC"
+
+  const siteKind = headerLocationKind({
+    hasLocations: locations.length > 0,
+    geoError,
+    hasFix: Boolean(userCoords),
+    isDetecting: isDetectingLocation,
+    meters: selectedLocationDistance,
+  })
+  const siteUnavailable = siteKind === "unavailable"
+  const siteMeters = siteKind === "distance" ? selectedLocationDistance : null
 
   // Geofence enforcement (same rules as QR, via lib/checkin-geofence).
   // Visitor unlock is PR #9's geofenceOverride ("Allow sign-in anyway").
@@ -642,9 +666,15 @@ export default function KioskPage() {
   const fenceRadius = clientGate.verdict?.radius ?? geofenceRadius ?? null
   const fenceDistance = clientGate.verdict?.distance ?? selectedLocationDistance
 
-  function kioskCoordsPayload() {
-    if (!deviceCoords) return null
-    return deviceCoords
+  async function kioskCoordsPayload() {
+    if (geofenceOverride) return deviceCoords
+    const required = currentLocation ? shouldEnforceGeofence(currentLocation) : false
+    if (!required) return deviceCoords
+    const resolved = await resolveFreshDeviceCoords({ fallback: deviceCoords })
+    if (!resolved.ok) {
+      throw new Error(STALE_LOCATION_MESSAGE)
+    }
+    return resolved.coords
   }
 
   async function allowSignInAnyway() {
@@ -900,7 +930,7 @@ export default function KioskPage() {
         body: JSON.stringify({
           profile_id: employee.id,
           location_id: selectedLocation,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
         }),
       })
@@ -1021,8 +1051,12 @@ export default function KioskPage() {
       setLocations(locData)
       // Only set a default if geolocation hasn't already picked one
       if (!selectedLocation) {
-        setSelectedLocation(locData[0].id)
+        const persisted = readStaffSite()
+        const persistedOk = persisted && locData.some((loc) => loc.id === persisted)
+        setSelectedLocation(persistedOk ? persisted : locData[0].id)
       }
+    } else if (locData) {
+      setLocations([])
     }
     if (typesRes.data) setVisitorTypes(typesRes.data as VisitorType[])
 
@@ -1062,7 +1096,13 @@ export default function KioskPage() {
     setSelectedBooking(null)
 
     try {
+      if (!selectedLocation) {
+        setError("Select a site first, then look up your booking for today.")
+        return
+      }
+
       const supabase = createClient()
+      const bounds = localDayBounds(currentTimezone)
 
       const { data: bookings, error: bookingsError } = await supabase
         .from("bookings")
@@ -1083,6 +1123,9 @@ export default function KioskPage() {
         `)
         .ilike("visitor_email", bookingEmail.trim())
         .eq("status", "pending")
+        .eq("location_id", selectedLocation)
+        .gte("expected_arrival", bounds.start.toISOString())
+        .lt("expected_arrival", bounds.end.toISOString())
         .order("expected_arrival")
 
       if (bookingsError) throw bookingsError
@@ -1196,6 +1239,7 @@ export default function KioskPage() {
           visitorCompany: selectedBooking.visitor_company,
           purpose: selectedBooking.purpose,
           visitorTypeName: visitorTypeData?.name,
+          visitorTypeId: visitorTypeData?.id,
         })
 
         // Pre-fill the form with booking data for after training
@@ -1259,6 +1303,7 @@ export default function KioskPage() {
     visitorCompany?: string | null
     purpose?: string | null
     visitorTypeName?: string | null
+    visitorTypeId?: string | null
   }) {
     if (!hostNotificationsEnabled || !opts.hostId) return
 
@@ -1282,6 +1327,7 @@ export default function KioskPage() {
           locationId: currentLocation?.id,
           notificationType: "completing_training",
           visitorTypeName: opts.visitorTypeName,
+          visitorTypeId: opts.visitorTypeId,
           idempotencyKey: trainingIdempotencyKeyRef.current,
         }),
       })
@@ -1312,12 +1358,18 @@ export default function KioskPage() {
   }
 
   // Issue a training ticket, then let the shared player report the ended event.
+  // Start the player immediately so unmute + play stay on the same tap as "start".
   async function startVideoProgress() {
     if (videoStarted || isLoading) return
     if (!selectedVisitorType) return
 
-    setIsLoading(true)
     setError(null)
+    setVideoStarted(true)
+    setVideoProgress(0)
+    videoPlayingRef.current = true
+    void trainingPlaybackRef.current?.unmuteAndPlay()
+
+    setIsLoading(true)
     try {
       const res = await fetch("/api/kiosk/training/start", {
         method: "POST",
@@ -1330,15 +1382,13 @@ export default function KioskPage() {
       }
       trainingTicketRef.current = json.ticket
     } catch (err) {
+      setVideoStarted(false)
+      videoPlayingRef.current = false
       setError(err instanceof Error ? err.message : "Could not start training. Please try again.")
       return
     } finally {
       setIsLoading(false)
     }
-
-    setVideoStarted(true)
-    setVideoProgress(0)
-    videoPlayingRef.current = true
   }
 
   async function verifyKioskCode() {
@@ -1436,6 +1486,7 @@ export default function KioskPage() {
           visitorCompany: form.company,
           purpose: form.purpose,
           visitorTypeName: selectedVisitorType.name,
+          visitorTypeId: selectedVisitorType.id,
         })
 
         setMode("training")
@@ -1577,8 +1628,9 @@ export default function KioskPage() {
           booking_id: selectedBooking?.id || null,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
+          photo_missing: !capturedPhoto && (photoStaffOverride || Boolean(cameraIssue)),
         }),
       })
       const signInData = await signInRes.json()
@@ -1656,7 +1708,7 @@ export default function KioskPage() {
           booking_id: selectedBooking.id,
           timezone: currentTimezone,
           idempotency_key: signInIdempotencyKeyRef.current,
-          coords: kioskCoordsPayload(),
+          coords: await kioskCoordsPayload(),
           staff_override: geofenceOverride || undefined,
         }),
       })
@@ -1710,16 +1762,23 @@ export default function KioskPage() {
   async function startCamera() {
     try {
       setCameraError(null)
+      setCameraIssue(null)
+      setCameraReady(false)
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraIssue("unavailable")
+        setCameraError(copy.photoCameraUnavailable)
+        return
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
       })
       setCameraStream(stream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
     } catch (err) {
       console.error("Camera access error:", err)
-      setCameraError("Unable to access camera. Please allow camera access or skip photo.")
+      const issue = classifyCameraError(err)
+      setCameraIssue(issue)
+      setCameraError(issue === "denied" ? copy.photoCameraDenied : copy.photoCameraUnavailable)
+      setCameraReady(false)
     }
   }
 
@@ -1728,6 +1787,7 @@ export default function KioskPage() {
       cameraStream.getTracks().forEach(track => track.stop())
       setCameraStream(null)
     }
+    setCameraReady(false)
   }
 
   function capturePhoto() {
@@ -1799,6 +1859,26 @@ export default function KioskPage() {
     }
   }, [])
 
+  // Attach the stream after photo mode mounts, then wait until video.play() resolves.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!cameraStream || !video || mode !== "photo" || capturedPhoto) {
+      return
+    }
+    let cancelled = false
+    setCameraReady(false)
+    void attachAndPlayCamera(video, cameraStream)
+      .then(() => {
+        if (!cancelled) setCameraReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) setCameraReady(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [cameraStream, mode, capturedPhoto])
+
   // Go to photo mode after training (or directly if no training needed)
   /**
    * Gate the photo step behind the NDA when one is required.
@@ -1857,11 +1937,9 @@ export default function KioskPage() {
       return
     }
     stopCamera()
+    setCameraReady(false)
     setMode("photo")
-    // Start camera after a brief delay to allow mode change
-    setTimeout(() => {
-      startCamera()
-    }, 100)
+    void startCamera()
   }
 
   async function handleSignOut(e: React.FormEvent) {
@@ -1943,6 +2021,7 @@ export default function KioskPage() {
     })
     setCapturedPhoto(null)
     setVisitorPhotoUrl(null)
+    setCameraIssue(null)
     setOtherCompanyName("")
     setCompanySearch("")
     setCompanyResults([])
@@ -2213,6 +2292,15 @@ export default function KioskPage() {
 
   const selectedVisitorType = visitorTypes.find((t) => t.id === form.visitorTypeId)
   const copy = visitorCopy(lang)
+  const staffFenceDetail =
+    fenceDistance != null && fenceRadius != null
+      ? staffGeofenceLine({
+          copy,
+          distanceMeters: fenceDistance,
+          site: currentLocation?.name || "this site",
+          radiusMeters: fenceRadius,
+        })
+      : null
   const visitorBlockedByGeofence =
     (clientGate.blocked && clientGate.reason === "checking") || (isOutsideGeofence && !geofenceOverride)
 
@@ -2261,6 +2349,10 @@ export default function KioskPage() {
     }
   }, [mode, videoStarted, trainingWatched, isLoading])
 
+  if (kioskBootScreen({ sessionChecked, hasSession: Boolean(receptionistUser) }) === "loading") {
+    return <KioskSessionLoading />
+  }
+
   return (
     <div className="kiosk-touch min-h-screen bg-background text-foreground">
       {mode === "receptionist-login" ? (
@@ -2293,6 +2385,35 @@ export default function KioskPage() {
                     minute: "2-digit",
                   })}
                 </span>
+                {siteKind === "none" ? (
+                  receptionistUser ? (
+                    <span className="truncate text-[#8a4500]">{copy.noSitesStaff}</span>
+                  ) : null
+                ) : siteKind === "detecting" || currentLocation ? (
+                  <KioskSiteLine
+                    siteName={currentLocation?.name ?? ""}
+                    meters={siteMeters}
+                    unavailable={siteUnavailable}
+                    detecting={siteKind === "detecting"}
+                    copy={copy}
+                  />
+                ) : null}
+              </div>
+              <div className={`min-w-0 md:hidden ${receptionistUser && siteKind !== "detecting" ? "hidden" : "max-w-[36%]"}`}>
+                {siteKind === "none" ? (
+                  receptionistUser ? (
+                    <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>
+                  ) : null
+                ) : siteKind === "detecting" || currentLocation ? (
+                  <KioskSiteLine
+                    siteName={currentLocation?.name ?? ""}
+                    meters={siteMeters}
+                    unavailable={siteUnavailable}
+                    detecting={siteKind === "detecting"}
+                    copy={copy}
+                    compact
+                  />
+                ) : null}
               </div>
               <LangToggle
                 lang={lang}
@@ -2301,89 +2422,13 @@ export default function KioskPage() {
                   setLang(next)
                 }}
               />
-              <div className="hidden items-center gap-2 text-sm xl:flex portrait:hidden">
-                {isDetectingLocation ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                    <span className="text-muted-foreground">Detecting location...</span>
-                  </>
-                ) : isSelectedDifferentFromNearest && currentLocation ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-amber-500" />
-                    <span className="text-foreground font-medium">{currentLocation.name}</span>
-                    {selectedLocationDistance !== null && (
-                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
-                        {formatDistance(selectedLocationDistance)}
-                      </Badge>
-                    )}
-                    {userCoords && userCoords.accuracy > 100 && (
-                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
-                        Refine
-                      </Button>
-                    )}
-                  </>
-                ) : nearestLocation ? (
-                  <>
-                    <MapPin className="w-4 h-4 text-primary" />
-                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {formatDistance(nearestLocation.distance)}
-                    </Badge>
-                    {userCoords && userCoords.accuracy > 100 && (
-                      <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground" title={`GPS accuracy: ~${Math.round(userCoords.accuracy)}m`}>
-                        Refine
-                      </Button>
-                    )}
-                  </>
-                ) : geoError ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <Button variant="outline" onClick={retryGeolocation} className="text-xs text-muted-foreground hover:text-foreground">
-                      Retry location
-                    </Button>
-                  </>
-                ) : nearestLocation ? (
-                  <>
-                    <MapPin className="w-4 h-4 text-primary" />
-                    <span className="text-foreground font-medium">{locations.find((l) => l.id === selectedLocation)?.name != nearestLocation.location.name ? locations.find((l) => l.id === selectedLocation)?.name : nearestLocation.location.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {formatDistance(nearestLocation.distance)}
-                    </Badge>
-                  </>
-                ) : currentLocation ? (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">{currentLocation.name}</span>
-                  </>
-                ) : (
-                  <>
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Select location</span>
-                  </>
-                )}
-              </div>
-
-              {locations.length > 1 && (
-                <Select value={selectedLocation} onValueChange={(val) => { setSelectedLocation(val); setUserManuallySelectedLocation(true) }}>
-                  <SelectTrigger className="hidden w-[140px] sm:flex sm:w-[180px] portrait:hidden">
-                    <SelectValue placeholder="Location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map((loc) => (
-                      <SelectItem key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
 
               {/* Receptionist lock/logout button */}
               {receptionistUser && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="min-h-12 min-w-12 bg-transparent text-muted-foreground hover:text-foreground"
+                  className="shrink-0 min-h-11 min-w-11 bg-transparent px-2 text-muted-foreground hover:text-foreground"
                   onClick={handleReceptionistLogout}
                   title={`Logged in as ${receptionistUser.name}. Click to lock kiosk.`}
                 >
@@ -2459,6 +2504,20 @@ export default function KioskPage() {
                           autoComplete="current-password"
                         />
                       </div>
+                      {locations.length === 0 ? (
+                        <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
+                      ) : (
+                        <KioskResolvedSite
+                          label={copy.chooseSite}
+                          siteName={currentLocation?.name ?? null}
+                          distanceText={
+                            selectedLocationDistance !== null
+                              ? formatDistance(selectedLocationDistance, "from your location")
+                              : null
+                          }
+                          pendingText={copy.checkingLocation}
+                        />
+                      )}
                       {receptionistError && (
                         <p className="text-sm text-destructive">{receptionistError}</p>
                       )}
@@ -2511,6 +2570,11 @@ export default function KioskPage() {
 
         {mode === "home" && (
           <div className="mx-auto max-w-5xl">
+            {locations.length === 0 ? (
+              <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
+                <p className="font-medium text-[#8a4500]">{copy.noSitesStaff}</p>
+              </div>
+            ) : null}
             {isOutsideGeofence && !geofenceOverride && (
               <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
                 <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
@@ -2540,7 +2604,7 @@ export default function KioskPage() {
               onBooking={() => setMode("booking")}
               onStaff={() => setMode("employee-login")}
               showBooking={hasFeature("visitorPreRegistration")}
-              visitorBlocked={visitorBlockedByGeofence}
+              visitorBlocked={visitorBlockedByGeofence || locations.length === 0}
             />
             <div className="mt-6">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
@@ -3192,7 +3256,9 @@ export default function KioskPage() {
                       value={signOutIdentifier}
                       onChange={(e) => setSignOutIdentifier(e.target.value)}
                       placeholder="V04821 or name@example.com"
-                      autoCapitalize="characters"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       autoComplete="off"
                     />
                   </div>
@@ -3252,7 +3318,7 @@ export default function KioskPage() {
                       placeholder="Enter your password"
                     />
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="rememberMe"
@@ -3267,28 +3333,19 @@ export default function KioskPage() {
                       Forgot password?
                     </Link>
                   </div>
-                  {currentLocation && (
-                    <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center gap-3">
-                        <Building2 className="w-5 h-5 text-primary" />
-                        <div>
-                          <p className="text-sm font-medium">Signing in at {currentLocation.name}</p>
-                          {selectedLocationDistance !== null && (
-                            <p className="text-xs text-muted-foreground">
-                              {formatDistance(selectedLocationDistance, "from your location")}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {/* {userLocationName && (
-                        <div className="flex items-center gap-3 pt-1 border-t border-border/50">
-                          <MapPin className="w-4 h-4 text-muted-foreground" />
-                          <p className="text-xs text-muted-foreground">
-                            Your current location: <span className="font-medium text-foreground">{userLocationName}</span>
-                          </p>
-                        </div>
-                      )} */}
-                    </div>
+                  {locations.length === 0 ? (
+                    <p className="text-sm text-[#8a4500]">{copy.noSitesStaff}</p>
+                  ) : (
+                    <KioskResolvedSite
+                      label={copy.chooseSite}
+                      siteName={currentLocation?.name ?? null}
+                      distanceText={
+                        selectedLocationDistance !== null
+                          ? formatDistance(selectedLocationDistance, "from your location")
+                          : null
+                      }
+                      pendingText={copy.checkingLocation}
+                    />
                   )}
 
                   {isOutsideGeofence && (
@@ -3461,10 +3518,15 @@ export default function KioskPage() {
               <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0 space-y-4 sm:space-y-6">
                 <div className="relative">
                   {selectedVisitorType.training_video_url ? (
-                    videoStarted ? (
+                    <>
                       <TrainingPlayer
                         url={selectedVisitorType.training_video_url}
                         title={selectedVisitorType.training_title || copy.trainingTitle}
+                        autoPlay={videoStarted}
+                        unmuteLabel={copy.tapToUnmute}
+                        onPlaybackReady={(controls) => {
+                          trainingPlaybackRef.current = controls
+                        }}
                         onDuration={setVideoSeconds}
                         onPlayingChange={(playing) => {
                           videoPlayingRef.current = playing
@@ -3476,10 +3538,9 @@ export default function KioskPage() {
                           setVideoProgress(100)
                         }}
                       />
-                    ) : (
-                      <div className="aspect-video bg-muted rounded-lg overflow-hidden relative">
+                      {!videoStarted ? (
                         <div
-                          className="absolute inset-0 bg-foreground/60 flex flex-col items-center justify-center cursor-pointer rounded-lg"
+                          className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-lg bg-foreground/60 cursor-pointer"
                           onClick={() => void startVideoProgress()}
                         >
                           <div className="w-20 h-20 rounded-full bg-background flex items-center justify-center mb-4 hover:scale-110 transition-transform">
@@ -3487,8 +3548,8 @@ export default function KioskPage() {
                           </div>
                           <p className="text-background font-medium text-lg">{copy.tapToStart}</p>
                         </div>
-                      </div>
-                    )
+                      ) : null}
+                    </>
                   ) : (
                     <div className="aspect-video w-full flex flex-col items-center justify-center text-muted-foreground rounded-lg bg-muted">
                       <PlayCircle className="w-16 h-16 mb-4 opacity-50" />
@@ -3752,6 +3813,7 @@ export default function KioskPage() {
                     <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-4">
                       <Camera className="w-16 h-16 mb-4 opacity-50" />
                       <p className="text-center">{cameraError}</p>
+                      <p className="mt-2 text-sm font-medium text-[#00703f]">{copy.askReception}</p>
                       <Button variant="outline" onClick={startCamera} className="mt-4 bg-transparent">
                         Try Again
                       </Button>
@@ -3772,7 +3834,7 @@ export default function KioskPage() {
                         className="w-full h-full object-cover"
                         style={{ transform: "scaleX(-1)" }}
                       />
-                      {!cameraStream && (
+                      {!cameraReady && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
                           <Camera className="w-16 h-16 mb-4 opacity-50 text-muted-foreground" />
                           <p className="text-muted-foreground">Starting camera...</p>
@@ -3813,7 +3875,20 @@ export default function KioskPage() {
                   ) : (
                     <>
                       {typeRequiresPhoto(selectedVisitorType) ? (
-                        receptionistUser ? (
+                        cameraIssue ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setCapturedPhoto(null)
+                              stopCamera()
+                              completeSignIn()
+                            }}
+                            className="flex-1 bg-transparent"
+                            disabled={isLoading}
+                          >
+                            {copy.askReception}
+                          </Button>
+                        ) : receptionistUser ? (
                           <Button
                             variant="outline"
                             onClick={() => {
@@ -3847,7 +3922,7 @@ export default function KioskPage() {
                       <Button
                         onClick={capturePhoto}
                         className="flex-1"
-                        disabled={!cameraStream || isLoading}
+                        disabled={!cameraReady || isLoading}
                       >
                         {isLoading ? (
                           <>

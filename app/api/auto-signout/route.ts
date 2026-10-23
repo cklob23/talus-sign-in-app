@@ -4,16 +4,17 @@ import nodemailer from "nodemailer"
 import { smtpTransportOptions } from "@/lib/smtp-transport"
 import { isUndefinedColumn, isUndefinedTable } from "@/lib/idempotency"
 import {
-  asBool,
   autoSignoutEmailKey,
   getLocalTimeParts,
   isWithinTriggerWindow,
-  parseTimeToMinutes,
+  locationOverrideFromRow,
+  resolveAutoSignOutSettings,
   selectDueVisitorIds,
 } from "@/lib/auto-signout"
 import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock } from "@/lib/email-shell"
+import { resolveDisplayTimeZone } from "@/lib/timezone"
 
 export const maxDuration = 60
 
@@ -53,9 +54,11 @@ async function getSmtpSettings(supabase: ReturnType<typeof createAdminClient>) {
 /**
  * Core auto-signout logic. Called by both GET (Vercel Cron) and POST (manual).
  *
- * The cron runs every 15 minutes. For each location where auto_sign_out is
- * enabled, we check if the local time is in the 23:45–23:59 window (11:45 PM
- * to 11:59 PM). If so, we sign out all active visitors and email their hosts.
+ * The cron runs every 15 minutes. For each location, enable and time resolve
+ * as location override, then global settings (location_id IS NULL), then
+ * employees 18:00 / visitors 23:45. Times are local wall-clock in that
+ * location's timezone. Employees use a 15-minute window after the time plus
+ * a 14-hour max-duration safety net. Visitors sign out after the cutoff.
  */
 async function runAutoSignout(request: Request) {
   try {
@@ -77,10 +80,22 @@ async function runAutoSignout(request: Request) {
     const nowDate = new Date()
     const now = nowDate.toISOString()
 
-    // Get all locations with their timezone
-    const { data: locations } = await supabase
+    // Get all locations with timezone and optional per-location overrides.
+    // Missing override columns (migration not applied yet) fall back to global.
+    let { data: locations, error: locationsError } = await supabase
       .from("locations")
-      .select("id, name, timezone")
+      .select("id, name, timezone, auto_sign_out_employees, auto_sign_out_employees_time, auto_sign_out_visitors, auto_sign_out_visitors_time")
+
+    if (locationsError && isUndefinedColumn(locationsError)) {
+      const retry = await supabase.from("locations").select("id, name, timezone")
+      locations = retry.data
+      locationsError = retry.error
+    }
+
+    if (locationsError) {
+      console.error("[Auto Sign-out] Error loading locations:", locationsError)
+      return NextResponse.json({ error: "Failed to load locations" }, { status: 500 })
+    }
 
     if (!locations || locations.length === 0) {
       return NextResponse.json({
@@ -131,27 +146,21 @@ async function runAutoSignout(request: Request) {
     const settingsMap: Record<string, unknown> = {}
     if (autoSettings) for (const row of autoSettings) settingsMap[row.key] = row.value
 
-    const visitorAutoEnabled = asBool(
-      settingsMap.auto_sign_out_visitors ?? settingsMap.auto_sign_out,
-      true,
-    )
-    const employeeAutoEnabled = asBool(settingsMap.auto_sign_out_employees, true)
-    const visitorTargetMinutes =
-      parseTimeToMinutes(settingsMap.auto_sign_out_visitors_time) ?? 23 * 60 + 45 // 23:45
-    const employeeTargetMinutes =
-      parseTimeToMinutes(settingsMap.auto_sign_out_employees_time) ?? 18 * 60 // 18:00
-
-    if (!visitorAutoEnabled && !employeeAutoEnabled) {
-      return NextResponse.json({
-        success: true,
-        message: "Auto sign-out is disabled for both visitors and employees",
-        signedOut: 0,
-        timestamp: now,
-        locations: [],
-      })
+    const globalAutoSignOut = {
+      visitorsEnabled: settingsMap.auto_sign_out_visitors,
+      visitorsTime: settingsMap.auto_sign_out_visitors_time,
+      employeesEnabled: settingsMap.auto_sign_out_employees,
+      employeesTime: settingsMap.auto_sign_out_employees_time,
+      legacyAutoSignOut: settingsMap.auto_sign_out,
     }
 
     for (const location of locations) {
+      const resolved = resolveAutoSignOutSettings(globalAutoSignOut, locationOverrideFromRow(location))
+      const visitorAutoEnabled = resolved.visitorsEnabled
+      const employeeAutoEnabled = resolved.employeesEnabled
+      const visitorTargetMinutes = resolved.visitorsTargetMinutes
+      const employeeTargetMinutes = resolved.employeesTargetMinutes
+
       const tz = location.timezone || "UTC"
       const { hour, minute, localMinutes } = getLocalTimeParts(tz, nowDate)
       const localTimeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
@@ -364,7 +373,7 @@ async function runAutoSignout(request: Request) {
             company: visitor.company,
             badge: (signIn as { badge_number?: string | null }).badge_number,
             signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
-              ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, tz)
+              ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, resolveDisplayTimeZone(location.timezone))
               : null,
           })
         }
@@ -376,7 +385,7 @@ async function runAutoSignout(request: Request) {
               kind: "auto",
               hostName: hv.hostName,
               locationName: location.name,
-              whenLabel: `${localTimeStr} ${tz}`,
+              whenLabel: formatMailClock(now, resolveDisplayTimeZone(location.timezone)),
               visitors: hv.visitors,
               reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
               logoUrl: smtp.companyLogo,

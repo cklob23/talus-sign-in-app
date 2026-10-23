@@ -2,11 +2,13 @@ import assert from "node:assert/strict"
 import { beforeEach, describe, it } from "node:test"
 import {
   evaluateGeofence,
+  formatMeters,
   isGeofenceEnabled,
   kioskClientGate,
   parseDeviceCoords,
   shouldEnforceGeofence,
 } from "./checkin-geofence.ts"
+import { formatRadiusMeters } from "./location-radius.ts"
 import {
   checkCoordsFreshness,
   isImpossibleJump,
@@ -185,5 +187,14 @@ describe("kioskClientGate", () => {
     })
     assert.equal(gate.blocked, false)
     assert.equal(gate.reason, "ok")
+  })
+})
+
+describe("formatMeters", () => {
+  it("matches the header distance formatter", () => {
+    assert.equal(formatMeters(200), "200 m")
+    assert.equal(formatMeters(76_220), "76.2 km")
+    assert.equal(formatMeters(76_220), formatRadiusMeters(76_220))
+    assert.equal(formatMeters(1000), "1 km")
   })
 })

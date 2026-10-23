@@ -5,7 +5,7 @@ import { smtpTransportOptions } from "@/lib/smtp-transport"
 import { renderSignoutSummaryEmail } from "@/lib/signout-mail"
 import { resolveAppOrigin } from "@/lib/nda"
 import { formatMailClock, formatMailTime } from "@/lib/email-shell"
-import { toIANATimezone } from "@/lib/timezone"
+import { resolveDisplayTimeZone } from "@/lib/timezone"
 
 export const maxDuration = 60
 
@@ -222,7 +222,7 @@ async function handleLocationSignout(request: Request) {
                         company: visitor.company,
                         badge: (signIn as { badge_number?: string | null }).badge_number,
                         signedInAt: (signIn as { sign_in_time?: string | null }).sign_in_time
-                            ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, toIANATimezone(location.timezone))
+                            ? formatMailClock((signIn as { sign_in_time: string }).sign_in_time, resolveDisplayTimeZone(location.timezone))
                             : null,
                     })
                 }
@@ -234,7 +234,7 @@ async function handleLocationSignout(request: Request) {
                             kind: "location",
                             hostName: hv.hostName,
                             locationName: location.name,
-                            whenLabel: formatMailTime(now, toIANATimezone(location.timezone)),
+                            whenLabel: formatMailTime(now, resolveDisplayTimeZone(location.timezone)),
                             visitors: hv.visitors,
                             reviewUrl: origin ? `${origin.replace(/\/+$/, "")}/admin/history` : null,
                             logoUrl: smtp.companyLogo,

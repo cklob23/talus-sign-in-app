@@ -17,6 +17,7 @@ export type AuditAction =
   | "visitor.auto_sign_out"
   | "visitor.not_my_visitor"
   | "visitor.training_link_sent"
+  | "visitor.photo_missing"
   // Employee actions
   | "employee.sign_in"
   | "employee.sign_out"
@@ -26,6 +27,8 @@ export type AuditAction =
   | "booking.updated"
   | "booking.cancelled"
   | "booking.checked_in"
+  | "booking.invite_sent"
+  | "booking.invite_failed"
   // Host actions
   | "host.created"
   | "host.updated"
@@ -64,6 +67,7 @@ export type AuditAction =
   | "kiosk.receptionist_login"
   | "kiosk.receptionist_logout"
   | "kiosk.geofence_override"
+  | "kiosk.location_changed"
   | "geofence.suspicious"
   | "geofence.staff_override"
   // Vendor actions
@@ -76,6 +80,11 @@ export type AuditAction =
   | "nda.uploaded"
   | "nda.signed"
   | "nda.downloaded"
+  | "report.sent"
+  | "report.failed"
+  | "report.schedule_created"
+  | "report.schedule_updated"
+  | "report.schedule_deleted"
 
 export type EntityType =
   | "user"
@@ -93,6 +102,7 @@ export type EntityType =
   | "vendor"
   | "qr_code"
   | "nda"
+  | "report"
 
 interface LogAuditParams {
   action: AuditAction

@@ -19,6 +19,7 @@ export const COMMON_TIMEZONES = [
   { value: "Europe/Berlin", label: "Berlin (CET)" },
   { value: "Europe/Amsterdam", label: "Amsterdam (CET)" },
   { value: "Europe/Madrid", label: "Madrid (CET)" },
+  { value: "Africa/Nairobi", label: "Nairobi (EAT)" },
   { value: "Europe/Rome", label: "Rome (CET)" },
   { value: "Europe/Moscow", label: "Moscow (MSK)" },
   { value: "Asia/Dubai", label: "Dubai (GST)" },
