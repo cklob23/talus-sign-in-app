@@ -26,6 +26,8 @@ describe("visitor copy", () => {
     assert.equal(en.trainingAck, "I watched the video. I will follow the safety rules.")
     assert.equal(es.trainingAck, "Vi el video. Seguiré las reglas de seguridad.")
     assert.equal(en.geofenceVisitor, "Sign in is paused. Please ask reception.")
+    assert.equal(en.geofenceBlockedHelp, "Visitor and staff sign-in are only available on site.")
+    assert.equal(es.geofenceBlockedHelp, "El registro de visitantes y personal solo está disponible en el sitio.")
     assert.equal(es.emailHint.includes("video"), true)
     assert.equal(en.emailHint.includes("visit record"), false)
   })
