@@ -2,6 +2,7 @@
 
 import { Bell, CalendarCheck, Clock, CreditCard, LogOut, PlayCircle, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { KioskGeofenceBlocked } from "@/components/kiosk/kiosk-geofence-blocked"
 import { fill, type VisitorCopy } from "@/lib/visitor-i18n"
 
 export function KioskWelcome({
@@ -12,7 +13,11 @@ export function KioskWelcome({
   onBooking,
   onStaff,
   showBooking,
-  visitorBlocked,
+  offerSignIn,
+  blockedTitle,
+  blockedHelp,
+  blockedStaffDetail,
+  onOverride,
 }: {
   companyName: string
   copy: VisitorCopy
@@ -21,7 +26,11 @@ export function KioskWelcome({
   onBooking: () => void
   onStaff: () => void
   showBooking: boolean
-  visitorBlocked: boolean
+  offerSignIn: boolean
+  blockedTitle?: string
+  blockedHelp?: string
+  blockedStaffDetail?: string | null
+  onOverride?: (() => void) | null
 }) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8">
@@ -30,28 +39,37 @@ export function KioskWelcome({
         <p className="mt-2 text-17 text-muted-foreground md:text-20">{copy.welcomeSubtitle}</p>
       </div>
       <div className="grid gap-6 md:grid-cols-2">
-        <button
-          type="button"
-          disabled={visitorBlocked}
-          onClick={onSignIn}
-          className="v2-hero flex min-h-[280px] flex-col gap-4 border-2 border-primary p-8 text-left disabled:opacity-50"
-        >
-          <span className="flex h-[72px] w-[72px] items-center justify-center rounded-[20px] bg-primary text-primary-foreground">
-            <UserPlus className="h-9 w-9" />
-          </span>
-          <span>
-            <span className="block text-24 font-bold">{copy.signInTitle}</span>
-            <span className="mt-1 block text-muted-foreground">{copy.signInHelp}</span>
-          </span>
-          <span className="flex flex-col gap-2 text-17">
-            <span className="flex items-center gap-3 text-primary-text"><Clock className="h-5 w-5" />{copy.signInMinutes}</span>
-            <span className="flex items-center gap-3 text-primary-text"><PlayCircle className="h-5 w-5" />{copy.signInTraining}</span>
-            <span className="flex items-center gap-3 text-primary-text"><Bell className="h-5 w-5" />{copy.signInHost}</span>
-          </span>
-          <span className="mt-auto inline-flex min-h-16 items-center justify-center rounded-xl bg-primary px-5 text-20 font-semibold text-primary-foreground">
-            {copy.signInTitle}
-          </span>
-        </button>
+        {offerSignIn ? (
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="v2-hero flex min-h-[280px] flex-col gap-4 border-2 border-primary p-8 text-left"
+          >
+            <span className="flex h-[72px] w-[72px] items-center justify-center rounded-[20px] bg-primary text-primary-foreground">
+              <UserPlus className="h-9 w-9" />
+            </span>
+            <span>
+              <span className="block text-24 font-bold">{copy.signInTitle}</span>
+              <span className="mt-1 block text-muted-foreground">{copy.signInHelp}</span>
+            </span>
+            <span className="flex flex-col gap-2 text-17">
+              <span className="flex items-center gap-3 text-primary-text"><Clock className="h-5 w-5" />{copy.signInMinutes}</span>
+              <span className="flex items-center gap-3 text-primary-text"><PlayCircle className="h-5 w-5" />{copy.signInTraining}</span>
+              <span className="flex items-center gap-3 text-primary-text"><Bell className="h-5 w-5" />{copy.signInHost}</span>
+            </span>
+            <span className="mt-auto inline-flex min-h-16 items-center justify-center rounded-xl bg-primary px-5 text-20 font-semibold text-primary-foreground">
+              {copy.signInTitle}
+            </span>
+          </button>
+        ) : (
+          <KioskGeofenceBlocked
+            title={blockedTitle || copy.geofenceVisitor}
+            help={blockedHelp || copy.geofenceBlockedHelp}
+            staffDetail={blockedStaffDetail}
+            onOverride={onOverride}
+            overrideLabel={onOverride ? copy.geofenceOverride : undefined}
+          />
+        )}
         <button
           type="button"
           onClick={onSignOut}
@@ -74,17 +92,21 @@ export function KioskWelcome({
         </button>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-4 text-muted-foreground">
-        {showBooking ? (
-          <button type="button" className="inline-flex min-h-12 items-center gap-2 text-primary-text" onClick={onBooking} disabled={visitorBlocked}>
+        {offerSignIn && showBooking ? (
+          <button type="button" className="inline-flex min-h-12 items-center gap-2 text-primary-text" onClick={onBooking}>
             <CalendarCheck className="h-5 w-5" />
             {copy.bookingHint}
           </button>
-        ) : (
+        ) : offerSignIn ? (
           <span>{copy.bookingHint}</span>
+        ) : (
+          <span />
         )}
-        <Button type="button" variant="ghost" className="min-h-12 text-primary-text" onClick={onStaff}>
-          {copy.staffSignIn}
-        </Button>
+        {offerSignIn ? (
+          <Button type="button" variant="ghost" className="min-h-12 text-primary-text" onClick={onStaff}>
+            {copy.staffSignIn}
+          </Button>
+        ) : null}
       </div>
     </div>
   )

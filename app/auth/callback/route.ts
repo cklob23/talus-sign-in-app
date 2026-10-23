@@ -100,38 +100,10 @@ export async function GET(request: Request) {
         }
 
         if (profile && ["employee", "admin", "staff"].includes(profile.role)) {
-          // Only create a sign-in record if there isn't already an open one.
-          // Inserting unconditionally produced multiple open rows, which then
-          // broke the kiosk's .single() lookup and blanked the "Signed in at" time.
-          const { data: openSignIn } = await supabase
-            .from("employee_sign_ins")
-            .select("id")
-            .eq("profile_id", profile.id)
-            .is("sign_out_time", null)
-            .limit(1)
-
-          if (!openSignIn || openSignIn.length === 0) {
-            await supabase.from("employee_sign_ins").insert({
-              profile_id: profile.id,
-              location_id: locationId,
-              auto_signed_in: false,
-              device_id: "Microsoft OAuth",
-            })
-          }
-
-          // Log employee sign-in
-          await logAuditServer({
-            supabase,
-            userId: profile.id,
-            action: "employee.sign_in",
-            entityType: "employee",
-            entityId: profile.id,
-            description: `Employee signed in via Microsoft: ${profile.full_name || profile.email}`,
-            metadata: { method: "microsoft_oauth", location_id: locationId }
-          })
-
+          // Site sign-in is recorded on the kiosk after the fence check.
+          // Writing employee_sign_ins here would bypass the on-site radius.
           return createRedirectWithCookies(
-            getRedirectUrl(`/kiosk?employee_signed_in=true&profile_id=${profile.id}`)
+            getRedirectUrl(`/kiosk?employee_pending_signin=true&profile_id=${profile.id}`)
           )
         } else if (!profile) {
           // No profile found - create one with employee role
@@ -148,15 +120,8 @@ export async function GET(request: Request) {
             .single()
 
           if (!createError && newProfile) {
-            await supabase.from("employee_sign_ins").insert({
-              profile_id: newProfile.id,
-              location_id: locationId,
-              auto_signed_in: false,
-              device_id: "Microsoft OAuth",
-            })
-
             return createRedirectWithCookies(
-              getRedirectUrl(`/kiosk?employee_signed_in=true&profile_id=${newProfile.id}`)
+              getRedirectUrl(`/kiosk?employee_pending_signin=true&profile_id=${newProfile.id}`)
             )
           }
 

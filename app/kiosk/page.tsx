@@ -55,9 +55,11 @@ import { useBranding } from "@/hooks/use-branding"
 import { useNdaEnabled } from "@/hooks/use-features"
 import { TrainingPlayer } from "@/components/training-player"
 import { kioskClientGate, shouldEnforceGeofence } from "@/lib/checkin-geofence"
+import { kioskBlockedCopy, kioskHomeSignInVisibility } from "@/lib/kiosk-sign-in-gate"
 import { resolveFreshDeviceCoords, STALE_LOCATION_MESSAGE } from "@/lib/fresh-device-coords"
 import { LangToggle } from "@/components/lang-toggle"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
+import { KioskGeofenceBlocked } from "@/components/kiosk/kiosk-geofence-blocked"
 import { KioskTypeStep } from "@/components/kiosk/kiosk-type-step"
 import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
 import { KioskResolvedSite } from "@/components/kiosk/kiosk-resolved-site"
@@ -179,6 +181,7 @@ export default function KioskPage() {
   const [useMiles, setUseMiles] = useState(false)
 
   const [employeeSignedIn, setEmployeeSignedIn] = useState(false)
+  const [pendingEmployeeProfileId, setPendingEmployeeProfileId] = useState<string | null>(null)
 
   // Geolocation (via Vincenty-based high-precision hook with averaged readings)
   // When an employee is signed in, enable continuous monitoring to detect if they leave the geofence
@@ -454,6 +457,12 @@ export default function KioskPage() {
         setError("Sign in failed. Please try again.")
       }
       // Clear the URL params
+      router.replace("/kiosk")
+      return
+    }
+
+    if (searchParams.get("employee_pending_signin") === "true" && profileId) {
+      setPendingEmployeeProfileId(profileId)
       router.replace("/kiosk")
       return
     }
@@ -919,7 +928,36 @@ export default function KioskPage() {
     }
   }, [mode, rememberedEmployee])
 
+  async function completeEmployeeSiteSignIn(
+    profileId: string,
+    method: "password" | "microsoft_oauth",
+  ) {
+    if (!selectedLocation) {
+      throw new Error("No location selected. Please select a location first.")
+    }
+    const response = await fetch("/api/kiosk/employee-signin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile_id: profileId,
+        location_id: selectedLocation,
+        coords: await kioskCoordsPayload(),
+        staff_override: geofenceOverride || undefined,
+        method,
+      }),
+    })
+    const result = await response.json()
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to sign in")
+    }
+    return result
+  }
+
   async function autoSignInEmployee(employee: RememberedEmployee) {
+    if (!signInOffer.offerEmployeeSignIn) {
+      setError(visitorCopy(lang).geofenceVisitor)
+      return
+    }
     if (!selectedLocation) {
       setError("No location selected. Please select a location first.")
       return
@@ -978,6 +1016,74 @@ export default function KioskPage() {
       setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!pendingEmployeeProfileId || !selectedLocation || employeeSignedIn) return
+    if (clientGate.blocked && clientGate.reason === "checking") return
+    let cancelled = false
+    async function finishPendingMicrosoftSignIn() {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const result = await completeEmployeeSiteSignIn(pendingEmployeeProfileId, "microsoft_oauth")
+        if (cancelled) return
+        setCurrentEmployee({
+          id: result.profile.id,
+          email: result.profile.email,
+          full_name: result.profile.full_name,
+          phone: null,
+          department: null,
+          role: result.profile.role,
+          custom_role_id: result.profile.custom_role_id,
+          location_id: result.profile.location_id,
+          timezone: result.profile.timezone,
+          avatar_url: result.profile.avatar_url,
+          last_auth_time: result.profile.last_auth_time,
+          last_password_change: result.profile.last_password_change,
+          account_locked_until: result.profile.account_locked_until,
+          failed_login_attempts: result.profile.failed_login_attempts,
+          created_at: "",
+          updated_at: "",
+        })
+        setEmployeeSignInRecord({
+          sign_in_time: result.signIn.sign_in_time,
+          location_name: result.signIn.location_name,
+          timezone: result.signIn.timezone,
+        })
+        setEmployeeSignedIn(true)
+        setMode("employee-dashboard")
+        if (typeof window !== "undefined") {
+          const rememberedData: RememberedEmployee = {
+            id: result.profile.id,
+            email: result.profile.email,
+            fullName: result.profile.full_name || "",
+            locationId: result.profile.location_id,
+            role: result.profile.role,
+            custom_role_id: result.profile.custom_role_id || "",
+            avatar_url: result.profile.avatar_url || null,
+            created_at: "",
+            updated_at: "",
+          }
+          localStorage.setItem(REMEMBERED_EMPLOYEE_KEY, JSON.stringify(rememberedData))
+          setRememberedEmployee(rememberedData)
+        }
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : visitorCopy(lang).geofenceVisitor)
+        const supabase = createClient()
+        await supabase.auth.signOut({ scope: "global" }).catch(() => { })
+      } finally {
+        if (!cancelled) {
+          setPendingEmployeeProfileId(null)
+          setIsLoading(false)
+        }
+      }
+    }
+    void finishPendingMicrosoftSignIn()
+    return () => {
+      cancelled = true
+    }
+  }, [pendingEmployeeProfileId, selectedLocation, employeeSignedIn, clientGate.blocked, clientGate.reason, lang])
 
   // Check for existing employee auth session on load
   useEffect(() => {
@@ -1172,7 +1278,7 @@ export default function KioskPage() {
   // Complete sign-in for a pre-registered booking
   async function handleBookingSignIn() {
     if (!selectedBooking) return
-    if (isOutsideGeofence && !geofenceOverride) {
+    if (!signInOffer.offerVisitorSignIn) {
       setError(visitorCopy(lang).geofenceVisitor)
       return
     }
@@ -1430,7 +1536,7 @@ export default function KioskPage() {
   async function handleSignInSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (isOutsideGeofence && !geofenceOverride) {
+    if (!signInOffer.offerVisitorSignIn) {
       setError(visitorCopy(lang).geofenceVisitor)
       return
     }
@@ -2063,17 +2169,17 @@ export default function KioskPage() {
   async function handleEmployeeLogin(e: React.FormEvent) {
     e.preventDefault()
 
-    if (isOutsideGeofence) {
-      setError(`You are too far from ${currentLocation?.name || "the selected location"}. Please move within ${geofenceRadius ? Math.round(geofenceRadius) : 0} meters to sign in.`)
+    if (!signInOffer.offerEmployeeSignIn) {
+      setError(copy.geofenceVisitor)
       return
     }
 
     setIsLoading(true)
     setError(null)
 
-    try {
-      const supabase = createClient()
+    const supabase = createClient()
 
+    try {
       // Sign in with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: employeeEmail,
@@ -2120,42 +2226,14 @@ export default function KioskPage() {
         console.log(`[v0] Password expires in ${daysUntilExpiration} days for user ${profile.email}`)
       }
 
+      const result = await completeEmployeeSiteSignIn(profile.id, "password")
+
       setCurrentEmployee(profile)
-
-      // Create employee sign-in record
-      console.log("[v0] Creating employee sign-in for profile:", profile.id, "at location:", selectedLocation)
-      const signInTime = new Date().toISOString()
-      const selectedLoc = locations.find(l => l.id === selectedLocation)
-      const locationName = selectedLoc?.name
-      const locationTimezone = selectedLoc?.timezone
-
-      const { data: empSignInRecord, error: signInError } = await supabase.from("employee_sign_ins").insert({
-        profile_id: profile.id,
-        location_id: selectedLocation,
-        auto_signed_in: false,
-        device_id: navigator.userAgent,
-      }).select().single()
-
-      if (signInError) {
-        console.log("[v0] Employee sign-in insert error:", signInError)
-        throw signInError
-      }
-
-      // Log employee sign-in via API to bypass RLS
-      await logAuditViaApi({
-        action: "employee.sign_in",
-        entityType: "employee",
-        entityId: profile.id,
-        description: `Employee signed in: ${profile.full_name || profile.email}`,
-        metadata: {
-          profile_id: profile.id,
-          sign_in_id: empSignInRecord?.id,
-          location_id: selectedLocation,
-          method: "password"
-        }
+      setEmployeeSignInRecord({
+        sign_in_time: result.signIn.sign_in_time,
+        location_name: result.signIn.location_name,
+        timezone: result.signIn.timezone,
       })
-
-      setEmployeeSignInRecord({ sign_in_time: signInTime, location_name: locationName, timezone: locationTimezone })
 
       // Remember employee if checkbox is checked
       if (rememberMe) {
@@ -2176,6 +2254,7 @@ export default function KioskPage() {
       setEmployeeSignedIn(true)
       setMode("employee-dashboard")
     } catch (err) {
+      await supabase.auth.signOut({ scope: "global" }).catch(() => { })
       setError(err instanceof Error ? err.message : "Failed to sign in")
     } finally {
       setIsLoading(false)
@@ -2183,6 +2262,11 @@ export default function KioskPage() {
   }
 
   async function handleEmployeeMicrosoftLogin() {
+    if (!signInOffer.offerEmployeeSignIn) {
+      setError(copy.geofenceVisitor)
+      return
+    }
+
     setIsLoading(true)
     setError(null)
 
@@ -2309,6 +2393,15 @@ export default function KioskPage() {
       : null
   const visitorBlockedByGeofence =
     (clientGate.blocked && clientGate.reason === "checking") || (isOutsideGeofence && !geofenceOverride)
+  const signInOffer = kioskHomeSignInVisibility({
+    gateBlocked: clientGate.blocked,
+    staffOverride: geofenceOverride,
+    hasLocations: locations.length > 0,
+  })
+  const blockedCopy = kioskBlockedCopy(
+    locations.length === 0 ? "no_sites" : clientGate.reason === "off" || clientGate.reason === "ok" ? "outside" : clientGate.reason,
+    copy,
+  )
 
   useEffect(() => {
     setLang(readVisitorLang())
@@ -2576,41 +2669,28 @@ export default function KioskPage() {
 
         {mode === "home" && (
           <div className="mx-auto max-w-5xl">
-            {locations.length === 0 ? (
-              <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-                <p className="font-medium text-[#8a4500]">{copy.noSitesStaff}</p>
-              </div>
-            ) : null}
-            {isOutsideGeofence && !geofenceOverride && (
-              <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
-                <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                {receptionistUser && (
-                  <div className="mt-2 space-y-2 text-sm text-warning">
-                    {fenceDistance != null && fenceRadius != null ? (
-                      <p>
-                        {fill(copy.geofenceStaff, {
-                          distance: formatDistance(fenceDistance, ""),
-                          site: currentLocation?.name || "this site",
-                          radius: formatDistance(fenceRadius, ""),
-                        })}
-                      </p>
-                    ) : null}
-                    <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
-                      {copy.geofenceOverride}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
             <KioskWelcome
               companyName={branding.companyName}
               copy={copy}
-              onSignIn={() => setMode("visitor-type")}
+              onSignIn={() => {
+                if (!signInOffer.offerVisitorSignIn) return
+                setMode("visitor-type")
+              }}
               onSignOut={() => setMode("sign-out")}
-              onBooking={() => setMode("booking")}
-              onStaff={() => setMode("employee-login")}
+              onBooking={() => {
+                if (!signInOffer.offerBooking) return
+                setMode("booking")
+              }}
+              onStaff={() => {
+                if (!signInOffer.offerEmployeeSignIn) return
+                setMode("employee-login")
+              }}
               showBooking={hasFeature("visitorPreRegistration")}
-              visitorBlocked={visitorBlockedByGeofence || locations.length === 0}
+              offerSignIn={signInOffer.offerVisitorSignIn}
+              blockedTitle={blockedCopy.title}
+              blockedHelp={blockedCopy.help}
+              blockedStaffDetail={receptionistUser ? staffFenceDetail : null}
+              onOverride={receptionistUser && signInOffer.showBlockedState ? () => void allowSignInAnyway() : null}
             />
             <div className="mt-6">
               {/* Employee Login/Sign Out Card - Show different state based on sign-in status */}
@@ -2659,7 +2739,7 @@ export default function KioskPage() {
               ) : null}
 
               {/* Remembered employee - only show quick sign-in option if NOT already signed in */}
-              {rememberedEmployee && !employeeSignedIn && (
+              {rememberedEmployee && !employeeSignedIn && signInOffer.offerEmployeeSignIn && (
                 <Card className={`mb-4 sm:mb-6 ${isOutsideGeofence ? "border-warning/40 bg-warning-soft" : autoSignInCountdown !== null && autoSignInCountdown > 0 ? "border-green-300 bg-green-50/50" : "border-blue-200 bg-blue-50/50"}`}>
                   <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -2750,38 +2830,35 @@ export default function KioskPage() {
 
         {mode === "visitor-type" && (
           <div>
-            {visitorBlockedByGeofence && (
-              <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-warning/40 bg-warning-soft p-4">
-                <p className="font-medium text-warning">{copy.geofenceVisitor}</p>
-                {receptionistUser && (
-                  <div className="mt-2 space-y-2 text-sm text-warning">
-                    {fenceDistance != null && fenceRadius != null ? (
-                      <p>
-                        {fill(copy.geofenceStaff, {
-                          distance: formatDistance(fenceDistance, ""),
-                          site: currentLocation?.name || "this site",
-                          radius: formatDistance(fenceRadius, ""),
-                        })}
-                      </p>
-                    ) : null}
-                    <Button type="button" variant="outline" className="min-h-12" onClick={() => void allowSignInAnyway()}>
-                      {copy.geofenceOverride}
-                    </Button>
-                  </div>
-                )}
+            {signInOffer.showBlockedState ? (
+              <div className="mx-auto max-w-2xl space-y-6">
+                <Button variant="ghost" className="min-h-14 bg-transparent" onClick={() => setMode("home")}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  {copy.back}
+                </Button>
+                <KioskGeofenceBlocked
+                  title={blockedCopy.title}
+                  help={blockedCopy.help}
+                  staffDetail={receptionistUser ? staffFenceDetail : null}
+                  onOverride={receptionistUser ? () => void allowSignInAnyway() : null}
+                  overrideLabel={copy.geofenceOverride}
+                  compact
+                />
               </div>
+            ) : (
+              <KioskTypeStep
+                types={visitorTypes}
+                copy={copy}
+                onBack={() => setMode("home")}
+                onPick={(id) => {
+                  if (!signInOffer.offerVisitorSignIn) return
+                  setForm({ ...form, visitorTypeId: id })
+                  setFieldErrors({})
+                  setError(null)
+                  setMode("sign-in")
+                }}
+              />
             )}
-            <KioskTypeStep
-              types={visitorTypes}
-              copy={copy}
-              onBack={() => setMode("home")}
-              onPick={(id) => {
-                setForm({ ...form, visitorTypeId: id })
-                setFieldErrors({})
-                setError(null)
-                setMode("sign-in")
-              }}
-            />
           </div>
         )}
 
@@ -3287,6 +3364,15 @@ export default function KioskPage() {
               Back
             </Button>
 
+            {signInOffer.showBlockedState ? (
+              <KioskGeofenceBlocked
+                title={blockedCopy.title}
+                help={blockedCopy.help}
+                staffDetail={receptionistUser ? staffFenceDetail : null}
+                onOverride={receptionistUser ? () => void allowSignInAnyway() : null}
+                overrideLabel={copy.geofenceOverride}
+              />
+            ) : (
             <Card>
               <CardHeader className="p-4 sm:p-6">
                 <div className="flex items-center gap-3 mb-2">
@@ -3354,19 +3440,9 @@ export default function KioskPage() {
                     />
                   )}
 
-                  {isOutsideGeofence && (
-                    <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning-soft p-3">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                      <p className="text-xs text-warning">
-                        You are too far from {currentLocation?.name || "this location"}.
-                        Move within {geofenceRadius ? formatDistance(geofenceRadius, "") : "range"} to sign in.
-                      </p>
-                    </div>
-                  )}
-
                   {error && <p className="text-sm text-destructive">{error}</p>}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || isOutsideGeofence}>
+                  <Button type="submit" className="w-full" size="lg" disabled={isLoading || !signInOffer.offerEmployeeSignIn}>
                     {isLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -3394,7 +3470,7 @@ export default function KioskPage() {
                         className="w-full bg-transparent"
                         size="lg"
                         onClick={handleEmployeeMicrosoftLogin}
-                        disabled={isLoading}
+                        disabled={isLoading || !signInOffer.offerEmployeeSignIn}
                       >
                         <svg className="mr-2 h-5 w-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect x="1" y="1" width="9" height="9" fill="#F25022" />
@@ -3409,6 +3485,7 @@ export default function KioskPage() {
                 </form>
               </CardContent>
             </Card>
+            )}
           </div>
         )}
 
