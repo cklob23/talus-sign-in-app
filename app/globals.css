@@ -196,6 +196,7 @@
 
   .landing-page header img {
     filter: invert(1) hue-rotate(180deg);
+    mix-blend-mode: screen;
   }
 }
 
@@ -216,4 +217,5 @@
 
 .dark .landing-page header img {
   filter: invert(1) hue-rotate(180deg);
+  mix-blend-mode: screen;
 }

@@ -159,7 +159,7 @@ function LandingCard({
         className={`mt-auto inline-flex min-h-12 w-full items-center justify-center rounded-[12px] px-5 text-[17px] font-semibold ${
           primary
             ? "bg-[var(--lp-primary)] text-[var(--lp-on-primary)] group-hover:bg-[var(--lp-primary-hover)]"
-            : "border border-[var(--lp-primary)] bg-transparent text-[var(--lp-primary-text)] group-hover:bg-[var(--lp-accent-soft)]"
+            : "border border-[color:var(--lp-primary)] bg-transparent text-[var(--lp-primary-text)] group-hover:bg-[var(--lp-accent-soft)]"
         }`}
       >
         {cta}
