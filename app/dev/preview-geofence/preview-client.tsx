@@ -19,7 +19,7 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
   const show = (id: string) => only === "all" || only === id
 
   return (
-    <div className="min-h-screen space-y-16 bg-[#eef4f0] p-6">
+    <div className="min-h-screen space-y-16 bg-background p-6 text-foreground">
       {show("location-edit") ? (
         <section id="location-edit" className="mx-auto max-w-lg">
           <Dialog open>
@@ -90,12 +90,12 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
                       <Input value="-85.0682674" readOnly />
                     </div>
                   </div>
-                  <div className="p-2.5 bg-green-50 border border-green-200 rounded-lg text-sm">
-                    <p className="font-medium flex items-center gap-1 text-green-700">
-                      <MapPin className="w-3.5 h-3.5" />
+                  <div className="rounded-xl border border-success/30 bg-success-soft p-2.5 text-sm">
+                    <p className="flex items-center gap-1 font-medium text-success">
+                      <MapPin className="h-3.5 w-3.5" />
                       Coordinates Set
                     </p>
-                    <p className="text-xs text-green-600 font-mono mt-0.5">34.0113025, -85.0682674</p>
+                    <p className="mt-0.5 font-mono text-xs text-success">34.0113025, -85.0682674</p>
                   </div>
                 </div>
               </div>
@@ -108,11 +108,11 @@ export function PreviewGeofenceScreens({ screen }: { screen?: string }) {
       ) : null}
 
       {show("kiosk-blocked") ? (
-        <section id="kiosk-blocked" className="mx-auto max-w-5xl rounded-2xl bg-white p-6 shadow">
-          <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-            <p className="font-medium text-[#8a4500]">Sign in is paused. Please ask reception.</p>
-            <div className="mt-2 space-y-2 text-sm text-[#8a4500]">
-              <p>This kiosk is about 76.2 km from Test Location. Sign-in only works within 200 m.</p>
+        <section id="kiosk-blocked" className="mx-auto max-w-5xl rounded-2xl bg-card p-6 shadow-sm">
+          <div className="mb-6 rounded-xl border border-warning/40 bg-warning-soft p-4">
+            <p className="font-medium text-warning">Sign in is paused. Please ask reception.</p>
+            <div className="mt-2 space-y-2 text-sm text-warning">
+              <p>This kiosk looks 73.00km from Test Location. Sign-in is set to stay within 200 m.</p>
               <Button type="button" variant="outline" className="min-h-12">
                 Allow sign-in anyway
               </Button>

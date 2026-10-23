@@ -3,7 +3,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* v2 tokens: accent #00b162 is decorative; primary #00854c is AA button fill. */
+/* v2 tokens. accent #00b162 is decorative. primary #00854c is the AA button fill. */
 :root {
   --background: #f5f8f6;
   --foreground: #0f1a13;
@@ -13,6 +13,8 @@
   --popover-foreground: #0f1a13;
   --primary: #00854c;
   --primary-foreground: #ffffff;
+  --primary-hover: #00703f;
+  --primary-text: #00703f;
   --secondary: #eef4f0;
   --secondary-foreground: #0f1a13;
   --muted: #eef4f0;
@@ -25,36 +27,32 @@
   --input: #7b8b7f;
   --ring: #0a5c36;
   --brand-accent: #00b162;
-  --primary-text: #00703f;
+  --surface: #ffffff;
+  --surface-2: #eef4f0;
+  --field: #7b8b7f;
+  --success: #00703f;
+  --success-soft: #e2f4e9;
   --warning: #8a4500;
   --warning-soft: #fff3df;
+  --danger: #b3000a;
+  --danger-soft: #fdecec;
+  --focus: #0a5c36;
   --chart-1: oklch(0.65 0.2 160);
   --chart-2: oklch(0.55 0.15 200);
   --chart-3: oklch(0.7 0.18 80);
   --chart-4: oklch(0.6 0.2 280);
   --chart-5: oklch(0.75 0.15 40);
   --radius: 12px;
-  --sidebar: #f5f8f6;
+  --radius-card: 16px;
+  --radius-hero: 24px;
+  --sidebar: #ffffff;
   --sidebar-foreground: #0f1a13;
   --sidebar-primary: #00854c;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: oklch(0.92 0.03 150);
-  --sidebar-accent-foreground: oklch(0.25 0.05 150);
-  --sidebar-border: oklch(0.9 0.02 150);
-  --sidebar-ring: oklch(0.65 0.2 160);
-  /* Landing tokens: defined on :root so Tailwind v4 @theme emits them in production. */
-  --lp-bg: #f5f8f6;
-  --lp-surface: #ffffff;
-  --lp-surface-2: #eef4f0;
-  --lp-border: #dce6df;
-  --lp-text: #0f1a13;
-  --lp-muted: #55625a;
-  --lp-primary: #00854c;
-  --lp-primary-hover: #00703f;
-  --lp-on-primary: #ffffff;
-  --lp-primary-text: #00703f;
-  --lp-accent-soft: #e2f4e9;
-  --lp-focus: #0a5c36;
+  --sidebar-accent: #e2f4e9;
+  --sidebar-accent-foreground: #00703f;
+  --sidebar-border: #dce6df;
+  --sidebar-ring: #0a5c36;
 }
 
 .dark {
@@ -66,6 +64,8 @@
   --popover-foreground: #e8efea;
   --primary: #00854c;
   --primary-foreground: #ffffff;
+  --primary-hover: #009656;
+  --primary-text: #4fd68f;
   --secondary: #17231c;
   --secondary-foreground: #e8efea;
   --muted: #17231c;
@@ -78,9 +78,16 @@
   --input: #6f8275;
   --ring: #7fe3ad;
   --brand-accent: #00b162;
-  --primary-text: #4fd68f;
+  --surface: #111a15;
+  --surface-2: #17231c;
+  --field: #6f8275;
+  --success: #4fd68f;
+  --success-soft: #123a26;
   --warning: #f6b44c;
   --warning-soft: #3a2a0e;
+  --danger: #ff8a8a;
+  --danger-soft: #3d1416;
+  --focus: #7fe3ad;
   --chart-1: oklch(0.65 0.2 160);
   --chart-2: oklch(0.6 0.15 200);
   --chart-3: oklch(0.75 0.18 80);
@@ -90,27 +97,15 @@
   --sidebar-foreground: #e8efea;
   --sidebar-primary: #00854c;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: oklch(0.28 0.04 150);
-  --sidebar-accent-foreground: oklch(0.95 0.01 150);
-  --sidebar-border: oklch(0.28 0.02 150);
-  --sidebar-ring: oklch(0.65 0.2 160);
-  --lp-bg: #0a110d;
-  --lp-surface: #111a15;
-  --lp-surface-2: #17231c;
-  --lp-border: #263429;
-  --lp-text: #e8efea;
-  --lp-muted: #a0afa5;
-  --lp-primary: #00854c;
-  --lp-primary-hover: #009656;
-  --lp-on-primary: #ffffff;
-  --lp-primary-text: #4fd68f;
-  --lp-accent-soft: #123a26;
-  --lp-focus: #7fe3ad;
+  --sidebar-accent: #123a26;
+  --sidebar-accent-foreground: #4fd68f;
+  --sidebar-border: #263429;
+  --sidebar-ring: #7fe3ad;
 }
 
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback";
-  --font-mono: "Geist Mono", "Geist Mono Fallback";
+  --font-sans: var(--font-geist), "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -119,6 +114,8 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-text: var(--primary-text);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -135,10 +132,22 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-brand-accent: var(--brand-accent);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-field: var(--field);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-focus: var(--focus);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: var(--radius-hero);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -147,10 +156,6 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --color-primary-text: var(--primary-text);
-  --color-brand-accent: var(--brand-accent);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
 }
 
 /* Always emit landing tokens so production optimize cannot drop unused @theme vars. */
@@ -173,8 +178,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
   }
 }
 
@@ -200,45 +212,25 @@
     min-height: 48px;
   }
 
-  /* Public landing (/): light by default. Dark tokens apply only when next-themes
-     puts .dark on <html> (Settings → Dark, or Settings → System while the OS is dark).
-     Do not follow prefers-color-scheme here — anonymous visitors with no stored
-     preference stay on brand light. Keep the selector in @layer so Next/Turbopack
-     production CSS does not drop it. */
-  .landing-page {
-    --lp-bg: #f5f8f6;
-    --lp-surface: #ffffff;
-    --lp-surface-2: #eef4f0;
-    --lp-border: #dce6df;
-    --lp-text: #0f1a13;
-    --lp-muted: #55625a;
-    --lp-primary: #00854c;
-    --lp-primary-hover: #00703f;
-    --lp-on-primary: #ffffff;
-    --lp-primary-text: #00703f;
-    --lp-accent-soft: #e2f4e9;
-    --lp-focus: #0a5c36;
-    background-color: var(--lp-bg);
-    color: var(--lp-text);
+  .v2-card {
+    background: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
 
-  .dark .landing-page {
-    --lp-bg: #0a110d;
-    --lp-surface: #111a15;
-    --lp-surface-2: #17231c;
-    --lp-border: #263429;
-    --lp-text: #e8efea;
-    --lp-muted: #a0afa5;
-    --lp-primary: #00854c;
-    --lp-primary-hover: #009656;
-    --lp-on-primary: #ffffff;
-    --lp-primary-text: #4fd68f;
-    --lp-accent-soft: #123a26;
-    --lp-focus: #7fe3ad;
+  .v2-hero {
+    background: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-hero);
   }
 
-  .dark .landing-page header img {
-    filter: invert(1) hue-rotate(180deg);
-    mix-blend-mode: screen;
-  }
+  .text-13 { font-size: 13px; line-height: 1.4; }
+  .text-15 { font-size: 15px; line-height: 1.4; }
+  .text-17 { font-size: 17px; line-height: 1.4; }
+  .text-20 { font-size: 20px; line-height: 1.3; }
+  .text-24 { font-size: 24px; line-height: 1.25; }
+  .text-32 { font-size: 32px; line-height: 1.15; }
+  .text-40 { font-size: 40px; line-height: 1.1; }
 }

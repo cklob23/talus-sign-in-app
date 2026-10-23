@@ -339,7 +339,7 @@ export default function SyncPage() {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">Sync</h1>
+        <h1 className="text-24 font-bold sm:text-32">Sync</h1>
         <p className="text-sm sm:text-base text-muted-foreground">
           Connector configuration, schedules, and live run history
         </p>

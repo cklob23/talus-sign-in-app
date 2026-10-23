@@ -1128,7 +1128,7 @@ export default function SettingsPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Settings</h1>
+          <h1 className="text-24 font-bold sm:text-32">Settings</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Configure visitor management settings</p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
@@ -1298,7 +1298,7 @@ export default function SettingsPage() {
                         Company: {type.requires_company ? "Yes" : "No"}
                       </span>
                       {type.requires_training && (
-                        <span className="font-medium text-[#8a4500]">Training Required</span>
+                        <span className="font-medium text-warning">Training Required</span>
                       )}
                       <span className={typeRequiresPhoto(type) ? "text-foreground" : "text-muted-foreground"}>
                         Photo: {typeRequiresPhoto(type) ? "Yes" : "No"}
@@ -1345,7 +1345,7 @@ export default function SettingsPage() {
                         <TableCell>{type.requires_company ? "Yes" : "No"}</TableCell>
                         <TableCell>
                           {type.requires_training ? (
-                            <span className="font-medium text-[#8a4500]">Required</span>
+                            <span className="font-medium text-warning">Required</span>
                           ) : (
                             <span className="text-muted-foreground">No</span>
                           )}
@@ -1647,7 +1647,7 @@ export default function SettingsPage() {
                       />
                     </div>
                     {contrastWarning(colorSettings.primary_color_light) ? (
-                      <p className="text-sm text-[#8a4500]">{contrastWarning(colorSettings.primary_color_light)}</p>
+                      <p className="text-sm text-warning">{contrastWarning(colorSettings.primary_color_light)}</p>
                     ) : null}
                   </div>
                   <div className="space-y-2">

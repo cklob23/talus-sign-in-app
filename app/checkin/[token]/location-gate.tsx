@@ -218,14 +218,14 @@ function GateFrame({
 }) {
     return (
         <section
-            className="flex flex-1 flex-col items-center justify-center gap-5 text-center"
+            className="v2-card mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 p-6 text-center sm:p-8"
             role="status"
             aria-live="polite"
         >
             {icon}
             <div className="space-y-2">
-                <h1 className="text-xl font-semibold text-balance">{title}</h1>
-                <p className="max-w-sm text-sm leading-relaxed text-muted-foreground text-pretty">{body}</p>
+                <h1 className="text-24 font-semibold text-balance">{title}</h1>
+                <p className="max-w-sm text-15 leading-relaxed text-muted-foreground text-pretty">{body}</p>
             </div>
             {action}
         </section>
@@ -234,7 +234,7 @@ function GateFrame({
 
 function RetryButton({ onClick }: { onClick: () => void }) {
     return (
-        <Button size="lg" variant="outline" onClick={onClick} className="gap-2">
+        <Button size="lg" variant="outline" onClick={onClick} className="min-h-12 gap-2">
             <RefreshCw className="h-4 w-4" />
             Try again
         </Button>

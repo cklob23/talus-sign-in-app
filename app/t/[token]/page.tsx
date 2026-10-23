@@ -70,10 +70,10 @@ export default async function TrainingLinkPage({
 
 function ErrorState({ title, body }: { title: string; body: string }) {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[#f5f8f6] p-6">
-      <div className="max-w-md rounded-2xl border border-[#dce6df] bg-white p-6">
-        <h1 className="text-2xl font-bold text-[#0f1a13]">{title}</h1>
-        <p className="mt-2 text-[#55625a]">{body}</p>
+    <main className="flex min-h-svh items-center justify-center bg-background p-6">
+      <div className="v2-card max-w-md p-6">
+        <h1 className="text-24 font-bold text-foreground">{title}</h1>
+        <p className="mt-2 text-muted-foreground">{body}</p>
       </div>
     </main>
   )

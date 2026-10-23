@@ -30,8 +30,8 @@ export function CheckinShell({
     onLang?: (lang: VisitorLang) => void
 }) {
     return (
-        <main className="visitor-touch flex min-h-svh flex-col bg-[#f5f8f6]">
-            <header className="flex items-center justify-between gap-3 border-b border-[#dce6df] bg-white px-4 py-3">
+        <main className="visitor-touch flex min-h-svh flex-col bg-background text-foreground">
+            <header className="flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
                 {logo ? (
                     // eslint-disable-next-line @next/next/no-img-element -- remote branding URL, size unknown
                     <img src={logo} alt={companyName} className="h-8 w-auto object-contain" />
@@ -40,7 +40,7 @@ export function CheckinShell({
                 )}
                 <div className="flex items-center gap-3">
                     {locationName ? (
-                        <p className="hidden items-center gap-1.5 text-sm text-[#55625a] sm:flex">
+                        <p className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:flex">
                             <MapPin className="h-3.5 w-3.5" />
                             {locationName}
                         </p>

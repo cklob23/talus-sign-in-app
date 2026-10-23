@@ -59,7 +59,7 @@ const navItems: {
   requiredTierLabel?: string
 }[] = [
     { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/admin/visitors", label: "Current Visitors", icon: Users },
+    { href: "/admin/visitors", label: "On site now", icon: Users },
     { href: "/admin/history", label: "History", icon: ClipboardList },
     { href: "/admin/bookings", label: "Bookings", icon: Calendar, requiredFeature: "visitorPreRegistration", requiredTierLabel: "Pro" },
     { href: "/admin/reports", label: "Reports", icon: FileText, requiredFeature: "analyticsDashboard", requiredTierLabel: "Pro" },
@@ -149,7 +149,7 @@ function NavContent({ onNavigate, collapsed = false }: { onNavigate?: () => void
                   collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50",
+                    : "text-sidebar-foreground hover:bg-sidebar-accent/60",
                 )}
               >
                 <item.icon className="w-5 h-5 shrink-0" />
@@ -188,8 +188,8 @@ export function AdminSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
   return (
     <aside
       className={cn(
-        "hidden lg:flex border-r bg-sidebar flex-col transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
+        "hidden flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:flex",
+        collapsed ? "w-16" : "w-[248px]"
       )}
     >
       <div className={cn("border-b flex items-center", collapsed ? "p-2 justify-center" : "p-4 justify-between")}>
@@ -259,13 +259,21 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 }
 
 // Mobile sidebar trigger and sheet
-export function MobileSidebar() {
-  const [open, setOpen] = useState(false)
+export function MobileSidebar({
+  open,
+  onOpenChange,
+}: {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+} = {}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const sheetOpen = open ?? internalOpen
+  const setSheetOpen = onOpenChange ?? setInternalOpen
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="lg:hidden">
+        <Button variant="ghost" size="icon" className="min-h-11 min-w-11 lg:hidden">
           <Menu className="h-5 w-5" />
           <span className="sr-only">Toggle menu</span>
         </Button>
@@ -273,11 +281,11 @@ export function MobileSidebar() {
       <SheetContent side="left" className="w-64 p-0 bg-sidebar">
         <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
         <div className="p-4 border-b">
-          <Link href="/admin" onClick={() => setOpen(false)}>
+          <Link href="/admin" onClick={() => setSheetOpen(false)}>
             <TalusAgLogo />
           </Link>
         </div>
-        <NavContent onNavigate={() => setOpen(false)} />
+        <NavContent onNavigate={() => setSheetOpen(false)} />
       </SheetContent>
     </Sheet>
   )

@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic"
 export default async function PreviewUiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ screen?: string }>
+  searchParams: Promise<{ screen?: string; theme?: string }>
 }) {
   if (process.env.NODE_ENV === "production") {
     return (
@@ -15,10 +15,11 @@ export default async function PreviewUiPage({
     )
   }
   const params = await searchParams
+  const theme = params.theme === "dark" ? "dark" : "light"
   return (
     <>
-      <style>{`nextjs-portal { display: none !important; } html, body, button, input, select, textarea { font-family: Arial, Helvetica, sans-serif !important; letter-spacing: 0 !important; }`}</style>
-      <PreviewUiScreens screen={params.screen} full={params.full === "1"} />
+      <style>{`nextjs-portal { display: none !important; } html, body, button, input, select, textarea { font-family: Arial, Helvetica, sans-serif !important; letter-spacing: 0 !important; } html, body { margin: 0; }`}</style>
+      <PreviewUiScreens screen={params.screen} theme={theme} />
     </>
   )
 }

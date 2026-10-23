@@ -323,7 +323,7 @@ export default function LocationsPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Locations</h1>
+          <h1 className="text-24 font-bold sm:text-32">Locations</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Manage facility locations</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -545,7 +545,7 @@ export default function LocationsPage() {
                     : "On-site check is off for this location."}
                 </p>
                 {radiusOverCap(form.auto_signin_radius_meters) && (
-                  <p className="text-xs text-amber-700">
+                  <p className="text-xs text-warning">
                     This stored radius is {formatRadiusMeters(form.auto_signin_radius_meters)}. Tighten it to {formatRadiusMeters(MAX_RADIUS_METERS)} or less before the fence is useful.
                   </p>
                 )}
@@ -612,12 +612,12 @@ export default function LocationsPage() {
                 </p>
                 {saveError && <p className="text-sm text-destructive">{saveError}</p>}
                 {form.latitude && form.longitude && (
-                  <div className="p-2.5 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg text-sm">
-                    <p className="font-medium flex items-center gap-1 text-green-700 dark:text-green-400">
-                      <MapPin className="w-3.5 h-3.5" />
+                  <div className="rounded-xl border border-success/30 bg-success-soft p-2.5 text-sm">
+                    <p className="flex items-center gap-1 font-medium text-success">
+                      <MapPin className="h-3.5 w-3.5" />
                       Coordinates Set
                     </p>
-                    <p className="text-xs text-green-600 dark:text-green-500 font-mono mt-0.5">
+                    <p className="mt-0.5 font-mono text-xs text-success">
                       {form.latitude.toFixed(7)}, {form.longitude.toFixed(7)}
                     </p>
                   </div>
@@ -672,7 +672,7 @@ export default function LocationsPage() {
                       <span>Auto SO Time (minutes): {location.auto_signout_minutes || "-"}</span>
                       <span>End of day: {endOfDayOverrideLabel(location)}</span>
                       {location.latitude && location.longitude ? (
-                        <span className="text-green-600 flex items-center gap-1">
+                        <span className="flex items-center gap-1 text-success">
                           <MapPin className="w-3 h-3" />
                           {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                         </span>
@@ -715,7 +715,7 @@ export default function LocationsPage() {
                         <TableCell>{location.address || "-"}</TableCell>
                         <TableCell>
                           {location.latitude && location.longitude ? (
-                            <span className="text-xs font-mono text-green-600 flex items-center gap-1">
+                            <span className="flex items-center gap-1 font-mono text-xs text-success">
                               <MapPin className="w-3 h-3" />
                               {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
                             </span>

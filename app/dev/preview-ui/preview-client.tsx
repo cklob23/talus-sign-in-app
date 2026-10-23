@@ -1,13 +1,14 @@
 "use client"
 
-import { CalendarCheck, Check, Clock, LogOut, MoreHorizontal, PlayCircle, Search, Shield, UserPlus, Users } from "lucide-react"
+import type { ReactNode } from "react"
+import { Bell, Calendar, Check, Home, LogOut, MapPin, MoreHorizontal, PlayCircle, Search, Users } from "lucide-react"
 import { KioskWelcome } from "@/components/kiosk/kiosk-welcome"
-import { KioskResolvedSite } from "@/components/kiosk/kiosk-resolved-site"
-import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
+import { KioskStepper } from "@/components/kiosk/kiosk-stepper"
 import { LangToggle } from "@/components/lang-toggle"
+import { StatusPill } from "@/components/v2/status-pill"
 import { TalusAgLogo } from "@/components/talusag-logo"
 import { visitorCopy } from "@/lib/visitor-i18n"
-import { renderHostArrivalEmail } from "@/lib/host-mail"
+import { cn } from "@/lib/utils"
 
 const copy = visitorCopy("en")
 
@@ -18,350 +19,347 @@ const HOSTS = [
 ]
 
 const VISITORS = [
-  { name: "Carlos Mendoza", email: "carlos@gulfcoastelectric.com", company: "Gulf Coast Electric", type: "Contractor", host: "Maya Chen", badge: "V4821", inFor: "1h 12m" },
-  { name: "Sofia Alvarez", email: "sofia@example.com", company: "Riverbend Farms", type: "Vendor", host: "Jordan Blake", badge: "V4822", inFor: "38m" },
-  { name: "Diego Ruiz", email: "diego@gulfcoastelectric.com", company: "Gulf Coast Electric", type: "Contractor", host: "Maya Chen", badge: "V4823", inFor: "16m" },
+  { initials: "CM", name: "Carlos Mendoza", company: "Gulf Coast Electric", type: "Contractor", tone: "warn" as const, host: "Maya Chen", badge: "V04821", inFor: "20 min", trained: true },
+  { initials: "PN", name: "Priya Nair", company: "Acme Valves", type: "Visitor", tone: "ok" as const, host: "Sam Okafor", badge: "V04822", inFor: "55 min", trained: false },
+  { initials: "TB", name: "Tom Becker", company: "FedEx", type: "Delivery", tone: "neu" as const, host: "Lena Ortiz", badge: "V04823", inFor: "1 h 30 min", trained: false },
 ]
 
-const arrival = renderHostArrivalEmail({
-  visitorName: "Carlos Mendoza",
-  visitorCompany: "Gulf Coast Electric",
-  visitorTypeName: "Contractor",
-  locationName: "Houston HQ",
-  locationLabel: "Reception",
-  signedInBy: "Kiosk",
-  badgeNumber: "V4821",
-  arrivedAt: "2026-10-22T14:05:00.000Z",
-  timeZone: "America/Chicago",
-  visitUrl: "https://signin.talusag.com/visit/preview",
-  trainingLine: "Cleared",
-})
-
-function Frame({
-  id,
-  title,
-  width,
-  height,
-  children,
-}: {
-  id: string
-  title: string
-  width: number
-  height: number
-  children: React.ReactNode
-}) {
+function KioskChrome({ children }: { children: ReactNode }) {
   return (
-    <section id={id} className="space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-[#55625a]">{title}</h2>
-      <div className="overflow-hidden rounded-2xl border bg-white shadow" style={{ width, height }}>
-        {children}
-      </div>
-    </section>
-  )
-}
-
-function KioskChrome({
-  children,
-  siteName = "Houston HQ",
-  meters = 52,
-  unavailable = false,
-  noSites = false,
-  detecting = false,
-  compact = false,
-}: {
-  children: React.ReactNode
-  siteName?: string
-  meters?: number | null
-  unavailable?: boolean
-  noSites?: boolean
-  detecting?: boolean
-  compact?: boolean
-}) {
-  return (
-    <div className="flex h-full flex-col bg-[#f5f8f6]">
-      <header className="flex items-center justify-between border-b border-[#dce6df] bg-white px-4 py-3">
+    <div className="flex h-full min-h-svh flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
         <TalusAgLogo />
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="hidden shrink-0 items-center gap-2 border-r border-[#dce6df] pr-3 text-sm font-medium md:flex">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            9:13 AM
+        <div className="flex items-center gap-3">
+          <span className="hidden items-center gap-2 text-sm font-medium sm:flex">
+            <MapPin className="h-4 w-4 text-primary-text" />
+            Houston HQ
           </span>
-          {noSites ? (
-            <span className="truncate text-sm text-[#8a4500]">{copy.noSitesStaff}</span>
-          ) : (
-            <KioskSiteLine
-              siteName={siteName}
-              meters={meters}
-              unavailable={unavailable}
-              detecting={detecting}
-              compact={compact}
-              copy={copy}
-            />
-          )}
           <LangToggle lang="en" onLang={() => undefined} />
         </div>
       </header>
-      <div className="flex-1 overflow-auto p-6">{children}</div>
+      <div className="flex-1 overflow-auto p-4 sm:p-8">{children}</div>
     </div>
   )
 }
 
-function BeforeWelcome() {
+function PhoneChrome({ children, site, lang = true }: { children: ReactNode; site?: string; lang?: boolean }) {
   return (
-    <div className="flex h-full flex-col bg-white">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <TalusAgLogo />
-        <span className="text-sm">Houston HQ · 0ft away</span>
-      </header>
-      <div className="grid flex-1 grid-cols-3 gap-4 p-8">
-        {["Sign In", "Check In", "Sign Out"].map((label) => (
-          <div key={label} className="flex flex-col items-center justify-center rounded-xl border p-6">
-            <div className="mb-3 h-12 w-12 rounded-full bg-[#00b162]/20" />
-            <p className="text-xl font-semibold">{label}</p>
-            <p className="text-sm text-gray-500">Visitor action</p>
-          </div>
-        ))}
-        <div className="col-span-3 rounded-xl border p-4">
-          <p className="font-semibold">Employee Sign In</p>
-          <p className="text-sm text-gray-500">Talus Ag employees sign in here</p>
+    <div className="visitor-touch flex h-full min-h-svh flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
+        <TalusAgLogo className="h-8 w-auto" />
+        <div className="flex items-center gap-3">
+          {site ? <span className="text-sm text-muted-foreground">{site}</span> : null}
+          {lang ? <LangToggle lang="en" onLang={() => undefined} size="phone" /> : null}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function BeforeDetails() {
-  return (
-    <div className="flex h-full flex-col bg-white">
-      <header className="border-b px-4 py-3">
-        <TalusAgLogo />
       </header>
-      <div className="mx-auto w-full max-w-xl space-y-3 p-6">
-        <h1 className="text-2xl font-bold">Visitor Sign In</h1>
-        <p className="text-sm text-gray-500">Please fill out the form below to sign in</p>
-        {["First Name", "Last Name", "Email", "Phone", "Visitor Type"].map((label) => (
-          <label key={label} className="block text-sm">
-            {label}
-            <input className="mt-1 h-9 w-full rounded border px-2" defaultValue={label === "Visitor Type" ? "" : ""} />
-          </label>
-        ))}
-        <button className="h-10 w-full rounded bg-[#00b162] text-white">Complete Sign In</button>
-        <p className="text-sm text-red-600">Please select a visitor type</p>
-      </div>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-6">{children}</div>
     </div>
   )
 }
 
-function AfterDetails() {
+function AdminChrome({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+  return (
+    <div className="flex h-full min-h-svh bg-background text-foreground">
+      <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border bg-card p-4 lg:flex">
+        <TalusAgLogo className="mb-4" />
+        <div className="mb-4 flex min-h-11 items-center gap-2 rounded-xl border border-border px-3 text-15">
+          <MapPin className="h-4 w-4" />
+          Houston HQ
+        </div>
+        <nav className="flex flex-col gap-1 text-sm font-medium">
+          <span className={cn("flex min-h-11 items-center gap-3 rounded-xl px-3", title === "Dashboard" ? "bg-accent text-primary-text" : "text-foreground")}>
+            <Home className="h-[19px] w-[19px]" /> Dashboard
+          </span>
+          <span className={cn("flex min-h-11 items-center gap-3 rounded-xl px-3", title === "On site now" ? "bg-accent text-primary-text" : "text-foreground")}>
+            <Users className="h-[19px] w-[19px]" /> On site now
+          </span>
+          <span className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-foreground">
+            <Calendar className="h-[19px] w-[19px]" /> Bookings
+          </span>
+        </nav>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-9">
+          <div>
+            <h1 className="text-24 font-bold sm:text-32">{title}</h1>
+            <p className="text-13 text-muted-foreground sm:text-15">{subtitle}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden min-h-11 w-48 items-center gap-2 rounded-xl border border-border px-3 text-15 text-muted-foreground md:flex">
+              <Search className="h-4 w-4" /> Search
+            </span>
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-border" aria-label="Theme">
+              <Bell className="h-4 w-4" />
+            </span>
+          </div>
+        </header>
+        <div className="flex-1 overflow-auto p-4 pb-24 sm:p-6 lg:p-9">{children}</div>
+      </div>
+      <nav className="fixed inset-x-0 bottom-0 flex border-t border-border bg-card px-2 pb-3 pt-2 lg:hidden">
+        {[
+          [title === "Dashboard", Home, "Home"],
+          [title === "On site now", Users, "On site"],
+          [false, Calendar, "Bookings"],
+        ].map(([active, Icon, label]) => (
+          <span
+            key={String(label)}
+            className={cn(
+              "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold",
+              active ? "bg-accent text-primary-text" : "text-muted-foreground",
+            )}
+          >
+            <Icon className="h-[22px] w-[22px]" />
+            {label}
+          </span>
+        ))}
+        <span className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold text-muted-foreground">
+          <MoreHorizontal className="h-[22px] w-[22px]" />
+          More
+        </span>
+      </nav>
+    </div>
+  )
+}
+
+function KioskWelcomeScreen() {
+  return (
+    <KioskChrome>
+      <KioskWelcome
+        companyName="Talus Ag"
+        copy={copy}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        onBooking={() => undefined}
+        onStaff={() => undefined}
+        showBooking
+        visitorBlocked={false}
+      />
+    </KioskChrome>
+  )
+}
+
+function KioskDetailsScreen() {
   return (
     <KioskChrome>
       <div className="mx-auto max-w-xl space-y-4">
-        <p className="text-sm text-[#55625a]">Step 2 of 4</p>
-        <h1 className="text-2xl font-bold">Your details</h1>
-        <div className="flex items-center justify-between rounded-xl border bg-white p-4">
-          <div className="flex items-center gap-3">
-            <span className="h-10 w-1.5 rounded-full bg-[#00854c]" />
-            <span className="font-semibold">Contractor</span>
+        <KioskStepper current={1} copy={copy} />
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-24 font-bold">{copy.yourDetails}</h1>
+          <StatusPill tone="warn">Contractor</StatusPill>
+        </div>
+        <div className="v2-card space-y-5 p-6">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-15">
+              {copy.firstName}
+              <input className="mt-1 min-h-14 w-full rounded-xl border border-field bg-card px-3" defaultValue="Carlos" />
+            </label>
+            <label className="text-15">
+              {copy.lastName}
+              <input className="mt-1 min-h-14 w-full rounded-xl border-2 border-danger bg-card px-3" defaultValue="" />
+              <span className="mt-1 flex items-center gap-1 text-13 text-danger">{copy.lastNameRequired}</span>
+            </label>
           </div>
-          <span className="text-[#00703f]">Change</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="text-sm">
-            First name *
-            <input className="mt-1 min-h-14 w-full rounded-xl border border-[#7b8b7f] px-3" defaultValue="Carlos" />
+          <label className="block text-15">
+            {copy.company}
+            <input className="mt-1 min-h-14 w-full rounded-xl border border-field bg-card px-3" defaultValue="Gulf Coast Electric" />
+            <span className="mt-1 block text-13 text-muted-foreground">{copy.companyHint}</span>
           </label>
-          <label className="text-sm">
-            Last name *
-            <input className="mt-1 min-h-14 w-full rounded-xl border border-[#7b8b7f] px-3" defaultValue="Mendoza" />
+          <label className="block text-15">
+            {copy.host}
+            <div className="mt-1 flex min-h-14 items-center rounded-xl border border-field bg-card px-3">Maya Chen</div>
           </label>
+          <button className="min-h-14 w-full rounded-xl bg-primary text-17 font-semibold text-primary-foreground">{copy.nextTraining}</button>
         </div>
-        <label className="block text-sm">
-          Email
-          <input className="mt-1 min-h-14 w-full rounded-xl border border-[#7b8b7f] px-3" defaultValue="carlos@gulfcoastelectric.com" />
-          <span className="mt-1 block text-xs text-[#55625a]">{copy.emailHint}</span>
-        </label>
-        <label className="block text-sm">
-          Who are you here to see? *
-          <select className="mt-1 min-h-14 w-full rounded-xl border border-[#7b8b7f] px-3">
-            <option>Maya Chen</option>
-          </select>
-        </label>
-        <button className="min-h-14 w-full rounded-xl bg-[#00854c] text-lg font-semibold text-white">Next: safety video</button>
       </div>
     </KioskChrome>
   )
 }
 
-function BeforeHost() {
+function KioskTrainingScreen() {
   return (
-    <div className="flex h-full flex-col bg-[#f5f8f6]">
-      <header className="border-b bg-white px-4 py-3 text-lg font-bold">Talus Ag</header>
-      <div className="flex-1 space-y-3 p-4">
-        <h1 className="text-xl font-semibold">Who are you visiting?</h1>
-        {HOSTS.map((host) => (
-          <div key={host.id} className={`rounded-xl border p-3 ${host.name === "Maya Chen" ? "border-[#00b162] bg-green-50" : "bg-white"}`}>
-            {host.name}
+    <KioskChrome>
+      <div className="mx-auto max-w-5xl">
+        <KioskStepper current={2} copy={copy} />
+        <div className="grid gap-6 lg:grid-cols-[1.7fr_1fr]">
+          <div>
+            <div className="relative flex h-64 items-center justify-center overflow-hidden rounded-[20px] bg-gradient-to-br from-[#0f2a1c] to-[#2c6b49] sm:h-80">
+              <div className="flex h-[84px] w-[84px] items-center justify-center rounded-full bg-card text-primary-text">
+                <PlayCircle className="h-10 w-10" />
+              </div>
+              <div className="absolute inset-x-5 bottom-4 flex items-center gap-3 text-white">
+                <span className="font-mono text-13">1:42 / 3:00</span>
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/30">
+                  <span className="block h-full w-[57%] rounded-full bg-brand-accent" />
+                </span>
+              </div>
+            </div>
+            <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Check className="h-4 w-4" /> We told Maya Chen you are here. She will meet you in the lobby.
+            </p>
           </div>
-        ))}
-        <p className="text-sm text-red-600">Please choose who you are visiting.</p>
-        <button className="h-10 w-full rounded bg-[#00b162] text-white">Continue</button>
+          <div className="v2-card flex flex-col gap-4 p-6">
+            <h2 className="text-20 font-semibold">{copy.trainingTitle}</h2>
+            <p className="text-muted-foreground">{copy.trainingHelp}</p>
+            <button className="mt-auto min-h-14 rounded-xl bg-surface-2 text-muted-foreground">{copy.trainingAck}</button>
+          </div>
+        </div>
       </div>
-    </div>
+    </KioskChrome>
   )
 }
 
-function AfterHost() {
+function QrHostScreen() {
   return (
-    <div className="visitor-touch flex h-full flex-col bg-[#f5f8f6]">
-      <header className="flex items-center justify-between border-b border-[#dce6df] bg-white px-4 py-3">
-        <TalusAgLogo className="h-8 w-auto" />
-        <LangToggle lang="en" onLang={() => undefined} size="phone" />
-      </header>
-      <div className="flex-1 space-y-4 p-4">
-        <div className="flex gap-1.5">
-          <span className="h-1.5 flex-1 rounded-full bg-[#00854c]" />
-          <span className="h-1.5 flex-1 rounded-full bg-[#00854c]" />
-          <span className="h-1.5 flex-1 rounded-full bg-[#00854c]" />
-          <span className="h-1.5 flex-1 rounded-full bg-[#dce6df]" />
-        </div>
-        <h1 className="text-xl font-semibold">{copy.host}</h1>
-        <p className="text-sm text-[#55625a]">{copy.hostHint}</p>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#55625a]" />
-          <input className="min-h-12 w-full rounded-xl border border-[#7b8b7f] pl-9" placeholder={copy.hostSearch} />
-        </div>
+    <PhoneChrome>
+      <div className="mb-4 flex gap-1.5">
+        <span className="h-1.5 flex-1 rounded-full bg-primary" />
+        <span className="h-1.5 flex-1 rounded-full bg-primary" />
+        <span className="h-1.5 flex-1 rounded-full bg-primary" />
+        <span className="h-1.5 flex-1 rounded-full bg-border" />
+      </div>
+      <h1 className="text-20 font-semibold">{copy.host}</h1>
+      <p className="mt-1 text-sm text-muted-foreground">{copy.hostHint}</p>
+      <div className="relative mt-4">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input className="min-h-12 w-full rounded-xl border border-field bg-card pl-9" placeholder={copy.hostSearch} />
+      </div>
+      <div className="mt-3 flex flex-col gap-2">
         {HOSTS.map((host) => (
           <div
             key={host.id}
-            className={`flex min-h-14 items-center justify-between rounded-xl border p-3 ${host.name === "Maya Chen" ? "border-[#00854c] bg-[#e2f4e9]" : "bg-white"}`}
+            className={`flex min-h-14 items-center justify-between rounded-xl border p-3 ${host.name === "Maya Chen" ? "border-primary bg-accent" : "border-border bg-card"}`}
           >
             <span className="font-medium">{host.name}</span>
-            {host.name === "Maya Chen" ? <Check className="h-5 w-5 text-[#00854c]" /> : null}
-          </div>
-        ))}
-        <button className="min-h-12 w-full rounded-xl bg-[#00854c] font-semibold text-white">{copy.continue}</button>
-      </div>
-    </div>
-  )
-}
-
-function BeforeDashboard() {
-  return (
-    <div className="h-full space-y-4 bg-[#f5f8f6] p-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
-      <div className="flex h-[420px] items-center justify-center rounded-xl border bg-white text-[#55625a]">Map of Houston HQ</div>
-      <div className="grid grid-cols-4 gap-3">
-        {["Current Visitors", "Employees", "Sign-ins today", "Pending bookings"].map((label) => (
-          <div key={label} className="rounded-xl border bg-white p-4">
-            <p className="text-sm text-[#55625a]">{label}</p>
-            <p className="text-2xl font-bold">3</p>
+            {host.name === "Maya Chen" ? <Check className="h-5 w-5 text-primary" /> : null}
           </div>
         ))}
       </div>
-    </div>
+      <button className="mt-4 min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">{copy.continue}</button>
+    </PhoneChrome>
   )
 }
 
-function AfterDashboard() {
+function VisitScreen() {
   return (
-    <div className="h-full space-y-4 overflow-auto bg-[#f5f8f6] p-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
-      <div className="grid grid-cols-5 gap-3">
+    <PhoneChrome site="For Maya Chen" lang={false}>
+      <StatusPill tone="ok" className="self-start">
+        <Check className="h-3.5 w-3.5" strokeWidth={3} /> On site
+      </StatusPill>
+      <div className="mt-4 flex items-center gap-4">
+        <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-accent text-xl font-semibold text-primary-text">C</div>
+        <div>
+          <h1 className="text-24 font-bold">Carlos Mendoza</h1>
+          <p className="text-muted-foreground">Gulf Coast Electric · Contractor</p>
+        </div>
+      </div>
+      <div className="v2-card mt-6 overflow-hidden px-[18px]">
         {[
-          ["Current Visitors", "3"],
-          ["Current Employees", "2"],
-          ["Today's Sign-Ins", "11"],
-          ["Avg. Duration", "48 min"],
-          ["Pending Bookings", "1"],
+          ["Site", "Houston HQ"],
+          ["Waiting at", "Main lobby"],
+          ["Badge", "V04821"],
+          ["Purpose", "Electrical panel upgrade"],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border bg-white p-4">
-            <p className="text-sm text-[#55625a]">{label}</p>
-            <p className="text-2xl font-bold">{value}</p>
+          <div key={label} className="flex min-h-12 items-center justify-between border-b border-border last:border-0">
+            <span className="text-muted-foreground">{label}</span>
+            <b>{value}</b>
           </div>
         ))}
       </div>
-      <div className="rounded-xl border bg-white p-4">
-        <p className="mb-3 font-semibold">On site now</p>
+      <button className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground">
+        <LogOut className="h-5 w-5" /> Sign out visitor
+      </button>
+      <button className="mt-3 flex min-h-14 w-full items-center justify-center rounded-xl border border-danger font-semibold text-danger">
+        Not my visitor
+      </button>
+    </PhoneChrome>
+  )
+}
+
+function AdminDashboardScreen() {
+  return (
+    <AdminChrome title="Dashboard" subtitle="Houston HQ · Wednesday, Oct 21 · Updated 6:31 PM CDT">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ["On site now", "7", "5 visitors, 2 staff"],
+          ["Signed in today", "18", "Busiest hour 10 AM"],
+          ["In safety video", "1", "Ready in about 2 min"],
+          ["Expected today", "4", "Bookings not here yet"],
+        ].map(([label, value, hint]) => (
+          <div key={label} className="v2-card p-5">
+            <p className="text-13 text-muted-foreground">{label}</p>
+            <p className="mt-2 text-32 font-bold tracking-tight">{value}</p>
+            <p className="text-13 text-muted-foreground">{hint}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 v2-card p-5">
+        <p className="mb-3 font-semibold">Latest activity</p>
         {VISITORS.map((visitor) => (
-          <div key={visitor.badge} className="flex items-center justify-between border-t py-2 text-sm">
+          <div key={visitor.badge} className="flex min-h-13 items-center justify-between border-t border-border py-3">
             <span className="font-medium">{visitor.name}</span>
-            <span className="text-[#55625a]">{visitor.host} · {visitor.inFor}</span>
+            <span className="text-13 text-muted-foreground">{visitor.host} · {visitor.inFor}</span>
           </div>
         ))}
       </div>
-      <div className="flex h-40 items-center justify-center rounded-xl border bg-white text-[#55625a]">Map of Houston HQ</div>
-    </div>
+    </AdminChrome>
   )
 }
 
-function BeforeVisitors() {
+function AdminVisitorsScreen() {
   return (
-    <div className="h-full overflow-hidden bg-[#f5f8f6] p-6">
-      <h1 className="mb-4 text-3xl font-bold">Current Visitors</h1>
-      <table className="w-full table-fixed border-collapse bg-white text-sm">
-        <thead>
-          <tr className="border-b text-left">
-            {["Visitor", "Email", "Company", "Type", "Location", "Host", "Badge", "Duration", "Actions"].map((h) => (
-              <th key={h} className="p-2">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {VISITORS.map((visitor) => (
-            <tr key={visitor.badge} className="border-b">
-              <td className="truncate p-2">{visitor.name}</td>
-              <td className="truncate p-2">{visitor.email}</td>
-              <td className="truncate p-2">{visitor.company}</td>
-              <td className="p-2">{visitor.type}</td>
-              <td className="p-2">Houston HQ</td>
-              <td className="p-2">{visitor.host}</td>
-              <td className="p-2">{visitor.badge}</td>
-              <td className="p-2">{visitor.inFor}</td>
-              <td className="overflow-hidden p-2">P</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function AfterVisitors() {
-  return (
-    <div className="h-full overflow-auto bg-[#f5f8f6] p-6">
-      <h1 className="mb-4 text-3xl font-bold">Current Visitors</h1>
-      <div className="rounded-xl border bg-white">
-        <table className="w-full table-fixed text-sm">
+    <AdminChrome title="On site now" subtitle="Houston HQ · 5 visitors, 2 staff · Updated 6:31 PM CDT">
+      <div className="mb-4 hidden gap-2 md:flex">
+        <span className="rounded-xl bg-accent px-3 py-2 text-15 font-semibold text-primary-text">Visitors 5</span>
+        <span className="rounded-xl px-3 py-2 text-15 text-muted-foreground">Staff 2</span>
+      </div>
+      <div className="space-y-3 md:hidden">
+        {VISITORS.map((visitor) => (
+          <div key={visitor.badge} className="v2-card space-y-3 p-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-13 font-semibold text-primary-text">{visitor.initials}</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{visitor.name}</p>
+                <p className="text-13 text-muted-foreground">{visitor.company}</p>
+              </div>
+              <StatusPill tone={visitor.tone} className="h-8 text-13">{visitor.type}</StatusPill>
+            </div>
+            <button className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border">
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="v2-card hidden overflow-hidden md:block">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="border-b text-left text-[#55625a]">
-              <th className="w-[28%] p-3">Visitor</th>
-              <th className="w-[16%] p-3">Company</th>
-              <th className="w-[12%] p-3">Type</th>
-              <th className="w-[14%] p-3">Host</th>
-              <th className="w-[10%] p-3">Badge</th>
-              <th className="w-[8%] p-3">In</th>
-              <th className="w-[160px] p-3 text-right">Actions</th>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="p-4">Visitor</th>
+              <th className="p-4">Type</th>
+              <th className="p-4">Host</th>
+              <th className="p-4">Badge</th>
+              <th className="p-4">On site</th>
+              <th className="p-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {VISITORS.map((visitor) => (
-              <tr key={visitor.badge} className="border-b">
-                <td className="p-3">
+              <tr key={visitor.badge} className="border-b border-border last:border-0">
+                <td className="p-4">
                   <p className="font-medium">{visitor.name}</p>
-                  <p className="text-xs text-[#55625a]">{visitor.email}</p>
+                  <p className="text-13 text-muted-foreground">{visitor.company}</p>
                 </td>
-                <td className="truncate p-3">{visitor.company}</td>
-                <td className="p-3 text-[#00703f]">{visitor.type}</td>
-                <td className="p-3">{visitor.host}</td>
-                <td className="p-3 font-mono">{visitor.badge}</td>
-                <td className="p-3">{visitor.inFor}</td>
-                <td className="p-3">
+                <td className="p-4">
+                  <StatusPill tone={visitor.tone} className="h-8 text-13">{visitor.type}</StatusPill>
+                </td>
+                <td className="p-4">{visitor.host}</td>
+                <td className="p-4 font-mono">{visitor.badge}</td>
+                <td className="p-4">{visitor.inFor}</td>
+                <td className="p-4">
                   <div className="flex justify-end gap-2">
-                    <span className="inline-flex min-h-11 items-center rounded-md border px-3">
-                      <LogOut className="mr-1 h-4 w-4" />
-                      Sign out
+                    <span className="inline-flex min-h-11 items-center rounded-xl border border-field px-3">
+                      <LogOut className="mr-1 h-4 w-4" /> Sign out
                     </span>
-                    <span className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border">
+                    <span className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border">
                       <MoreHorizontal className="h-4 w-4" />
                     </span>
                   </div>
@@ -371,205 +369,40 @@ function AfterVisitors() {
           </tbody>
         </table>
       </div>
-    </div>
+    </AdminChrome>
   )
 }
 
-function EmployeeLoginPreview() {
-  return (
-    <div className="mx-auto mt-10 max-w-sm px-4">
-      <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-          <Shield className="h-8 w-8 text-primary" aria-hidden />
-        </div>
-        <h1 className="text-2xl font-bold">Kiosk Login</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Employee sign-in required to activate the visitor kiosk</p>
-      </div>
-      <div className="rounded-xl border bg-white p-6">
-        <p className="text-center text-lg font-semibold">Employee Login</p>
-        <p className="mb-4 text-center text-xs text-muted-foreground">Sign in to unlock the visitor management kiosk</p>
-        <div className="space-y-4">
-          <label className="block text-sm">
-            Email
-            <input className="mt-1 h-11 w-full rounded-md border px-3" defaultValue="maya@talusag.com" />
-          </label>
-          <label className="block text-sm">
-            Password
-            <input className="mt-1 h-11 w-full rounded-md border px-3" type="password" defaultValue="password" />
-          </label>
-          <KioskResolvedSite
-            label={copy.chooseSite}
-            siteName="Test Location"
-            distanceText="52 m from your location"
-          />
-        </div>
-      </div>
-    </div>
-  )
+const SCREENS: Record<string, { title: string; node: ReactNode }> = {
+  "kiosk-welcome": { title: "Kiosk welcome", node: <KioskWelcomeScreen /> },
+  "kiosk-details": { title: "Kiosk details", node: <KioskDetailsScreen /> },
+  "kiosk-training": { title: "Kiosk training", node: <KioskTrainingScreen /> },
+  "qr-host": { title: "QR host", node: <QrHostScreen /> },
+  visit: { title: "Visit", node: <VisitScreen /> },
+  "admin-dashboard": { title: "Admin dashboard", node: <AdminDashboardScreen /> },
+  "admin-visitors": { title: "Admin visitors", node: <AdminVisitorsScreen /> },
 }
 
-function WelcomePreview({
-  siteName = "Houston HQ",
-  meters = 52,
-  unavailable = false,
-  noSites = false,
-  detecting = false,
-  compact = false,
-  visitorBlocked = false,
-  outside = false,
-}: {
-  siteName?: string
-  meters?: number | null
-  unavailable?: boolean
-  noSites?: boolean
-  detecting?: boolean
-  compact?: boolean
-  visitorBlocked?: boolean
-  outside?: boolean
-}) {
-  return (
-    <KioskChrome
-      siteName={siteName}
-      meters={meters}
-      unavailable={unavailable}
-      noSites={noSites}
-      detecting={detecting}
-      compact={compact}
-    >
-      {outside ? (
-        <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-          <p className="font-medium text-[#8a4500]">{copy.geofenceVisitor}</p>
-        </div>
-      ) : null}
-      {noSites ? (
-        <div className="mb-6 rounded-xl border border-[#fff3df] bg-[#fff3df] p-4">
-          <p className="font-medium text-[#8a4500]">{copy.noSitesStaff}</p>
-        </div>
-      ) : null}
-      <KioskWelcome
-        companyName="Talus Ag"
-        copy={copy}
-        onSignIn={() => undefined}
-        onSignOut={() => undefined}
-        onBooking={() => undefined}
-        onStaff={() => undefined}
-        showBooking={!noSites}
-        visitorBlocked={visitorBlocked || noSites}
-      />
-      <p className="mt-8 flex items-center justify-center gap-2 text-sm text-[#55625a]">
-        <Clock className="h-4 w-4" />
-        Thursday, Oct 22, 2026
-      </p>
-    </KioskChrome>
-  )
-}
-
-const HEADER_PREVIEWS: Record<string, Parameters<typeof WelcomePreview>[0]> = {
-  "kiosk-welcome-after": {},
-  "kiosk-welcome": {},
-  "kiosk-header-normal": { siteName: "Test Location", meters: 52 },
-  "kiosk-header-noloc": { siteName: "Test Location", meters: null, unavailable: true, visitorBlocked: true, outside: true },
-  "kiosk-header-outside": { siteName: "Test Location", meters: 1200, visitorBlocked: true, outside: true },
-  "kiosk-header-nosites": { noSites: true, visitorBlocked: true },
-  "kiosk-header-detecting": { siteName: "", meters: null, detecting: true },
-}
-
-export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boolean }) {
+export function PreviewUiScreens({ screen, theme = "light" }: { screen?: string; theme?: "light" | "dark" }) {
   const only = screen?.trim() || "all"
-  const show = (id: string) => only === "all" || only === id
-  if (full && HEADER_PREVIEWS[only]) {
+  const themeClass = theme === "dark" ? "dark" : ""
+
+  if (only !== "all" && SCREENS[only]) {
     return (
-      <div className="min-h-screen bg-[#f5f8f6]" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
-        <WelcomePreview {...HEADER_PREVIEWS[only]} />
+      <div id={`screen-${only}`} className={cn(themeClass, "min-h-svh bg-background text-foreground")} data-theme={theme}>
+        {SCREENS[only].node}
       </div>
     )
   }
+
   return (
-    <div className="space-y-16 bg-[#eef4f0] p-6" style={{ fontFamily: "system-ui, Segoe UI, Helvetica, Arial, sans-serif" }}>
-      {show("kiosk-employee-login") ? (
-        <Frame id="kiosk-employee-login" title="Kiosk employee login nearest site" width={390} height={844}>
-          <EmployeeLoginPreview />
-        </Frame>
-      ) : null}
-      {show("kiosk-welcome-before") ? (
-        <Frame id="kiosk-welcome-before" title="Kiosk welcome before" width={1024} height={768}>
-          <BeforeWelcome />
-        </Frame>
-      ) : null}
-      {show("kiosk-welcome-after") ? (
-        <Frame id="kiosk-welcome-after" title="Kiosk welcome after" width={1024} height={768}>
-          <WelcomePreview />
-        </Frame>
-      ) : null}
-      {show("kiosk-header-detecting") ? (
-        <Frame id="kiosk-header-detecting" title="Kiosk header locating" width={1024} height={240}>
-          <WelcomePreview siteName="" meters={null} detecting />
-        </Frame>
-      ) : null}
-      {show("kiosk-header-detecting-mobile") ? (
-        <Frame id="kiosk-header-detecting-mobile" title="Kiosk header locating mobile" width={390} height={240}>
-          <WelcomePreview siteName="" meters={null} detecting compact />
-        </Frame>
-      ) : null}
-      {show("kiosk-details-before") ? (
-        <Frame id="kiosk-details-before" title="Kiosk details before" width={768} height={1024}>
-          <BeforeDetails />
-        </Frame>
-      ) : null}
-      {show("kiosk-details-after") ? (
-        <Frame id="kiosk-details-after" title="Kiosk details after" width={768} height={1024}>
-          <AfterDetails />
-        </Frame>
-      ) : null}
-      {show("qr-host-before") ? (
-        <Frame id="qr-host-before" title="QR host before" width={390} height={844}>
-          <BeforeHost />
-        </Frame>
-      ) : null}
-      {show("qr-host-after") ? (
-        <Frame id="qr-host-after" title="QR host after" width={390} height={844}>
-          <AfterHost />
-        </Frame>
-      ) : null}
-      {show("admin-dashboard-before") ? (
-        <Frame id="admin-dashboard-before" title="Admin dashboard before" width={1280} height={800}>
-          <BeforeDashboard />
-        </Frame>
-      ) : null}
-      {show("admin-dashboard-after") ? (
-        <Frame id="admin-dashboard-after" title="Admin dashboard after" width={1280} height={800}>
-          <AfterDashboard />
-        </Frame>
-      ) : null}
-      {show("admin-visitors-before") ? (
-        <Frame id="admin-visitors-before" title="Admin visitors before 1280" width={1280} height={800}>
-          <BeforeVisitors />
-        </Frame>
-      ) : null}
-      {show("admin-visitors-after") ? (
-        <Frame id="admin-visitors-after" title="Admin visitors after 1280" width={1280} height={800}>
-          <AfterVisitors />
-        </Frame>
-      ) : null}
-      {show("arrival-email") ? (
-        <section id="arrival-email" className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-[#55625a]">Arrival email after</h2>
-          <p className="text-sm text-[#55625a]">
-            Subject: {arrival.subject}. Preheader: {arrival.preheader}
-          </p>
-          <iframe
-            title="Arrival email"
-            srcDoc={arrival.html}
-            className="h-[900px] w-[620px] rounded-2xl border bg-white"
-          />
+    <div className={cn(themeClass, "space-y-16 bg-surface-2 p-6")} data-theme={theme}>
+      {Object.entries(SCREENS).map(([id, item]) => (
+        <section key={id} id={id} className="overflow-hidden rounded-2xl border border-border bg-background shadow">
+          <h2 className="border-b border-border px-4 py-2 text-13 font-semibold uppercase tracking-wide text-muted-foreground">{item.title}</h2>
+          <div className="min-h-[640px]">{item.node}</div>
         </section>
-      ) : null}
-      <div className="hidden">
-        <UserPlus className="h-4 w-4" />
-        <PlayCircle className="h-4 w-4" />
-        <CalendarCheck className="h-4 w-4" />
-        <Users className="h-4 w-4" />
-      </div>
+      ))}
     </div>
   )
 }

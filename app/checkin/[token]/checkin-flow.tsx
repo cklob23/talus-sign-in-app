@@ -689,6 +689,9 @@ export function CheckinFlow({
                         <p className="text-sm text-muted-foreground">
                             You watched the safety video from your training link. No video and no code today.
                         </p>
+                        {hosts.find((host) => host.id === hostId)?.name ? (
+                            <p className="text-sm text-primary-text">{fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}</p>
+                        ) : null}
                         <NavRow onBack={goBack} nextLabel={copy.continue} onNext={goNext} error={error} />
                     </StepPanel>
                 ) : skipKind === "code" && !codeProof ? (
@@ -705,7 +708,7 @@ export function CheckinFlow({
                         {error ? <p className="text-sm text-destructive">{error}</p> : null}
                         <div className="flex flex-col gap-2">
                             <Button
-                                className="h-12 bg-[#00854c] hover:bg-[#00703f]"
+                                className="h-12"
                                 disabled={codeDigits.length !== 6}
                                 onClick={async () => {
                                     setError(null)
@@ -775,6 +778,11 @@ export function CheckinFlow({
                         }}
                     />
                     )}
+                    {hosts.find((host) => host.id === hostId)?.name ? (
+                        <p className="text-sm font-medium text-primary-text">
+                            {fill(copy.hostTold, { host: hosts.find((host) => host.id === hostId)!.name })}
+                        </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground" aria-live="polite">
                         {videoEnded ? "Video complete." : copy.trainingHelp}
                     </p>
@@ -1195,7 +1203,9 @@ function SuccessPanel({
 }) {
     return (
         <section className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
-            <CheckCircle2 className="h-16 w-16 text-[#00854c]" aria-hidden="true" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_0_10px_var(--success-soft)]">
+                <CheckCircle2 className="h-11 w-11" aria-hidden="true" />
+            </div>
             <div className="space-y-1">
                 <h1 className="text-2xl font-semibold text-balance">{copy.signedInTitle}</h1>
                 <p className="text-sm leading-relaxed text-muted-foreground">
@@ -1211,7 +1221,7 @@ function SuccessPanel({
             </Card>
 
             <div className="flex items-start gap-2 rounded-lg border bg-card p-3 text-left text-sm leading-relaxed">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#00703f]" />
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary-text" />
                 <span>
                     {hostArrivalMessage({ signedIn: true, hostName, hostNotified, copy }) || copy.hostNotTold} {copy.rememberSignOut}
                 </span>
