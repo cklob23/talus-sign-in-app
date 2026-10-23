@@ -19,6 +19,8 @@ describe("kiosk page render-critical imports", () => {
       'from "@/components/kiosk/kiosk-resolved-site"',
       "kioskBootScreen",
       "headerLocationKind",
+      "shouldShowUnlockedHeaderSiteLine",
+      "unlockedHeaderSiteLineClassName",
       "isVisitorFlowMode",
       "readStaffSite",
       "resolveKioskSite",

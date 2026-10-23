@@ -64,7 +64,14 @@ import { KioskSiteLine } from "@/components/kiosk/kiosk-site-line"
 import { KioskSessionLoading } from "@/components/kiosk/kiosk-session-loading"
 import { StatusPill } from "@/components/v2/status-pill"
 import { kioskBootScreen } from "@/lib/kiosk-boot"
-import { headerLocationKind, isVisitorFlowMode, readStaffSite, resolveKioskSite } from "@/lib/kiosk-site"
+import {
+  headerLocationKind,
+  isVisitorFlowMode,
+  readStaffSite,
+  resolveKioskSite,
+  shouldShowUnlockedHeaderSiteLine,
+  unlockedHeaderSiteLineClassName,
+} from "@/lib/kiosk-site"
 import { fill, readVisitorLang, staffGeofenceLine, visitorCopy, writeVisitorLang, type VisitorLang } from "@/lib/visitor-i18n"
 import { fetchVisitorTypesWithPhoto, typeRequiresPhoto } from "@/lib/requires-photo"
 import { classifyCameraError, type CameraIssue } from "@/lib/camera-fallback"
@@ -2377,47 +2384,31 @@ export default function KioskPage() {
               </Link>
             </div>
             <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-4">
-              <div className="hidden min-w-0 items-center gap-3 text-sm md:flex">
-                <span className="flex shrink-0 items-center gap-2 border-r border-border pr-3">
-                  <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
-                  <span className="font-medium">
-                    {currentTime.toLocaleTimeString("en-US", {
-                      timeZone: toIANATimezone(currentTimezone),
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
+              <div className="hidden shrink-0 items-center gap-2 border-r border-border pr-3 text-sm md:flex">
+                <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <span className="font-medium">
+                  {currentTime.toLocaleTimeString("en-US", {
+                    timeZone: toIANATimezone(currentTimezone),
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
-                {siteKind === "none" ? (
-                  receptionistUser ? (
-                    <span className="truncate text-warning">{copy.noSitesStaff}</span>
-                  ) : null
-                ) : siteKind === "detecting" || currentLocation ? (
-                  <KioskSiteLine
-                    siteName={currentLocation?.name ?? ""}
-                    meters={siteMeters}
-                    unavailable={siteUnavailable}
-                    detecting={siteKind === "detecting"}
-                    copy={copy}
-                  />
-                ) : null}
               </div>
-              <div className={`min-w-0 md:hidden ${receptionistUser && siteKind !== "detecting" ? "hidden" : "max-w-[36%]"}`}>
-                {siteKind === "none" ? (
-                  receptionistUser ? (
-                    <span className="block truncate text-xs text-warning">{copy.noSitesStaff}</span>
-                  ) : null
-                ) : siteKind === "detecting" || currentLocation ? (
-                  <KioskSiteLine
-                    siteName={currentLocation?.name ?? ""}
-                    meters={siteMeters}
-                    unavailable={siteUnavailable}
-                    detecting={siteKind === "detecting"}
-                    copy={copy}
-                    compact
-                  />
-                ) : null}
-              </div>
+              {shouldShowUnlockedHeaderSiteLine({
+                siteKind,
+                hasLocation: Boolean(currentLocation),
+              }) ? (
+                <KioskSiteLine
+                  siteName={currentLocation?.name ?? ""}
+                  meters={siteMeters}
+                  unavailable={siteUnavailable}
+                  detecting={siteKind === "detecting"}
+                  copy={copy}
+                  className={unlockedHeaderSiteLineClassName()}
+                />
+              ) : siteKind === "none" && receptionistUser ? (
+                <span className="min-w-0 truncate text-xs text-warning md:text-sm">{copy.noSitesStaff}</span>
+              ) : null}
               <LangToggle
                 lang={lang}
                 onLang={(next) => {

@@ -29,10 +29,11 @@ export function KioskSiteLine({
     includeDistance: !compact,
     detecting,
   })
-  const spinnerOnly = detecting && compact && !siteName
+  const spinnerOnly = detecting && !siteName
 
   return (
     <span
+      data-testid="kiosk-site-line"
       className={`flex min-w-0 items-center gap-2 text-sm font-medium text-foreground ${className}`}
       {...(detecting ? { role: "status", "aria-live": "polite", "aria-busy": true } : {})}
     >
@@ -42,7 +43,10 @@ export function KioskSiteLine({
         <MapPin className="h-4 w-4 shrink-0 text-primary-text" aria-hidden />
       )}
       {spinnerOnly ? (
-        <span className="sr-only">{copy.checkingLocation}</span>
+        <>
+          <span className="sr-only">{copy.checkingLocation}</span>
+          <span className="hidden truncate md:inline">{copy.checkingLocation}</span>
+        </>
       ) : (
         <span className="truncate">{label}</span>
       )}
