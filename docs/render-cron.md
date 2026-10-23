@@ -2,14 +2,21 @@
 
 Production is the dashboard-managed web service `talus-sign-in-app` (`srv-d5t7dkd6ubrc73avi9og`) in the Talus Ag workspace, Oregon. `vercel.json` cron entries are not used.
 
-The two cron services live in `render.yaml`. They do not rebuild the Next app. Each run curls the private service URL with `Authorization: Bearer $CRON_SECRET` and exits.
+The cron services live in `render.yaml`. They do not rebuild the Next app. Each run curls the private service URL with `Authorization: Bearer $CRON_SECRET` and exits.
 
 | Service | Schedule (UTC) | Endpoint | curl `--max-time` |
 | --- | --- | --- | --- |
 | `talus-auto-signout` | every 15 minutes | `/api/auto-signout` | 120s |
 | `talus-scheduled-sync` | hourly at minute 0 | `/api/cron/scheduled-sync` | 900s |
+| `talus-reports` | every 15 minutes | `POST /api/cron/reports` (also runs booking invites) | 120s |
 
-`TARGET_URL` is the private hostname: `http://talus-sign-in-app-qt7b:10000`. Both crons fail closed if `CRON_SECRET` is unset on the web service.
+`TARGET_URL` is the private hostname: `http://talus-sign-in-app-qt7b:10000`. All crons fail closed if `CRON_SECRET` is unset on the web service.
+
+## Reports and booking invites
+
+The dashboard cron `talus-reports` can only call `POST /api/cron/reports`. That endpoint now also runs the booking-invite job in the same request. Booking invites and scheduled reports run independently: if one throws, the other still runs. The JSON body is `{ bookingInvites, reports }`. HTTP status is non-2xx if either job failed, so `curl -f` still flags failures.
+
+`/api/cron/booking-invites` still works on its own. Claim/sent markers (`invite_status` scheduled → sending → sent) keep a later command change that hits both URLs from double-sending.
 
 Create the jobs from the Blueprint or by hand in the dashboard. Attach env group `talus-cron` (`CRON_SECRET` sync:false, `TARGET_URL` as above). The cron process only needs those two values. Provider credentials stay on the web service.
 
@@ -84,7 +91,7 @@ Entra already deactivated directory-managed profiles missing from Graph. That sw
 
 ## Validation after deploy
 
-1. Confirm `talus-auto-signout` and `talus-scheduled-sync` exist in Oregon, starter plan, env group `talus-cron`.
+1. Confirm `talus-auto-signout`, `talus-scheduled-sync`, and `talus-reports` exist in Oregon, starter plan, env group `talus-cron`.
 2. Trigger a run of `talus-scheduled-sync` (or wait for the hour). Open **Logs**.
 3. The curl line must finish with HTTP 200. The JSON includes `results.azure` and `results.ramp`. `ran: false` with `reason: "not_due"` is expected when that schedule is off or the interval has not elapsed.
 4. In Supabase SQL:
@@ -101,3 +108,4 @@ A healthy pair of runs shows `scheduled_sync.azure` and `scheduled_sync.ramp`. F
 
 5. Optional: the dry-run curls above. Confirm the log JSON has counts and the query in step 4 did not gain new rows.
 6. `talus-auto-signout` logs: HTTP 200 from `/api/auto-signout` within 120s.
+7. `talus-reports` logs: HTTP 200 from `POST /api/cron/reports` within 120s. The JSON includes `bookingInvites` and `reports`.

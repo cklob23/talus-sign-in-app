@@ -1,140 +1,47 @@
 import { NextResponse } from "next/server"
 import { requireCronSecret } from "@/lib/cron-auth"
-import { isUndefinedTable } from "@/lib/idempotency"
-import { createAdminClient } from "@/lib/supabase/server"
-import {
-  advanceNextRun,
-  claimScheduledRun,
-  finishRun,
-  listDueSchedules,
-  periodForSchedule,
-} from "@/lib/reports/schedule"
-import { buildReport, sendBuiltReport } from "@/lib/reports/run"
+import { runBookingInviteCron } from "@/lib/booking-invite-cron"
+import { runDueReports } from "@/lib/reports/run-due"
 
-async function runDueReports() {
-  const admin = createAdminClient()
-  const now = new Date()
-  let due
+type IsolatedJob = { ok: boolean; value: Record<string, unknown> }
+
+function asResult(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object") return value as Record<string, unknown>
+  return { error: "failed" }
+}
+
+async function runIsolated(run: () => Promise<unknown>): Promise<IsolatedJob> {
   try {
-    due = await listDueSchedules(admin, now)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load schedules"
-    return NextResponse.json({ error: message }, { status: 500 })
+    const value = asResult(await run())
+    return { ok: value.ok !== false, value }
+  } catch (error) {
+    return {
+      ok: false,
+      value: { error: error instanceof Error ? error.message : "failed" },
+    }
   }
-
-  const results: Array<Record<string, unknown>> = []
-
-  for (const schedule of due) {
-    const period = periodForSchedule(schedule, now)
-    let claimed
-    try {
-      claimed = await claimScheduledRun(admin, {
-        scheduleId: schedule.id,
-        periodStart: period.runStart.toISOString(),
-        periodEnd: period.end.toISOString(),
-        recipients: schedule.recipients,
-        now,
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "claim_failed"
-      if (message.includes("42P01") || isUndefinedTable({ message })) {
-        return NextResponse.json({
-          success: true,
-          skipped: "missing_tables",
-          timestamp: now.toISOString(),
-        })
-      }
-      results.push({ id: schedule.id, error: message })
-      continue
-    }
-
-    if (claimed.skip) {
-      const next = await advanceNextRun(admin, schedule, new Date(Math.max(now.getTime(), new Date(schedule.nextRunAt || now).getTime())))
-      results.push({ id: schedule.id, skipped: claimed.reason, nextRunAt: next })
-      continue
-    }
-
-    try {
-      const report = await buildReport(admin, {
-        kind: schedule.kind,
-        locationIds: schedule.locationIds,
-        visitorTypeIds: schedule.visitorTypeIds,
-        from: period.start.toISOString(),
-        to: period.end.toISOString(),
-      })
-      const sent = await sendBuiltReport({
-        admin,
-        scheduleName: schedule.name,
-        kind: schedule.kind,
-        format: schedule.format,
-        recipients: schedule.recipients,
-        periodStart: period.start.toISOString(),
-        periodEnd: period.end.toISOString(),
-        timezone: schedule.timezone,
-        locationIds: schedule.locationIds,
-        report,
-      })
-      if (!sent.sent) {
-        await finishRun(admin, claimed.id, {
-          status: "failed",
-          rowCount: report.rowCount,
-          error: sent.reason || "send_failed",
-        })
-        await admin.from("audit_logs").insert({
-          action: "report.failed",
-          entity_type: "report",
-          entity_id: schedule.id,
-          description: `Scheduled send failed for ${schedule.name}: ${sent.reason || "send_failed"}`,
-          metadata: { trigger: "scheduled", runId: claimed.id, reason: sent.reason },
-        })
-        results.push({ id: schedule.id, error: sent.reason || "send_failed" })
-      } else {
-        await finishRun(admin, claimed.id, { status: "sent", rowCount: report.rowCount })
-        await admin.from("audit_logs").insert({
-          action: "report.sent",
-          entity_type: "report",
-          entity_id: schedule.id,
-          description: `Sent ${schedule.name} (${report.rowCount} rows)`,
-          metadata: { trigger: "scheduled", runId: claimed.id, rowCount: report.rowCount },
-        })
-        results.push({ id: schedule.id, sent: true, rowCount: report.rowCount })
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "send_failed"
-      await finishRun(admin, claimed.id, { status: "failed", error: message })
-      await admin.from("audit_logs").insert({
-        action: "report.failed",
-        entity_type: "report",
-        entity_id: schedule.id,
-        description: `Scheduled send failed for ${schedule.name}: ${message}`,
-        metadata: { trigger: "scheduled", runId: claimed.id },
-      })
-      results.push({ id: schedule.id, error: message })
-    }
-
-    await advanceNextRun(
-      admin,
-      schedule,
-      new Date(Math.max(now.getTime(), new Date(schedule.nextRunAt || now).getTime())),
-    )
-  }
-
-  return NextResponse.json({
-    success: true,
-    timestamp: now.toISOString(),
-    due: due.length,
-    results,
-  })
 }
 
 /**
- * Render cron talus-reports (every 15 minutes) calls this with
- * Authorization: Bearer $CRON_SECRET after /api/cron/booking-invites.
+ * Render cron talus-reports (every 15 minutes) POSTs this with
+ * Authorization: Bearer $CRON_SECRET. The dashboard command cannot be
+ * changed, so this endpoint also runs booking invites in the same request.
+ * /api/cron/booking-invites remains available; claim/sent markers keep a
+ * later dual-command setup from double-sending.
  */
 export async function POST(request: Request) {
   const denied = requireCronSecret(request)
   if (denied) return denied
-  return runDueReports()
+
+  // Independent: a throw in one job must not skip the other.
+  const bookingInvites = await runIsolated(() => runBookingInviteCron(request))
+  const reports = await runIsolated(() => runDueReports())
+
+  const status = bookingInvites.ok && reports.ok ? 200 : 500
+  return NextResponse.json(
+    { bookingInvites: bookingInvites.value, reports: reports.value },
+    { status },
+  )
 }
 
 export async function GET(request: Request) {
