@@ -8,19 +8,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Location } from "@/types/database"
 import { formatTime, formatDateTime, toIANATimezone } from "@/lib/timezone"
 import { useTimezone } from "@/contexts/timezone-context"
-
-interface CombinedSignIn {
-  id: string
-  type: "visitor" | "employee"
-  name: string
-  initials: string
-  photo_url?: string | null
-  sign_in_time: string
-  badge_color?: string
-  badge_text?: string
-  subtitle: string
-  timezone: string
-}
+import {
+  RECENT_ACTIVITY_DESCRIPTION,
+  RECENT_ACTIVITY_EMPTY,
+  combineRecentActivity,
+  type RecentActivityItem,
+} from "@/lib/recent-visitors"
 
 // Format time, adding date if not from today
 function formatSignInTime(utcDateString: string, timezone: string): string {
@@ -44,84 +37,47 @@ function formatSignInTime(utcDateString: string, timezone: string): string {
 }
 
 export function RecentVisitors() {
-  const [signIns, setSignIns] = useState<CombinedSignIn[]>([])
+  const [signIns, setSignIns] = useState<RecentActivityItem[]>([])
   const { timezone: userTimezone } = useTimezone()
 
   useEffect(() => {
     async function loadRecentSignIns() {
       const supabase = createClient()
 
-      // Fetch visitor sign-ins
-      const { data: visitorData } = await supabase
-        .from("sign_ins")
-        .select(
-          `
+      const [{ data: visitorData }, { data: employeeData }] = await Promise.all([
+        supabase
+          .from("sign_ins")
+          .select(
+            `
           *,
           visitor:visitors(*),
           host:hosts(*),
           visitor_type:visitor_types(*),
           location:locations(*)
         `,
-        )
-        .is("sign_out_time", null)
-        .order("sign_in_time", { ascending: false })
-        .limit(5)
-
-      // Fetch employee sign-ins
-      const { data: employeeData } = await supabase
-        .from("employee_sign_ins")
-        .select(
-          `
+          )
+          .order("sign_in_time", { ascending: false })
+          .limit(5),
+        supabase
+          .from("employee_sign_ins")
+          .select(
+            `
           *,
           profile:profiles(*),
           location:locations(*)
         `,
-        )
-        .is("sign_out_time", null)
-        .order("sign_in_time", { ascending: false })
-        .limit(5)
+          )
+          .order("sign_in_time", { ascending: false })
+          .limit(5),
+      ])
 
-      // Combine and sort by sign_in_time
-      const combined: CombinedSignIn[] = []
-
-      if (visitorData) {
-        for (const v of visitorData as (SignIn & { location?: Location })[]) {
-          combined.push({
-            id: v.id,
-            type: "visitor",
-            name: `${v.visitor?.first_name || ""} ${v.visitor?.last_name || ""}`.trim() || "Unknown Visitor",
-            initials: `${v.visitor?.first_name?.[0] || ""}${v.visitor?.last_name?.[0] || ""}`,
-            photo_url: v.visitor?.photo_url,
-            sign_in_time: v.sign_in_time,
-            badge_color: v.visitor_type?.badge_color,
-            badge_text: v.visitor_type?.name,
-            subtitle: v.host ? `Visiting ${v.host.name}` : "No host assigned",
-            timezone: v.location?.timezone || "UTC",
-          })
-        }
-      }
-
-      if (employeeData) {
-        for (const e of employeeData as (EmployeeSignIn & { location?: Location })[]) {
-          const name = e.profile?.full_name || e.profile?.email || "Unknown Employee"
-          combined.push({
-            id: e.id,
-            type: "employee",
-            name,
-            initials: name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase(),
-            photo_url: e.profile?.avatar_url,
-            sign_in_time: e.sign_in_time,
-            badge_color: "#2563eb", // Blue for employees
-            badge_text: "Employee",
-            subtitle: e.auto_signed_in ? "Auto sign-in" : "Manual sign-in",
-            timezone: e.location?.timezone || "UTC",
-          })
-        }
-      }
-
-      // Sort by sign_in_time descending and take top 5
-      combined.sort((a, b) => new Date(b.sign_in_time).getTime() - new Date(a.sign_in_time).getTime())
-      setSignIns(combined.slice(0, 5))
+      setSignIns(
+        combineRecentActivity(
+          (visitorData as (SignIn & { location?: Location })[]) ?? [],
+          (employeeData as (EmployeeSignIn & { location?: Location })[]) ?? [],
+          5,
+        ),
+      )
     }
 
     loadRecentSignIns()
@@ -131,12 +87,12 @@ export function RecentVisitors() {
     <Card>
       <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-base sm:text-lg">Recent Visitors</CardTitle>
-        <CardDescription className="text-xs sm:text-sm">Latest visitors still on site</CardDescription>
+        <CardDescription className="text-xs sm:text-sm">{RECENT_ACTIVITY_DESCRIPTION}</CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
         <div className="space-y-3 sm:space-y-4">
           {signIns.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No recent sign-ins</p>
+            <p className="text-sm text-muted-foreground text-center py-4">{RECENT_ACTIVITY_EMPTY}</p>
           ) : (
             signIns.map((signIn) => (
               <div key={signIn.id} className="flex items-center gap-3 sm:gap-4">
@@ -169,6 +125,9 @@ export function RecentVisitors() {
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatSignInTime(signIn.sign_in_time, userTimezone)}
                   </span>
+                  {!signIn.on_site ? (
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Signed out</span>
+                  ) : null}
                 </div>
               </div>
             ))
