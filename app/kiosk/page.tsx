@@ -2400,7 +2400,7 @@ export default function KioskPage() {
                   />
                 ) : null}
               </div>
-              <div className={`min-w-0 md:hidden ${receptionistUser ? "hidden" : "max-w-[36%]"}`}>
+              <div className={`min-w-0 md:hidden ${receptionistUser && siteKind !== "detecting" ? "hidden" : "max-w-[36%]"}`}>
                 {siteKind === "none" ? (
                   receptionistUser ? (
                     <span className="block truncate text-xs text-[#8a4500]">{copy.noSitesStaff}</span>

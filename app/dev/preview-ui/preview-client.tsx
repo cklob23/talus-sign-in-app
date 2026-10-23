@@ -494,6 +494,11 @@ export function PreviewUiScreens({ screen, full }: { screen?: string; full?: boo
           <WelcomePreview siteName="" meters={null} detecting />
         </Frame>
       ) : null}
+      {show("kiosk-header-detecting-mobile") ? (
+        <Frame id="kiosk-header-detecting-mobile" title="Kiosk header locating mobile" width={390} height={240}>
+          <WelcomePreview siteName="" meters={null} detecting />
+        </Frame>
+      ) : null}
       {show("kiosk-details-before") ? (
         <Frame id="kiosk-details-before" title="Kiosk details before" width={768} height={1024}>
           <BeforeDetails />
