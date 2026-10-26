@@ -40,7 +40,7 @@ export function emailShell(args: {
 `
   const rtRules = `.rt{border-collapse:collapse;table-layout:auto;width:100%;max-width:528px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#0f1a13;background-color:#ffffff}
 .rt th,.rt td{border:1px solid #dce6df;padding:4px 6px;text-align:left;vertical-align:top;color:#0f1a13;background-color:#ffffff;word-break:normal;overflow-wrap:normal}
-.rt th{background:#f5f8f6;font-weight:700}
+.rt th{background:#f5f8f6;font-weight:700;white-space:normal}
 .rt .rt-em{display:block;word-break:break-word;overflow-wrap:anywhere}
 .rt .rt-time{white-space:nowrap}
 `

@@ -1,5 +1,6 @@
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
-import { detailRow, detailsPanel, emailShell, headingBlock, pill } from "@/lib/email-shell"
+import { detailRow, detailsPanel, emailButton, emailShell, headingBlock, pill } from "@/lib/email-shell"
+import { REPORT_VIEW_PATH } from "./view-url.ts"
 import { isAllTimeStart } from "./period.ts"
 import { formatReportDateTime } from "./rows.ts"
 import {
@@ -26,6 +27,21 @@ export interface ReportEmailArgs {
   truncated?: boolean
   tableHtml?: string
   tableText?: string
+  viewUrl?: string
+}
+
+function safeReportViewUrl(value?: string): string {
+  const raw = typeof value === "string" ? value.trim() : ""
+  if (!raw) return ""
+  try {
+    const parsed = new URL(raw)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return ""
+    if (parsed.username || parsed.password) return ""
+    if (parsed.pathname !== REPORT_VIEW_PATH) return ""
+    return raw
+  } catch {
+    return ""
+  }
 }
 
 export function formatEmailPeriod(args: Pick<ReportEmailArgs, "periodStart" | "periodEnd" | "timezone" | "periodLabel">): string {
@@ -55,6 +71,7 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
       : "No rows matched this period, so no spreadsheet is attached."
   const hasTable = Boolean(args.tableHtml?.trim())
   const tableLine = hasTable ? "The report table is included below." : ""
+  const viewUrl = safeReportViewUrl(args.viewUrl)
   const capLine = args.truncated
     ? " This file is capped at 50,000 rows."
     : ""
@@ -70,9 +87,15 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
   ].join("")
 
   const notice = `${attachLine}${capLine} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.`
+  const viewBlock =
+    hasTable && viewUrl
+      ? `<tr><td class="px m" style="padding:8px 36px 0 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">All columns. Sign-in required.</td></tr>
+${emailButton(viewUrl, "View full table")}`
+      : ""
   const tableBlock = hasTable
     ? `<tr><td class="px m" style="padding:8px 36px 0 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(tableLine)}</td></tr>
-<tr><td class="px rt-box" style="padding:8px 36px 24px 36px;">${args.tableHtml}</td></tr>`
+<tr><td class="px rt-box" style="padding:8px 36px ${viewBlock ? "8px" : "24px"} 36px;">${args.tableHtml}</td></tr>
+${viewBlock}`
     : ""
 
   const html = emailShell({
@@ -98,6 +121,7 @@ ${tableBlock}`,
     "",
     notice,
     ...(hasTable && args.tableText ? ["", tableLine, args.tableText] : []),
+    ...(hasTable && viewUrl ? ["", "View the full table (sign-in required):", viewUrl] : []),
   ].join("\n")
 
   return { subject, html, text, preheader }

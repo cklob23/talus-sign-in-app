@@ -1,7 +1,10 @@
 import { sendEmail } from "@/lib/email"
+import { sanitizeAppUrl } from "@/lib/html-escape"
+import { resolveAppOrigin } from "@/lib/nda"
 import { csvFilename, csvWithBom, toCsv } from "./csv.ts"
 import { renderReportEmail } from "./email.ts"
 import { emailTableSummaryLine, renderReportTable } from "./table.ts"
+import { buildReportViewUrl } from "./view-url.ts"
 import {
   buildEmployeeCsvRows,
   buildTrainingCsvRows,
@@ -94,6 +97,8 @@ export async function sendBuiltReport(args: {
   extraLines?: Array<{ label: string; value: string }>
   durationUnit?: DurationUnit
   includeTable?: boolean
+  visitorTypeIds?: string[]
+  origin?: string
 }): Promise<{ sent: boolean; reason?: string }> {
   const attachCsv = (args.format === "csv" || args.format === "both") && args.report.rowCount > 0
   const names = await locationNamesForIds(args.admin, args.locationIds)
@@ -104,6 +109,23 @@ export async function sendBuiltReport(args: {
   const tableHtml = table?.html?.trim() ? table.html : undefined
   const tableText = tableHtml ? table?.text : undefined
   const tableSummary = emailTableSummaryLine(tableHtml ? table : null)
+  const origin = (args.origin || resolveAppOrigin()).replace(/\/+$/, "")
+  const viewUrl =
+    tableHtml && origin
+      ? sanitizeAppUrl(
+          buildReportViewUrl(origin, {
+            kind: args.kind,
+            from: args.periodStart,
+            to: args.periodEnd,
+            locationIds: args.locationIds,
+            visitorTypeIds: args.visitorTypeIds,
+            durationUnit: args.durationUnit || "minutes",
+            timezone: args.timezone,
+            name: args.scheduleName,
+          }),
+          origin,
+        )
+      : ""
   const mail = renderReportEmail({
     scheduleName: args.scheduleName,
     kind: args.kind,
@@ -127,6 +149,7 @@ export async function sendBuiltReport(args: {
     truncated: args.report.truncated,
     tableHtml,
     tableText,
+    viewUrl: viewUrl || undefined,
   })
 
   return sendEmail({

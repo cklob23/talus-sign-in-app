@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { loginUrlForProtectedPath } from "@/lib/safe-redirect"
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -43,9 +44,10 @@ export async function updateSession(request: NextRequest) {
   // Protect admin routes. Session existence is a first gate; the admin
   // layout re-checks the verified user and role with getUser().
   if (request.nextUrl.pathname.startsWith("/admin") && !session) {
-    const url = request.nextUrl.clone()
-    url.pathname = "/auth/login"
-    return NextResponse.redirect(url)
+    return NextResponse.redirect(new URL(
+      loginUrlForProtectedPath(request.nextUrl.pathname, request.nextUrl.search),
+      request.nextUrl.origin,
+    ))
   }
 
   return supabaseResponse

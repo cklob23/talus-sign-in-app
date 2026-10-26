@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { requireBuiltInAdmin } from "@/lib/admin-auth"
 import { isUndefinedTable } from "@/lib/idempotency"
+import { resolveAppOrigin } from "@/lib/nda"
 import { createAdminClient } from "@/lib/supabase/server"
 import { finishRun, hydrateSchedule, insertManualRun, periodForSchedule } from "@/lib/reports/schedule"
 import { buildReport, sendBuiltReport } from "@/lib/reports/run"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function POST(_request: Request, context: RouteContext) {
+export async function POST(request: Request, context: RouteContext) {
   const auth = await requireBuiltInAdmin()
   if (!auth.ok) return auth.response
   const { id } = await context.params
@@ -57,6 +58,8 @@ export async function POST(_request: Request, context: RouteContext) {
       report,
       durationUnit: schedule.durationUnit,
       includeTable: schedule.includeTable,
+      visitorTypeIds: schedule.visitorTypeIds,
+      origin: resolveAppOrigin(request),
     })
     if (!sent.sent) {
       await finishRun(admin, runId, { status: "failed", rowCount: report.rowCount, error: sent.reason || "send_failed" })

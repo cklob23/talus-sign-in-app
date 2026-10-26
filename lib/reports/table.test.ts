@@ -6,6 +6,7 @@ import {
   emailDurationHeader,
   emailTableColumns,
   emailTableSummaryLine,
+  formatEmailInOutLines,
   formatEmailTableDate,
   renderReportTable,
   reportEmailTableCapNote,
@@ -85,7 +86,7 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes('class="rt-now"'), false)
     assert.match(out.html, /Agricultural<br>Contractor/)
     assert.match(out.html, /Hiro Iwanaga<br>Houston HQ/)
-    assert.match(out.html, /<td class="rt-time">Oct 22<br>10:30 AM<br>Oct 22<br>12:00 PM<br>90 min<\/td>/)
+    assert.match(out.html, /<td class="rt-time">Oct 22, 10:30 AM<br>12:00 PM · 90 min<\/td>/)
     assert.equal(out.html.includes("2026"), false)
     assert.equal(out.html.includes("CDT"), false)
     assert.match(out.html, /<span class="rt-em">ada@example.com<\/span>/)
@@ -98,9 +99,17 @@ describe("renderReportTable", () => {
   it("shortens duration headers and email-table dates", () => {
     assert.equal(emailDurationHeader("Duration (min)"), "Min")
     assert.equal(emailDurationHeader("Duration (hr)"), "Hrs")
-    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22\n10:30 AM")
-    assert.equal(formatEmailTableDate("Thu, Oct 26, 2026, 3:10 PM GMT-5"), "Oct 26\n3:10 PM")
+    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22, 10:30 AM")
+    assert.equal(formatEmailTableDate("Mon, Oct 26, 2026, 7:30 AM GMT+3"), "Oct 26, 7:30 AM")
     assert.equal(formatEmailTableDate(""), "")
+    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30 AM", "Oct 26, 6:01 PM", "10.51 hr"), [
+      "Oct 26, 7:30 AM",
+      "6:01 PM · 10.51 hr",
+    ])
+    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30 AM", "Oct 27, 6:01 AM", "10.5 hr"), [
+      "Oct 26, 7:30 AM",
+      "Oct 27, 6:01 AM · 10.5 hr",
+    ])
     const hours = renderReportTable({
       csvRows: buildVisitorCsvRows(
         [
@@ -246,6 +255,35 @@ describe("renderReportTable", () => {
     })
     const emailBytes = new TextEncoder().encode(mail.html).length
     assert.ok(emailBytes < 100_000, `email was ${emailBytes} bytes`)
+  })
+
+  it("keeps Kenya long-name rows to two time lines and four columns", () => {
+    const out = renderReportTable({
+      csvRows: buildVisitorCsvRows(
+        [
+          {
+            sign_in_time: "2026-10-26T04:48:00.000Z",
+            sign_out_time: "2026-10-26T15:01:00.000Z",
+            visitor: {
+              first_name: "Dolvin",
+              last_name: "Moragwanyanga Residolvin",
+              email: "dolvinmoragwanyangaresidolvin@gmail.com",
+              company: "Talus",
+            },
+            host: { name: "Stanley Tioniny" },
+            visitor_type: { name: "Contractor" },
+            location: { name: "Kenya Farm Site", timezone: "Africa/Nairobi" },
+          },
+        ],
+        "hours",
+      ),
+    })
+    assert.match(out.html, /<th bgcolor="#f5f8f6">In \/ out<\/th>/)
+    assert.equal(out.html.includes("Duration (hr)"), false)
+    assert.match(out.html, /<td class="rt-time">Oct 26, 7:48 AM<br>6:01 PM · 10\.22 hr<\/td>/)
+    assert.match(out.html, /<span class="rt-em">dolvinmoragwanyangaresidolvin@gmail.com<\/span>/)
+    assert.match(out.html, /Kenya Farm Site/)
+    assert.equal((out.html.match(/<th /g) || []).length, 4)
   })
 
   it("replaces pipes in the plain-text table", () => {

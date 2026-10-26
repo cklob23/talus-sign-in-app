@@ -15,6 +15,7 @@ import { useBranding } from "@/hooks/use-branding"
 import { logAudit } from "@/lib/audit-log"
 import { loadPasswordPolicy, isPasswordExpired, needsReauthentication } from "@/lib/password-policy"
 import { fixAzureOAuthUrl } from "@/lib/fix-azure-oauth-url"
+import { safeNextPath } from "@/lib/safe-redirect"
 
 export default function LoginPage() {
   const { branding } = useBranding()
@@ -109,7 +110,7 @@ export default function LoginPage() {
       })
 
       setIsRedirecting(true)
-      router.push("/admin")
+      router.push(safeNextPath(new URLSearchParams(window.location.search).get("next")))
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred")
       setIsRedirecting(false)
@@ -130,7 +131,8 @@ export default function LoginPage() {
       await supabase.auth.signOut()
 
       // Construct redirect URL - must match what's configured in Supabase Auth settings
-      const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=/admin`
+      const next = safeNextPath(new URLSearchParams(window.location.search).get("next"))
+      const callbackUrl = `${window.location.origin}/auth/callback?type=admin&next=${encodeURIComponent(next)}`
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "azure",

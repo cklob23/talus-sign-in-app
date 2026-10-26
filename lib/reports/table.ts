@@ -33,8 +33,32 @@ export function formatEmailTableDate(value: string): string {
   const match = text.match(
     /^(?:[A-Za-z]{3},\s+)?([A-Za-z]{3}\s+\d{1,2}),\s+\d{4},\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
   )
-  if (match) return `${match[1]}\n${match[2].replace(/\s+/g, " ")}`
+  if (match) return `${match[1]}, ${match[2].replace(/\s+/g, " ")}`
   return text
+}
+
+function emailDateKey(value: string): string {
+  const match = value.match(/^([A-Za-z]{3}\s+\d{1,2})\b/)
+  return match ? match[1] : value
+}
+
+function emailTimeOnly(value: string): string {
+  const match = value.match(/(\d{1,2}:\d{2}\s*[AP]M)$/i)
+  return match ? match[1].replace(/\s+/g, " ") : value
+}
+
+/** Two lines: in stamp, then out time (date omitted when same day) plus duration. */
+export function formatEmailInOutLines(signin: string, signout: string, duration: string): string[] {
+  const lines: string[] = []
+  if (signin) lines.push(signin)
+  const tail: string[] = []
+  if (signout) {
+    const sameDay = Boolean(signin && emailDateKey(signin) === emailDateKey(signout))
+    tail.push(sameDay ? emailTimeOnly(signout) : signout)
+  }
+  if (duration) tail.push(duration)
+  if (tail.length) lines.push(tail.join(" · "))
+  return lines
 }
 
 export function emailDurationHeader(header: string): "Hrs" | "Min" {
@@ -227,29 +251,39 @@ function renderEmailCell(
   row: Array<string | number | boolean | null | undefined>,
   headers: string[],
 ): { html: string; text: string } {
-  const parts = column.sources
-    .map((source, index) => {
-      const kind = column.kinds[index]
-      const raw = formatPart(kind, cellText(row[source]), headers[source] || "")
-      return { kind, raw }
-    })
-    .filter((part) => part.raw)
+  const parts = column.sources.map((source, index) => {
+    const kind = column.kinds[index]
+    const raw = formatPart(kind, cellText(row[source]), headers[source] || "")
+    return { kind, raw }
+  })
 
-  const htmlParts = parts.flatMap((part) =>
+  if (column.kinds.includes("signin") || column.kinds.includes("signout")) {
+    const signin = parts.find((part) => part.kind === "signin")?.raw || ""
+    const signout = parts.find((part) => part.kind === "signout")?.raw || ""
+    const duration = parts.find((part) => part.kind === "duration")?.raw || ""
+    const lines = formatEmailInOutLines(signin, signout, duration)
+    return {
+      html: `<td class="rt-time">${lines.map((line) => escapeHtml(line)).join("<br>")}</td>`,
+      text: lines.join(" / "),
+    }
+  }
+
+  const visible = parts.filter((part) => part.raw)
+  const htmlParts = visible.flatMap((part) =>
     part.raw.split("\n").map((line) => {
       const safe = escapeHtml(line)
       return part.kind === "email" ? `<span class="rt-em">${safe}</span>` : safe
     }),
   )
   const tdClass =
-    parts.length === 1 && parts[0].kind === "email"
+    visible.length === 1 && visible[0].kind === "email"
       ? ' class="rt-em"'
-      : column.kinds.some((kind) => kind === "signin" || kind === "completed" || kind === "duration")
+      : column.kinds.some((kind) => kind === "completed" || kind === "duration" || kind === "expires")
         ? ' class="rt-time"'
         : ""
   return {
     html: `<td${tdClass}>${htmlParts.join("<br>")}</td>`,
-    text: parts.map((part) => part.raw.replace(/\n/g, " ")).join(" / "),
+    text: visible.map((part) => part.raw.replace(/\n/g, " ")).join(" / "),
   }
 }
 

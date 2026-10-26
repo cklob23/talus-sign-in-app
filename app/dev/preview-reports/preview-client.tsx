@@ -132,43 +132,88 @@ const trainingRows = [
   },
 ]
 
+const kenyaVisitors = [
+  {
+    first: "Abigael",
+    last: "Chepkemoi",
+    email: "abigaelchepkew.1@gmail.com",
+    in: "2026-10-26T04:30:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+  {
+    first: "Elvis",
+    last: "Kipkosgei",
+    email: "elvkosgei@gmail.com",
+    in: "2026-10-26T04:31:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+  {
+    first: "Colleta",
+    last: "Nduli",
+    email: "colletanduliri@gmail.com",
+    in: "2026-10-26T04:37:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+  {
+    first: "Hiram",
+    last: "Kwererit",
+    email: "hiramlangat67@gmail.com",
+    in: "2026-10-26T04:38:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+  {
+    first: "Dolvin",
+    last: "Moragwanyanga Residolvin",
+    email: "dolvinmoragwanyangaresidolvin@gmail.com",
+    in: "2026-10-26T04:48:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+  {
+    first: "Nelson",
+    last: "Kemelei",
+    email: "nelsonkemelei27@gmail.com",
+    in: "2026-10-26T06:28:00.000Z",
+    out: "2026-10-26T15:01:00.000Z",
+  },
+]
+
 const previewCsvRows = buildVisitorCsvRows(
-  Array.from({ length: 40 }, (_, index) => ({
-    sign_in_time: "2026-10-22T15:30:00.000Z",
-    sign_out_time: "2026-10-22T17:00:00.000Z",
+  kenyaVisitors.map((visitor) => ({
+    sign_in_time: visitor.in,
+    sign_out_time: visitor.out,
     visitor: {
-      first_name: index === 0 ? "Ada" : "Visitor",
-      last_name: index === 0 ? "Lovelace" : String(index + 1),
-      email: `visitor${index + 1}@example.com`,
-      company: index % 2 ? "Acme Field" : "Analytical",
+      first_name: visitor.first,
+      last_name: visitor.last,
+      email: visitor.email,
+      company: "Talus",
     },
-    host: { name: index % 2 ? "Caleb Klob" : "Hiro Iwanaga" },
-    visitor_type: { name: index % 2 ? "Guest" : "Contractor" },
-    location: { name: "Houston HQ", timezone: "America/Chicago" },
+    host: { name: "Stanley Tioniny" },
+    visitor_type: { name: "Contractor" },
+    location: { name: "Kenya Farm Site", timezone: "Africa/Nairobi" },
   })),
   "hours",
 )
 const previewTable = renderReportTable({ csvRows: previewCsvRows, csvAttached: true })
 const email = renderReportEmail({
-  scheduleName: "Ad-hoc visitor sign-ins",
+  scheduleName: "Kenya farm daily",
   kind: "visitors",
-  periodStart: "1970-01-01T00:00:00.000Z",
-  periodEnd: "2026-10-22T18:00:00.000Z",
-  timezone: "America/New_York",
-  locationNames: ["Houston HQ"],
-  rowCount: 40,
+  periodStart: "2026-10-26T00:00:00.000Z",
+  periodEnd: "2026-10-27T00:00:00.000Z",
+  timezone: "Africa/Nairobi",
+  locationNames: ["Kenya Farm Site"],
+  rowCount: kenyaVisitors.length,
   format: "both",
   csvAttached: true,
   logoUrl: "",
-  badge: "Ad-hoc report",
-  periodLabel: "All time",
+  badge: "Scheduled report",
   extraLines: [
     { label: "Duration unit", value: "Hours" },
     { label: "Email table", value: "Included" },
-    { label: "Sent from", value: "Reports dashboard" },
   ],
   tableHtml: previewTable.html,
   tableText: previewTable.text,
+  viewUrl:
+    "https://signin.talusag.com/admin/reports/view?kind=visitors&from=2026-10-26T00:00:00.000Z&to=2026-10-27T00:00:00.000Z&tz=Africa%2FNairobi&durationUnit=hours&name=Kenya+farm+daily",
 })
 const emailHtml = email.html.replaceAll("Geist,'Segoe UI',Helvetica,Arial,sans-serif", "Liberation Sans,DejaVu Sans,Arial,sans-serif")
 
