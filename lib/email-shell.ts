@@ -38,8 +38,8 @@ export function emailShell(args: {
  .code{background:#17231c!important;color:#e8efea!important;border-color:#4fd68f!important}
 }
 `
-  const rtRules = `.rt{border-collapse:collapse;width:100%;max-width:528px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#0f1a13;background-color:#ffffff}
-.rt th,.rt td{border:1px solid #dce6df;padding:4px 6px;text-align:left;vertical-align:top;color:#0f1a13;background-color:#ffffff}
+  const rtRules = `.rt{border-collapse:collapse;table-layout:fixed;width:100%;max-width:528px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#0f1a13;background-color:#ffffff}
+.rt th,.rt td{border:1px solid #dce6df;padding:4px 6px;text-align:left;vertical-align:top;color:#0f1a13;background-color:#ffffff;word-break:break-word;overflow-wrap:anywhere}
 .rt th{background:#f5f8f6;font-weight:700}
 .rt .rt-now{white-space:nowrap}
 `

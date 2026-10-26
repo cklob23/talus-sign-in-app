@@ -56,6 +56,7 @@ describe("renderReportTable", () => {
     assert.match(out.html, /class="rt"/)
     assert.match(out.html, /max-width:528px/)
     assert.match(out.html, /width:100%/)
+    assert.match(out.html, /table-layout:fixed/)
     assert.equal(out.html.includes("overflow-x"), false)
     assert.equal(out.html.includes("white-space:nowrap"), false)
     assert.equal(/<(td|th)[^>]*style=/.test(out.html), false)

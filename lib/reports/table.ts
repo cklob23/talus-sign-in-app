@@ -42,7 +42,7 @@ function htmlBytes(value: string): number {
 const NOWRAP_HEADER = /^duration/i
 
 const TABLE_STYLE =
-  "border-collapse:collapse;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px"
+  "border-collapse:collapse;table-layout:fixed;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px"
 
 export function renderReportTable(args: {
   csvRows: Array<Array<string | number | boolean | null | undefined>>
