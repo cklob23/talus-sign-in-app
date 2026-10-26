@@ -10,6 +10,15 @@ export function safeNextPath(next: string | null | undefined, fallback = "/admin
   if (value.startsWith("//")) return fallback
   if (value.includes("\\")) return fallback
   if (value.includes("://")) return fallback
-  if (/[\s]/.test(value)) return fallback
+  if (/[\u0000-\u001F\u007F]/.test(value)) return fallback
+  const queryAt = value.indexOf("?")
+  const path = queryAt === -1 ? value : value.slice(0, queryAt)
+  if (/\s/.test(path)) return fallback
   return value
+}
+
+/** Login URL that sends the caller back to a same-origin admin path after sign-in. */
+export function loginUrlForProtectedPath(pathname: string, search = ""): string {
+  const next = safeNextPath(`${pathname}${search}`)
+  return `/auth/login?next=${encodeURIComponent(next)}`
 }

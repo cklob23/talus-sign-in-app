@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireBuiltInAdmin } from "@/lib/admin-auth"
+import { resolveAppOrigin } from "@/lib/nda"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/server"
 import { REPORT_KIND_LABELS } from "@/lib/reports/types"
@@ -75,6 +76,8 @@ export async function POST(request: Request) {
       extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
       durationUnit: input.durationUnit,
       includeTable: input.includeTable,
+      visitorTypeIds: input.kind === "employees" ? [] : input.visitorTypeIds,
+      origin: resolveAppOrigin(request),
     })
     if (!sent.sent) {
       await admin.from("audit_logs").insert({
