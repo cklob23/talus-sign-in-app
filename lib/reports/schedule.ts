@@ -1,4 +1,4 @@
-import { isUndefinedColumn, isUndefinedTable, isUniqueViolation } from "@/lib/idempotency"
+import { isMissingColumn, isUndefinedTable, isUniqueViolation } from "@/lib/idempotency"
 import { computeNextRunAt, isScheduleDue, resolveReportPeriod } from "./period.ts"
 import { decideExistingRun } from "./idempotency.ts"
 import {
@@ -153,9 +153,9 @@ export function scheduleToRow(input: ReportScheduleInput, nextRunAt: string | nu
     recipients: input.recipients,
     format: input.format,
     duration_unit: input.durationUnit,
-    include_table: input.includeTable === true,
     enabled: input.enabled,
     next_run_at: nextRunAt,
+    ...(input.includeTable === true ? { include_table: true } : {}),
     ...(createdBy ? { created_by: createdBy } : {}),
     updated_at: new Date().toISOString(),
   }
@@ -208,11 +208,14 @@ function omitField(row: Record<string, unknown>, field: string): Record<string, 
 }
 
 export function missingColumnName(error: { message?: string } | null | undefined): string | null {
-  const match = error?.message?.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i)
-  return match?.[1] ?? null
+  const message = error?.message || ""
+  const postgrest = message.match(/Could not find the '(\w+)' column/i)
+  if (postgrest) return postgrest[1]
+  const postgres = message.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i)
+  return postgres?.[1] ?? null
 }
 
-/** Insert or update, stripping optional columns on Postgres 42703 so a pre-SQL deploy does not 500. */
+/** Insert or update, stripping optional columns on 42703 / PGRST204 so a pre-SQL deploy does not 500. */
 export async function writeReportSchedule(
   admin: AnyClient,
   mode: "insert" | "update",
@@ -220,13 +223,16 @@ export async function writeReportSchedule(
   id?: string,
 ) {
   let payload: Record<string, unknown> = { ...row }
+  if (payload.include_table !== true) {
+    payload = omitField(payload, "include_table")
+  }
   const attempt = () =>
     mode === "insert"
       ? admin.from("report_schedules").insert(payload).select("*").single()
       : admin.from("report_schedules").update(payload).eq("id", id).select("*").single()
 
   let result = await attempt()
-  while (result.error && isUndefinedColumn(result.error)) {
+  while (result.error && isMissingColumn(result.error)) {
     const missing = missingColumnName(result.error)
     const field =
       missing && missing in payload

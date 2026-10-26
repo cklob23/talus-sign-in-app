@@ -3,6 +3,7 @@ import { asOptionalUuid } from "@/lib/kiosk-input"
 export const PG_UNIQUE_VIOLATION = "23505"
 export const PG_UNDEFINED_COLUMN = "42703"
 export const PG_UNDEFINED_TABLE = "42P01"
+export const PGRST_MISSING_COLUMN = "PGRST204"
 
 export function isUniqueViolation(error: { code?: string } | null | undefined): boolean {
   return error?.code === PG_UNIQUE_VIOLATION
@@ -10,6 +11,13 @@ export function isUniqueViolation(error: { code?: string } | null | undefined): 
 
 export function isUndefinedColumn(error: { code?: string } | null | undefined): boolean {
   return error?.code === PG_UNDEFINED_COLUMN
+}
+
+/** Postgres 42703 or PostgREST schema-cache miss (PGRST204). */
+export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  if (error.code === PG_UNDEFINED_COLUMN || error.code === PGRST_MISSING_COLUMN) return true
+  return /Could not find the '\w+' column/i.test(error.message || "")
 }
 
 export function isUndefinedTable(error: { code?: string } | null | undefined): boolean {

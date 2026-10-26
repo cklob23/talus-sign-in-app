@@ -101,6 +101,8 @@ export async function sendBuiltReport(args: {
   const table = args.includeTable
     ? renderReportTable({ csvRows: args.report.csvRows, csvAttached: attachCsv })
     : null
+  const tableHtml = table?.html?.trim() ? table.html : undefined
+  const tableText = tableHtml ? table?.text : undefined
   const mail = renderReportEmail({
     scheduleName: args.scheduleName,
     kind: args.kind,
@@ -122,8 +124,8 @@ export async function sendBuiltReport(args: {
       ...(args.extraLines || []),
     ],
     truncated: args.report.truncated,
-    tableHtml: table?.html,
-    tableText: table?.text,
+    tableHtml,
+    tableText,
   })
 
   return sendEmail({

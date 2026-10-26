@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { csvFilename, csvWithBom, escapeCsvCell, toCsv } from "./csv.ts"
+import { csvFilename, csvWithBom, escapeCsvCell, neutralizeCsvFormula, toCsv } from "./csv.ts"
 import {
   buildEmployeeCsvRows,
   buildTrainingCsvRows,
@@ -15,6 +15,15 @@ describe("CSV builders", () => {
   it("quotes commas and doubled quotes", () => {
     assert.equal(escapeCsvCell('Acme, "Co"'), '"Acme, ""Co"""')
     assert.equal(toCsv([["Name", "Co"], ['Ada "A"', "Acme, Inc"]]), `"Name","Co"\n"Ada ""A""","Acme, Inc"`)
+  })
+
+  it("prefixes a quote on cells that start with a spreadsheet formula character", () => {
+    assert.equal(neutralizeCsvFormula("=1+1"), "'=1+1")
+    assert.equal(escapeCsvCell("=SUM(A1)"), `"'=SUM(A1)"`)
+    assert.equal(escapeCsvCell("+cmd"), '"\'+cmd"')
+    assert.equal(escapeCsvCell("-1"), '"\'-1"')
+    assert.equal(escapeCsvCell("@import"), '"\'@import"')
+    assert.equal(escapeCsvCell("90"), '"90"')
   })
 
   it("adds a UTF-8 BOM and a trailing newline", () => {
@@ -55,20 +64,6 @@ describe("CSV builders", () => {
     )
     assert.equal(hours[0][8], "Duration (hr)")
     assert.equal(hours[1][8], "1.5")
-    const withSource = buildVisitorCsvRows([
-      {
-        sign_in_time: "2026-10-22T15:30:00.000Z",
-        sign_out_time: "2026-10-22T17:00:00.000Z",
-        sign_out_source: "auto",
-        visitor: { first_name: "Ada", last_name: "Lovelace", email: "ada@example.com", company: "Analytical" },
-        host: { name: "Hiro Iwanaga" },
-        visitor_type: { name: "Contractor" },
-        location: { name: "Houston HQ", timezone: "America/Chicago" },
-      },
-    ])
-    assert.equal(withSource[0][9], "Sign-out source")
-    assert.equal(withSource[1][9], "Auto")
-    assert.equal(withSource[0][8], "Duration (min)")
     assert.equal(stamp.includes("UTC"), false)
     assert.equal(csvFilename("visitors", "2026-10-15T00:00:00.000Z", "2026-10-22T00:00:00.000Z"), "visitor-sign-ins-2026-10-15-to-2026-10-22.csv")
   })

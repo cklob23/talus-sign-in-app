@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { decideExistingRun } from "./idempotency.ts"
-import { missingColumnName, parseScheduleBody, rowToSchedule, writeReportSchedule } from "./schedule.ts"
+import { missingColumnName, parseScheduleBody, rowToSchedule, scheduleToRow, writeReportSchedule } from "./schedule.ts"
 
 describe("parseScheduleBody", () => {
   const base = {
@@ -79,31 +79,50 @@ describe("schedule row hydrate and optional writes", () => {
     assert.equal(schedule.includeTable, false)
     assert.equal(schedule.durationUnit, "minutes")
     assert.equal(missingColumnName({ message: 'column "include_table" does not exist' }), "include_table")
+    assert.equal(
+      missingColumnName({
+        message: "Could not find the 'include_table' column of 'report_schedules' in the schema cache",
+      }),
+      "include_table",
+    )
   })
 
-  it("retries schedule writes without include_table on Postgres 42703", async () => {
-    const seen: Array<Record<string, unknown>> = []
-    const admin = {
+  const PGRST204 = {
+    code: "PGRST204",
+    message: "Could not find the 'include_table' column of 'report_schedules' in the schema cache",
+  }
+
+  function mockScheduleClient(seen: Array<Record<string, unknown>>) {
+    const decide = (payload: Record<string, unknown>) => {
+      seen.push({ ...payload })
+      if ("include_table" in payload) {
+        return { data: null, error: PGRST204 }
+      }
+      return { data: { id: "sch-1", ...payload }, error: null }
+    }
+    return {
       from() {
         return {
           insert(payload: Record<string, unknown>) {
-            seen.push(payload)
-            const result =
-              "include_table" in payload
-                ? { data: null, error: { code: "42703", message: 'column "include_table" does not exist' } }
-                : { data: { id: "sch-1", ...payload }, error: null }
+            const result = decide(payload)
+            return { select: () => ({ single: async () => result }) }
+          },
+          update(payload: Record<string, unknown>) {
             return {
-              select() {
-                return {
-                  single: async () => result,
-                }
+              eq() {
+                const result = decide(payload)
+                return { select: () => ({ single: async () => result }) }
               },
             }
           },
         }
       },
     }
-    const written = await writeReportSchedule(admin, "insert", {
+  }
+
+  it("retries create without include_table on PostgREST PGRST204", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const written = await writeReportSchedule(mockScheduleClient(seen), "insert", {
       name: "Nightly visitors",
       include_table: true,
       duration_unit: "minutes",
@@ -113,6 +132,57 @@ describe("schedule row hydrate and optional writes", () => {
     assert.equal("include_table" in seen[0], true)
     assert.equal("include_table" in seen[1], false)
     assert.equal(seen[1].duration_unit, "minutes")
+  })
+
+  it("omits include_table on toggle when the flag is off so the write succeeds before SQL 017", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const created = scheduleToRow(
+      {
+        name: "Nightly visitors",
+        kind: "visitors",
+        locationIds: [],
+        visitorTypeIds: [],
+        rangeType: "previous_day",
+        lastNDays: null,
+        frequency: "daily",
+        weekday: null,
+        monthDay: null,
+        sendTime: "08:00",
+        timezone: "America/Chicago",
+        recipients: ["caleb@talusag.com"],
+        format: "csv",
+        durationUnit: "minutes",
+        includeTable: false,
+        enabled: false,
+      },
+      null,
+    )
+    assert.equal("include_table" in created, false)
+    const written = await writeReportSchedule(
+      mockScheduleClient(seen),
+      "update",
+      { ...created, include_table: false },
+      "sch-1",
+    )
+    assert.equal(written.error, null)
+    assert.equal(seen.length, 1)
+    assert.equal("include_table" in seen[0], false)
+    assert.equal(seen[0].enabled, false)
+  })
+
+  it("retries edit without include_table on PGRST204", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const written = await writeReportSchedule(
+      mockScheduleClient(seen),
+      "update",
+      { name: "Edited nightly", include_table: true, duration_unit: "hours" },
+      "sch-1",
+    )
+    assert.equal(written.error, null)
+    assert.equal(seen.length, 2)
+    assert.equal(seen[0].include_table, true)
+    assert.equal("include_table" in seen[1], false)
+    assert.equal(seen[1].name, "Edited nightly")
   })
 })
 
