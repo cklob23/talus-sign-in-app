@@ -1,6 +1,7 @@
 import { sendEmail } from "@/lib/email"
 import { csvFilename, csvWithBom, toCsv } from "./csv.ts"
 import { renderReportEmail } from "./email.ts"
+import { renderReportTable } from "./table.ts"
 import {
   buildEmployeeCsvRows,
   buildTrainingCsvRows,
@@ -92,10 +93,14 @@ export async function sendBuiltReport(args: {
   periodLabel?: string
   extraLines?: Array<{ label: string; value: string }>
   durationUnit?: DurationUnit
+  includeTable?: boolean
 }): Promise<{ sent: boolean; reason?: string }> {
   const attachCsv = (args.format === "csv" || args.format === "both") && args.report.rowCount > 0
   const names = await locationNamesForIds(args.admin, args.locationIds)
   const logoUrl = await loadCompanyLogo(args.admin)
+  const table = args.includeTable
+    ? renderReportTable({ csvRows: args.report.csvRows, csvAttached: attachCsv })
+    : null
   const mail = renderReportEmail({
     scheduleName: args.scheduleName,
     kind: args.kind,
@@ -113,9 +118,12 @@ export async function sendBuiltReport(args: {
       ...(args.kind === "visitors" || args.kind === "employees"
         ? [{ label: "Duration unit", value: DURATION_UNIT_LABELS[args.durationUnit || "minutes"] }]
         : []),
+      ...(args.includeTable ? [{ label: "Email table", value: "Included" }] : []),
       ...(args.extraLines || []),
     ],
     truncated: args.report.truncated,
+    tableHtml: table?.html,
+    tableText: table?.text,
   })
 
   return sendEmail({

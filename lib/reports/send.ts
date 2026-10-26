@@ -5,6 +5,7 @@ import {
   isDurationUnit,
   isReportFormat,
   isReportKind,
+  parseIncludeTableFlag,
   parseRecipientList,
   REPORT_KIND_LABELS,
   type DurationUnit,
@@ -23,6 +24,7 @@ export interface AdhocSendInput {
   recipients: string[]
   format: ReportFormat
   durationUnit: DurationUnit
+  includeTable: boolean
 }
 
 function isLikelyTimezone(value: string): boolean {
@@ -86,6 +88,7 @@ export function parseAdhocSendBody(
       recipients,
       format: formatRaw,
       durationUnit: durationRaw,
+      includeTable: parseIncludeTableFlag(body.includeTable ?? body.include_table),
     },
   }
 }

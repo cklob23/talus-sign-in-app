@@ -74,6 +74,7 @@ export async function POST(request: Request) {
       periodLabel,
       extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
       durationUnit: input.durationUnit,
+      includeTable: input.includeTable,
     })
     if (!sent.sent) {
       await admin.from("audit_logs").insert({

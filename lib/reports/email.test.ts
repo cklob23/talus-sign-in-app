@@ -26,6 +26,25 @@ describe("report email", () => {
     assert.match(mail.subject, /Nightly visitor log/)
   })
 
+  it("embeds an escaped report table when provided", () => {
+    const mail = renderReportEmail({
+      scheduleName: "Nightly visitor log",
+      kind: "visitors",
+      periodStart: "2026-10-21T05:00:00.000Z",
+      periodEnd: "2026-10-22T05:00:00.000Z",
+      timezone: "America/Chicago",
+      locationNames: ["Houston HQ"],
+      rowCount: 2,
+      format: "both",
+      csvAttached: true,
+      tableHtml: "<table><tr><th>Name</th></tr><tr><td>Ada &amp; Co</td></tr></table>",
+      tableText: "Name\nAda & Co",
+    })
+    assert.match(mail.html, /The report table is included below/)
+    assert.match(mail.html, /<table><tr><th>Name<\/th><\/tr><tr><td>Ada &amp; Co<\/td><\/tr><\/table>/)
+    assert.match(mail.text, /Ada & Co/)
+  })
+
   it("labels an all-time ad-hoc period without a 1970 start date", () => {
     const mail = renderReportEmail({
       scheduleName: "Ad-hoc visitor sign-ins",

@@ -56,6 +56,7 @@ export async function POST(_request: Request, context: RouteContext) {
       locationIds: schedule.locationIds,
       report,
       durationUnit: schedule.durationUnit,
+      includeTable: schedule.includeTable,
     })
     if (!sent.sent) {
       await finishRun(admin, runId, { status: "failed", rowCount: report.rowCount, error: sent.reason || "send_failed" })

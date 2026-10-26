@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { requireBuiltInAdmin } from "@/lib/admin-auth"
-import { isUndefinedColumn, isUndefinedTable } from "@/lib/idempotency"
+import { isUndefinedTable } from "@/lib/idempotency"
 import { createAdminClient } from "@/lib/supabase/server"
-import { hydrateSchedule, nextRunIso, parseScheduleBody, scheduleToRow } from "@/lib/reports/schedule"
+import { hydrateSchedule, nextRunIso, parseScheduleBody, scheduleToRow, writeReportSchedule } from "@/lib/reports/schedule"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -35,11 +35,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   const nextRunAt = parsed.value.enabled ? nextRunIso(parsed.value) : null
   const admin = createAdminClient()
   const row = scheduleToRow(parsed.value, nextRunAt)
-  let updated = await admin.from("report_schedules").update(row).eq("id", id).select("*").single()
-  if (updated.error && isUndefinedColumn(updated.error)) {
-    const { duration_unit: _durationUnit, ...withoutUnit } = row
-    updated = await admin.from("report_schedules").update(withoutUnit).eq("id", id).select("*").single()
-  }
+  const updated = await writeReportSchedule(admin, "update", row, id)
 
   if (updated.error || !updated.data) {
     if (isUndefinedTable(updated.error)) {

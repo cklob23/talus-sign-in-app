@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -60,6 +61,7 @@ export function SendReportDialog({
   const [recipientText, setRecipientText] = useState(previewRecipients || "")
   const [format, setFormat] = useState<ReportFormat>("both")
   const [durationUnit, setDurationUnit] = useState<DurationUnit>(initialDurationUnit)
+  const [includeTable, setIncludeTable] = useState(false)
   const [sending, setSending] = useState(false)
 
   const recipients = useMemo(() => parseRecipientList(recipientText), [recipientText])
@@ -86,6 +88,7 @@ export function SendReportDialog({
           visitorTypeIds: kind === "employees" ? [] : visitorTypeIds,
           recipients,
           durationUnit,
+          includeTable,
         }),
       })
       const body = (await res.json().catch(() => null)) as { error?: string; rowCount?: number; recipientCount?: number } | null
@@ -144,6 +147,21 @@ export function SendReportDialog({
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-start gap-2 rounded-md border p-3">
+          <Checkbox
+            id="adhoc-include-table"
+            checked={includeTable}
+            onCheckedChange={(checked) => setIncludeTable(checked === true)}
+          />
+          <div className="space-y-1">
+            <Label htmlFor="adhoc-include-table" className="font-medium">
+              Include table in email body
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Adds the same columns as the CSV to the email. Reports over 200 rows show the first 200 and keep the full CSV attached.
+            </p>
+          </div>
         </div>
         {(kind === "visitors" || kind === "employees") && (
           <div className="space-y-2">

@@ -7,6 +7,8 @@ import { SendReportDialog } from "@/components/admin/reports/send-dialog"
 import { TrainingTab } from "@/components/admin/reports/training-tab"
 import { Toaster } from "@/components/ui/toaster"
 import { renderReportEmail } from "@/lib/reports/email"
+import { buildVisitorCsvRows } from "@/lib/reports/rows"
+import { renderReportTable } from "@/lib/reports/table"
 import { DASHBOARD_PERIODS, type ReportRun, type ReportSchedule } from "@/lib/reports/types"
 
 const locations = [
@@ -36,6 +38,7 @@ const schedules: ReportSchedule[] = [
     recipients: ["caleb@talusag.com", "ops@partner.com"],
     format: "both",
     durationUnit: "minutes",
+    includeTable: true,
     enabled: true,
     nextRunAt: "2026-10-23T13:00:00.000Z",
     createdBy: null,
@@ -58,6 +61,7 @@ const schedules: ReportSchedule[] = [
     recipients: ["safety@talusag.com"],
     format: "csv",
     durationUnit: "minutes",
+    includeTable: false,
     enabled: true,
     nextRunAt: "2026-10-26T12:30:00.000Z",
     createdBy: null,
@@ -128,6 +132,30 @@ const trainingRows = [
   },
 ]
 
+const previewCsvRows = buildVisitorCsvRows(
+  [
+    {
+      sign_in_time: "2026-10-22T15:30:00.000Z",
+      sign_out_time: "2026-10-22T17:00:00.000Z",
+      sign_out_source: "manual",
+      visitor: { first_name: "Ada", last_name: "Lovelace", email: "ada@example.com", company: "Analytical" },
+      host: { name: "Hiro Iwanaga" },
+      visitor_type: { name: "Contractor" },
+      location: { name: "Houston HQ", timezone: "America/Chicago" },
+    },
+    {
+      sign_in_time: "2026-10-22T13:00:00.000Z",
+      sign_out_time: "2026-10-22T21:00:00.000Z",
+      sign_out_source: "auto",
+      visitor: { first_name: "Diego", last_name: "Mendoza", email: "diego@example.com", company: "Acme Field" },
+      host: { name: "Caleb Klob" },
+      visitor_type: { name: "Guest" },
+      location: { name: "Houston HQ", timezone: "America/Chicago" },
+    },
+  ],
+  "hours",
+)
+const previewTable = renderReportTable({ csvRows: previewCsvRows, csvAttached: true })
 const email = renderReportEmail({
   scheduleName: "Ad-hoc visitor sign-ins",
   kind: "visitors",
@@ -141,7 +169,13 @@ const email = renderReportEmail({
   logoUrl: "",
   badge: "Ad-hoc report",
   periodLabel: "All time",
-  extraLines: [{ label: "Sent from", value: "Reports dashboard" }],
+  extraLines: [
+    { label: "Duration unit", value: "Hours" },
+    { label: "Email table", value: "Included" },
+    { label: "Sent from", value: "Reports dashboard" },
+  ],
+  tableHtml: previewTable.html,
+  tableText: previewTable.text,
 })
 const emailHtml = email.html.replaceAll("Geist,'Segoe UI',Helvetica,Arial,sans-serif", "Liberation Sans,DejaVu Sans,Arial,sans-serif")
 
