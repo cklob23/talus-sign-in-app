@@ -53,7 +53,8 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     : args.format === "summary"
       ? "This email is a summary only. No spreadsheet is attached."
       : "No rows matched this period, so no spreadsheet is attached."
-  const tableLine = args.tableHtml ? " The report table is included below." : ""
+  const hasTable = Boolean(args.tableHtml?.trim())
+  const tableLine = hasTable ? "The report table is included below." : ""
   const capLine = args.truncated
     ? " This file is capped at 50,000 rows."
     : ""
@@ -68,8 +69,10 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     ...(args.extraLines || []).map((line) => detailRow(line.label, line.value)),
   ].join("")
 
-  const tableBlock = args.tableHtml
-    ? `<tr><td class="px" style="padding:8px 36px 8px 36px;">${args.tableHtml}</td></tr>`
+  const notice = `${attachLine}${capLine} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.`
+  const tableBlock = hasTable
+    ? `<tr><td class="px m" style="padding:8px 36px 0 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(tableLine)}</td></tr>
+<tr><td class="px" style="padding:8px 36px 24px 36px;">${args.tableHtml}</td></tr>`
     : ""
 
   const html = emailShell({
@@ -79,8 +82,8 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     bodyHtml: `${pill(args.badge || "Scheduled report")}
 ${headingBlock(name, `${escapeHtml(kind)} for <b class="t" style="color:#0f1a13;">${escapeHtml(sites)}</b>.`)}
 ${detailsPanel(rows)}
-${tableBlock}
-<tr><td class="px m" style="padding:16px 36px 24px 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(attachLine)}${escapeHtml(tableLine)}${escapeHtml(capLine)} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.</td></tr>`,
+<tr><td class="px m" style="padding:16px 36px ${hasTable ? "8px" : "24px"} 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(notice)}</td></tr>
+${tableBlock}`,
   })
 
   const text = [
@@ -92,10 +95,8 @@ ${tableBlock}
     `Rows: ${args.rowCount}`,
     `Format: ${FORMAT_LABELS[args.format]}`,
     "",
-    `${attachLine}${tableLine}${capLine}`,
-    ...(args.tableText ? ["", args.tableText] : []),
-    "",
-    "This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.",
+    notice,
+    ...(hasTable && args.tableText ? ["", tableLine, args.tableText] : []),
   ].join("\n")
 
   return { subject, html, text, preheader }

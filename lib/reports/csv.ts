@@ -1,6 +1,13 @@
+/** Neutralize Excel/Sheets formula injection (=, +, -, @) with a leading quote. */
+export function neutralizeCsvFormula(value: string): string {
+  const first = value.charAt(0)
+  if (first === "=" || first === "+" || first === "-" || first === "@") return `'${value}`
+  return value
+}
+
 /** RFC 4180 CSV. Every cell is quoted so names and commas stay intact. */
 export function escapeCsvCell(value: string | number | boolean | null | undefined): string {
-  const text = value == null ? "" : String(value)
+  const text = neutralizeCsvFormula(value == null ? "" : String(value))
   return `"${text.replace(/"/g, '""')}"`
 }
 

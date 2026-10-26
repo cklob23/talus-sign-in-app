@@ -133,26 +133,19 @@ const trainingRows = [
 ]
 
 const previewCsvRows = buildVisitorCsvRows(
-  [
-    {
-      sign_in_time: "2026-10-22T15:30:00.000Z",
-      sign_out_time: "2026-10-22T17:00:00.000Z",
-      sign_out_source: "manual",
-      visitor: { first_name: "Ada", last_name: "Lovelace", email: "ada@example.com", company: "Analytical" },
-      host: { name: "Hiro Iwanaga" },
-      visitor_type: { name: "Contractor" },
-      location: { name: "Houston HQ", timezone: "America/Chicago" },
+  Array.from({ length: 40 }, (_, index) => ({
+    sign_in_time: "2026-10-22T15:30:00.000Z",
+    sign_out_time: "2026-10-22T17:00:00.000Z",
+    visitor: {
+      first_name: index === 0 ? "Ada" : "Visitor",
+      last_name: index === 0 ? "Lovelace" : String(index + 1),
+      email: `visitor${index + 1}@example.com`,
+      company: index % 2 ? "Acme Field" : "Analytical",
     },
-    {
-      sign_in_time: "2026-10-22T13:00:00.000Z",
-      sign_out_time: "2026-10-22T21:00:00.000Z",
-      sign_out_source: "auto",
-      visitor: { first_name: "Diego", last_name: "Mendoza", email: "diego@example.com", company: "Acme Field" },
-      host: { name: "Caleb Klob" },
-      visitor_type: { name: "Guest" },
-      location: { name: "Houston HQ", timezone: "America/Chicago" },
-    },
-  ],
+    host: { name: index % 2 ? "Caleb Klob" : "Hiro Iwanaga" },
+    visitor_type: { name: index % 2 ? "Guest" : "Contractor" },
+    location: { name: "Houston HQ", timezone: "America/Chicago" },
+  })),
   "hours",
 )
 const previewTable = renderReportTable({ csvRows: previewCsvRows, csvAttached: true })
@@ -163,7 +156,7 @@ const email = renderReportEmail({
   periodEnd: "2026-10-22T18:00:00.000Z",
   timezone: "America/New_York",
   locationNames: ["Houston HQ"],
-  rowCount: 18,
+  rowCount: 40,
   format: "both",
   csvAttached: true,
   logoUrl: "",
@@ -286,9 +279,12 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
 
       {show("report-email") ? (
         <section id="report-email" className="mx-auto max-w-[720px]">
+          <p className="mb-2 text-sm text-muted-foreground">
+            Sample email HTML: {new TextEncoder().encode(email.html).length.toLocaleString()} bytes
+          </p>
           <iframe
             title="Report email"
-            className="h-[880px] w-full rounded-xl border bg-white"
+            className="h-[2200px] w-full rounded-xl border bg-white"
             srcDoc={emailHtml}
           />
         </section>

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { renderReportEmail } from "./email.ts"
+import { buildVisitorCsvRows } from "./rows.ts"
+import { renderReportTable } from "./table.ts"
 
 describe("report email", () => {
   it("uses the v2 email shell and avoids em dashes", () => {
@@ -43,6 +45,27 @@ describe("report email", () => {
     assert.match(mail.html, /The report table is included below/)
     assert.match(mail.html, /<table><tr><th>Name<\/th><\/tr><tr><td>Ada &amp; Co<\/td><\/tr><\/table>/)
     assert.match(mail.text, /Ada & Co/)
+    const personal = mail.html.indexOf("This report includes personal data")
+    const table = mail.html.indexOf("<table><tr><th>Name</th>")
+    const intro = mail.html.indexOf("The report table is included below")
+    assert.ok(personal >= 0 && intro > personal && table > intro)
+  })
+
+  it("does not repeat the empty-report sentence when no table markup is passed", () => {
+    const mail = renderReportEmail({
+      scheduleName: "Nightly visitor log",
+      kind: "visitors",
+      periodStart: "2026-10-21T05:00:00.000Z",
+      periodEnd: "2026-10-22T05:00:00.000Z",
+      timezone: "America/Chicago",
+      locationNames: ["Houston HQ"],
+      rowCount: 0,
+      format: "csv",
+      csvAttached: false,
+      tableHtml: "",
+    })
+    assert.equal((mail.html.match(/No rows matched this period/g) || []).length, 1)
+    assert.equal(mail.html.includes("The report table is included below"), false)
   })
 
   it("labels an all-time ad-hoc period without a 1970 start date", () => {
@@ -64,5 +87,35 @@ describe("report email", () => {
     assert.equal(mail.html.includes("1970"), false)
     assert.equal(mail.text.includes("1970"), false)
     assert.equal(mail.html.includes("\u2014"), false)
+  })
+
+  it("keeps a 40-row table email under 90 KB including the footer", () => {
+    const csvRows = buildVisitorCsvRows(
+      Array.from({ length: 40 }, (_, index) => ({
+        sign_in_time: "2026-10-22T15:30:00.000Z",
+        sign_out_time: "2026-10-22T17:00:00.000Z",
+        visitor: { first_name: "Ada", last_name: String(index + 1), email: "ada@example.com", company: "Analytical" },
+        host: { name: "Hiro Iwanaga" },
+        visitor_type: { name: "Contractor" },
+        location: { name: "Houston HQ", timezone: "America/Chicago" },
+      })),
+    )
+    const table = renderReportTable({ csvRows, csvAttached: true })
+    const mail = renderReportEmail({
+      scheduleName: "Nightly visitor log",
+      kind: "visitors",
+      periodStart: "2026-10-21T05:00:00.000Z",
+      periodEnd: "2026-10-22T05:00:00.000Z",
+      timezone: "America/Chicago",
+      locationNames: ["Houston HQ"],
+      rowCount: 40,
+      format: "both",
+      csvAttached: true,
+      tableHtml: table.html,
+      tableText: table.text,
+    })
+    const bytes = new TextEncoder().encode(mail.html).length
+    assert.equal(table.shown, 40)
+    assert.ok(bytes < 90_000, `email was ${bytes} bytes`)
   })
 })

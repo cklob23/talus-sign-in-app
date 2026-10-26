@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
-  REPORT_EMAIL_TABLE_EMPTY,
   REPORT_EMAIL_TABLE_MAX_ROWS,
   renderReportTable,
   reportEmailTableCapNote,
@@ -23,32 +22,52 @@ describe("renderReportTable", () => {
     assert.equal(out.capped, false)
   })
 
-  it("shows an empty report without a data table", () => {
+  it("returns empty markup for an empty report so the email does not repeat the no-rows copy", () => {
     const out = renderReportTable({ csvRows: [["Visitor name", "Email"]] })
     assert.equal(out.total, 0)
     assert.equal(out.shown, 0)
     assert.equal(out.capped, false)
-    assert.equal(out.text, REPORT_EMAIL_TABLE_EMPTY)
-    assert.match(out.html, /No rows matched this period/)
-    assert.equal(out.html.includes("<tbody>"), false)
+    assert.equal(out.html, "")
+    assert.equal(out.text, "")
   })
 
-  it("caps very large reports at 200 rows and notes the CSV", () => {
+  it("caps very large reports at 40 rows and notes the CSV", () => {
     const csvRows = [
       ["Name"],
-      ...Array.from({ length: 250 }, (_, index) => [`Visitor ${index + 1}`]),
+      ...Array.from({ length: 80 }, (_, index) => [`Visitor ${index + 1}`]),
     ]
     const out = renderReportTable({ csvRows, csvAttached: true })
-    assert.equal(out.total, 250)
+    assert.equal(out.total, 80)
     assert.equal(out.shown, REPORT_EMAIL_TABLE_MAX_ROWS)
     assert.equal(out.capped, true)
-    assert.match(out.html, /Showing first 200 of 250 rows, full data in attached CSV/)
-    assert.equal(out.html.includes("Visitor 200"), true)
-    assert.equal(out.html.includes("Visitor 201"), false)
-    assert.equal((out.html.match(/<tr>/g) || []).length, 201)
+    assert.match(out.html, /Showing first 40 of 80 rows, full data in attached CSV/)
+    assert.equal(out.html.includes("Visitor 40"), true)
+    assert.equal(out.html.includes("Visitor 41"), false)
     assert.equal(
-      reportEmailTableCapNote(200, 250, true),
-      "Showing first 200 of 250 rows, full data in attached CSV",
+      reportEmailTableCapNote(40, 80, true),
+      "Showing first 40 of 80 rows, full data in attached CSV",
     )
+  })
+
+  it("stops early when the HTML would exceed the size budget", () => {
+    const huge = "x".repeat(6000)
+    const csvRows = [["Note"], ...Array.from({ length: 40 }, () => [huge])]
+    const out = renderReportTable({ csvRows, maxHtmlBytes: 20_000 })
+    assert.equal(out.capped, true)
+    assert.ok(out.shown < 40)
+    assert.ok(out.shown >= 1)
+    assert.ok(new TextEncoder().encode(out.html).length < 22_000)
+  })
+
+  it("replaces pipes in the plain-text table and nowraps date headers", () => {
+    const out = renderReportTable({
+      csvRows: [
+        ["Visitor name", "Sign in"],
+        ["Ada | Lovelace", "Thu, Oct 22, 2026, 10:30 AM CDT"],
+      ],
+    })
+    assert.match(out.text, /Ada \/ Lovelace/)
+    assert.equal(out.text.includes("Ada | Lovelace"), false)
+    assert.match(out.html, /white-space:nowrap/)
   })
 })

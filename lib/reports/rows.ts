@@ -1,11 +1,9 @@
-import { signOutSourceLabel } from "@/lib/sign-out-source"
 import { resolveDisplayTimeZone, toIANATimezone } from "@/lib/timezone"
 import { TRAINING_METHOD_LABELS, type DurationUnit } from "./types.ts"
 
 export interface VisitorSignInSource {
   sign_in_time: string
   sign_out_time?: string | null
-  sign_out_source?: string | null
   visitor?: {
     first_name?: string | null
     last_name?: string | null
@@ -20,7 +18,6 @@ export interface VisitorSignInSource {
 export interface EmployeeSignInSource {
   sign_in_time: string
   sign_out_time?: string | null
-  sign_out_source?: string | null
   auto_signed_in?: boolean | null
   profile?: {
     full_name?: string | null
@@ -128,12 +125,8 @@ export function trainingMethodLabel(source?: string | null): string {
   return TRAINING_METHOD_LABELS[source] || source
 }
 
-export function includeSignOutSourceColumn(rows: Array<{ sign_out_source?: unknown }>): boolean {
-  return rows.some((row) => row != null && typeof row === "object" && "sign_out_source" in row)
-}
-
-export function visitorHeaders(unit: DurationUnit = "minutes", includeSource = false): string[] {
-  const headers = [
+export function visitorHeaders(unit: DurationUnit = "minutes"): string[] {
+  return [
     "Visitor name",
     "Email",
     "Company",
@@ -144,19 +137,13 @@ export function visitorHeaders(unit: DurationUnit = "minutes", includeSource = f
     "Sign out",
     durationColumnHeader(unit),
   ]
-  if (includeSource) headers.push("Sign-out source")
-  return headers
 }
 
 export const VISITOR_HEADERS = visitorHeaders("minutes")
 
-export function visitorSignInRow(
-  row: VisitorSignInSource,
-  unit: DurationUnit = "minutes",
-  includeSource = false,
-): string[] {
+export function visitorSignInRow(row: VisitorSignInSource, unit: DurationUnit = "minutes"): string[] {
   const zone = row.location?.timezone
-  const cells = [
+  return [
     visitorDisplayName(row.visitor),
     row.visitor?.email || "",
     row.visitor?.company || "",
@@ -167,12 +154,10 @@ export function visitorSignInRow(
     formatReportDateTime(row.sign_out_time, zone),
     formatVisitDuration(row.sign_in_time, row.sign_out_time, unit),
   ]
-  if (includeSource) cells.push(signOutSourceLabel(row.sign_out_source))
-  return cells
 }
 
-export function employeeHeaders(unit: DurationUnit = "minutes", includeSource = false): string[] {
-  const headers = [
+export function employeeHeaders(unit: DurationUnit = "minutes"): string[] {
+  return [
     "Employee name",
     "Email",
     "Role",
@@ -183,19 +168,13 @@ export function employeeHeaders(unit: DurationUnit = "minutes", includeSource = 
     "Sign out",
     durationColumnHeader(unit),
   ]
-  if (includeSource) headers.push("Sign-out source")
-  return headers
 }
 
 export const EMPLOYEE_HEADERS = employeeHeaders("minutes")
 
-export function employeeSignInRow(
-  row: EmployeeSignInSource,
-  unit: DurationUnit = "minutes",
-  includeSource = false,
-): string[] {
+export function employeeSignInRow(row: EmployeeSignInSource, unit: DurationUnit = "minutes"): string[] {
   const zone = row.location?.timezone
-  const cells = [
+  return [
     row.profile?.full_name || "",
     row.profile?.email || "",
     row.profile?.role || "",
@@ -206,8 +185,6 @@ export function employeeSignInRow(
     formatReportDateTime(row.sign_out_time, zone),
     formatVisitDuration(row.sign_in_time, row.sign_out_time, unit),
   ]
-  if (includeSource) cells.push(signOutSourceLabel(row.sign_out_source))
-  return cells
 }
 
 export const TRAINING_HEADERS = [
@@ -239,13 +216,11 @@ export function trainingCompletionRow(row: TrainingCompletionSource, nowMs = Dat
 }
 
 export function buildVisitorCsvRows(rows: VisitorSignInSource[], unit: DurationUnit = "minutes"): string[][] {
-  const includeSource = includeSignOutSourceColumn(rows)
-  return [visitorHeaders(unit, includeSource), ...rows.map((row) => visitorSignInRow(row, unit, includeSource))]
+  return [visitorHeaders(unit), ...rows.map((row) => visitorSignInRow(row, unit))]
 }
 
 export function buildEmployeeCsvRows(rows: EmployeeSignInSource[], unit: DurationUnit = "minutes"): string[][] {
-  const includeSource = includeSignOutSourceColumn(rows)
-  return [employeeHeaders(unit, includeSource), ...rows.map((row) => employeeSignInRow(row, unit, includeSource))]
+  return [employeeHeaders(unit), ...rows.map((row) => employeeSignInRow(row, unit))]
 }
 
 export function buildTrainingCsvRows(rows: TrainingCompletionSource[], nowMs = Date.now()): string[][] {

@@ -178,7 +178,7 @@ export function ScheduleForm({
             Include table in email body
           </Label>
           <p className="text-xs text-muted-foreground">
-            Adds the same columns as the CSV to the email. Reports over 200 rows show the first 200 and keep the full CSV attached.
+            Adds the same columns as the CSV to the email. Reports over 40 rows show the first 40 and keep the full CSV attached.
           </p>
         </div>
       </div>

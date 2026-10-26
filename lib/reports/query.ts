@@ -51,39 +51,22 @@ function applyTimeRange(query: any, column: string, filter: ReportQuery) {
   return query
 }
 
-const VISITOR_SELECT_WITH_SOURCE =
-  "sign_in_time, sign_out_time, sign_out_source, visitor:visitors(first_name, last_name, email, company), host:hosts(name), visitor_type:visitor_types(name), location:locations(name, timezone)"
-const VISITOR_SELECT_LEGACY =
-  "sign_in_time, sign_out_time, visitor:visitors(first_name, last_name, email, company), host:hosts(name), visitor_type:visitor_types(name), location:locations(name, timezone)"
-
 export async function loadVisitorSignIns(
   admin: AnyClient,
   filter: ReportQuery,
   maxRows = REPORT_EXPORT_MAX_ROWS,
 ): Promise<PagedRows<VisitorSignInSource>> {
   return fetchPages(async (from, to) => {
-    let q = admin.from("sign_ins").select(VISITOR_SELECT_WITH_SOURCE)
+    let q = admin
+      .from("sign_ins")
+      .select("sign_in_time, sign_out_time, visitor:visitors(first_name, last_name, email, company), host:hosts(name), visitor_type:visitor_types(name), location:locations(name, timezone)")
     q = applyTimeRange(q, "sign_in_time", filter)
     q = q.order("sign_in_time", { ascending: true }).range(from, to)
     q = applyLocationFilter(q, filter.locationIds)
     q = applyTypeFilter(q, filter.visitorTypeIds)
-    const first = await q
-    if (first.error && isUndefinedColumn(first.error)) {
-      let retry = admin.from("sign_ins").select(VISITOR_SELECT_LEGACY)
-      retry = applyTimeRange(retry, "sign_in_time", filter)
-      retry = retry.order("sign_in_time", { ascending: true }).range(from, to)
-      retry = applyLocationFilter(retry, filter.locationIds)
-      retry = applyTypeFilter(retry, filter.visitorTypeIds)
-      return retry
-    }
-    return first
+    return q
   }, maxRows)
 }
-
-const EMPLOYEE_SELECT_WITH_SOURCE =
-  "sign_in_time, sign_out_time, sign_out_source, auto_signed_in, profile:profiles(full_name, email, role, department), location:locations(name, timezone)"
-const EMPLOYEE_SELECT_LEGACY =
-  "sign_in_time, sign_out_time, auto_signed_in, profile:profiles(full_name, email, role, department), location:locations(name, timezone)"
 
 export async function loadEmployeeSignIns(
   admin: AnyClient,
@@ -91,19 +74,13 @@ export async function loadEmployeeSignIns(
   maxRows = REPORT_EXPORT_MAX_ROWS,
 ): Promise<PagedRows<EmployeeSignInSource>> {
   return fetchPages(async (from, to) => {
-    let q = admin.from("employee_sign_ins").select(EMPLOYEE_SELECT_WITH_SOURCE)
+    let q = admin
+      .from("employee_sign_ins")
+      .select("sign_in_time, sign_out_time, auto_signed_in, profile:profiles(full_name, email, role, department), location:locations(name, timezone)")
     q = applyTimeRange(q, "sign_in_time", filter)
     q = q.order("sign_in_time", { ascending: true }).range(from, to)
     q = applyLocationFilter(q, filter.locationIds)
-    const first = await q
-    if (first.error && isUndefinedColumn(first.error)) {
-      let retry = admin.from("employee_sign_ins").select(EMPLOYEE_SELECT_LEGACY)
-      retry = applyTimeRange(retry, "sign_in_time", filter)
-      retry = retry.order("sign_in_time", { ascending: true }).range(from, to)
-      retry = applyLocationFilter(retry, filter.locationIds)
-      return retry
-    }
-    return first
+    return q
   }, maxRows)
 }
 
