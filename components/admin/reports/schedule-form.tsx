@@ -45,6 +45,7 @@ const emptyForm: ReportScheduleInput = {
   recipients: [],
   format: "csv",
   durationUnit: "minutes",
+  includeTable: false,
   enabled: true,
 }
 
@@ -64,6 +65,7 @@ function fromSchedule(schedule: ReportSchedule): ReportScheduleInput {
     recipients: schedule.recipients,
     format: schedule.format,
     durationUnit: schedule.durationUnit || "minutes",
+    includeTable: schedule.includeTable === true,
     enabled: schedule.enabled,
   }
 }
@@ -165,6 +167,22 @@ export function ScheduleForm({
         </div>
       </div>
 
+      <div className="flex items-start gap-2 rounded-md border p-3">
+        <Checkbox
+          id="include-table"
+          checked={form.includeTable}
+          onCheckedChange={(checked) => setForm((prev) => ({ ...prev, includeTable: checked === true }))}
+        />
+        <div className="space-y-1">
+          <Label htmlFor="include-table" className="font-medium">
+            Include table in email body
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Adds the same columns as the CSV to the email. Reports over 200 rows show the first 200 and keep the full CSV attached.
+          </p>
+        </div>
+      </div>
+
       {(form.kind === "visitors" || form.kind === "employees") && (
         <div className="space-y-2">
           <Label>Duration unit</Label>
@@ -183,7 +201,7 @@ export function ScheduleForm({
               ))}
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">How on-site time is shown in the CSV and summary.</p>
+          <p className="text-xs text-muted-foreground">How on-site time is shown in the CSV, email table, and summary.</p>
         </div>
       )}
 

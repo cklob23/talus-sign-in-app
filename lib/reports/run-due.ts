@@ -96,6 +96,7 @@ export async function runDueReports(): Promise<DueReportsResult> {
         locationIds: schedule.locationIds,
         report,
         durationUnit: schedule.durationUnit,
+        includeTable: schedule.includeTable,
       })
       if (!sent.sent) {
         await finishRun(admin, claimed.id, {

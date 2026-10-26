@@ -148,6 +148,8 @@ export interface ReportSchedule {
   format: "csv" | "summary" | "both"
   /** Present after 016. minutes is the historical default. */
   duration_unit?: "minutes" | "hours" | null
+  /** Present after 017. Missing column and existing rows stay false. */
+  include_table?: boolean | null
   enabled: boolean
   next_run_at: string | null
   created_by: string | null

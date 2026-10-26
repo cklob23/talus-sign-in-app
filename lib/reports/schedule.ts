@@ -1,4 +1,4 @@
-import { isUndefinedTable, isUniqueViolation } from "@/lib/idempotency"
+import { isUndefinedColumn, isUndefinedTable, isUniqueViolation } from "@/lib/idempotency"
 import { computeNextRunAt, isScheduleDue, resolveReportPeriod } from "./period.ts"
 import { decideExistingRun } from "./idempotency.ts"
 import {
@@ -7,6 +7,7 @@ import {
   isReportFormat,
   isReportFrequency,
   isReportKind,
+  parseIncludeTableFlag,
   parseRecipientList,
   type DurationUnit,
   type ReportFormat,
@@ -130,6 +131,7 @@ export function parseScheduleBody(body: Record<string, unknown>): { ok: true; va
       recipients,
       format: formatRaw as ReportFormat,
       durationUnit: durationRaw as DurationUnit,
+      includeTable: parseIncludeTableFlag(body.includeTable ?? body.include_table),
       enabled: body.enabled !== false,
     },
   }
@@ -151,6 +153,7 @@ export function scheduleToRow(input: ReportScheduleInput, nextRunAt: string | nu
     recipients: input.recipients,
     format: input.format,
     duration_unit: input.durationUnit,
+    include_table: input.includeTable === true,
     enabled: input.enabled,
     next_run_at: nextRunAt,
     ...(createdBy ? { created_by: createdBy } : {}),
@@ -175,6 +178,7 @@ export function rowToSchedule(row: Record<string, unknown>): ReportSchedule {
     recipients: parseRecipientList(Array.isArray(row.recipients) ? (row.recipients as string[]) : []),
     format: (isReportFormat(String(row.format)) ? row.format : "csv") as ReportFormat,
     durationUnit: (isDurationUnit(String(row.duration_unit)) ? row.duration_unit : "minutes") as DurationUnit,
+    includeTable: parseIncludeTableFlag(row.include_table),
     enabled: row.enabled !== false,
     nextRunAt: row.next_run_at ? String(row.next_run_at) : null,
     createdBy: row.created_by ? String(row.created_by) : null,
@@ -193,6 +197,46 @@ function recipientsFromRow(row: Record<string, unknown>): string[] {
 export function hydrateSchedule(row: Record<string, unknown>): ReportSchedule {
   const base = rowToSchedule(row)
   return { ...base, recipients: recipientsFromRow(row) }
+}
+
+const OPTIONAL_SCHEDULE_WRITE_FIELDS = ["include_table", "duration_unit"] as const
+
+function omitField(row: Record<string, unknown>, field: string): Record<string, unknown> {
+  const next = { ...row }
+  delete next[field]
+  return next
+}
+
+export function missingColumnName(error: { message?: string } | null | undefined): string | null {
+  const match = error?.message?.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i)
+  return match?.[1] ?? null
+}
+
+/** Insert or update, stripping optional columns on Postgres 42703 so a pre-SQL deploy does not 500. */
+export async function writeReportSchedule(
+  admin: AnyClient,
+  mode: "insert" | "update",
+  row: Record<string, unknown>,
+  id?: string,
+) {
+  let payload: Record<string, unknown> = { ...row }
+  const attempt = () =>
+    mode === "insert"
+      ? admin.from("report_schedules").insert(payload).select("*").single()
+      : admin.from("report_schedules").update(payload).eq("id", id).select("*").single()
+
+  let result = await attempt()
+  while (result.error && isUndefinedColumn(result.error)) {
+    const missing = missingColumnName(result.error)
+    const field =
+      missing && missing in payload
+        ? missing
+        : OPTIONAL_SCHEDULE_WRITE_FIELDS.find((column) => column in payload)
+    if (!field) break
+    payload = omitField(payload, field)
+    result = await attempt()
+  }
+  return result
 }
 
 export function nextRunIso(input: Pick<ReportScheduleInput, "frequency" | "weekday" | "monthDay" | "sendTime" | "timezone">, after = new Date()): string {

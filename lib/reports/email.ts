@@ -24,6 +24,8 @@ export interface ReportEmailArgs {
   badge?: string
   periodLabel?: string
   truncated?: boolean
+  tableHtml?: string
+  tableText?: string
 }
 
 export function formatEmailPeriod(args: Pick<ReportEmailArgs, "periodStart" | "periodEnd" | "timezone" | "periodLabel">): string {
@@ -51,6 +53,7 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     : args.format === "summary"
       ? "This email is a summary only. No spreadsheet is attached."
       : "No rows matched this period, so no spreadsheet is attached."
+  const tableLine = args.tableHtml ? " The report table is included below." : ""
   const capLine = args.truncated
     ? " This file is capped at 50,000 rows."
     : ""
@@ -65,6 +68,10 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     ...(args.extraLines || []).map((line) => detailRow(line.label, line.value)),
   ].join("")
 
+  const tableBlock = args.tableHtml
+    ? `<tr><td class="px" style="padding:8px 36px 8px 36px;">${args.tableHtml}</td></tr>`
+    : ""
+
   const html = emailShell({
     lang: "en",
     preheader,
@@ -72,7 +79,8 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     bodyHtml: `${pill(args.badge || "Scheduled report")}
 ${headingBlock(name, `${escapeHtml(kind)} for <b class="t" style="color:#0f1a13;">${escapeHtml(sites)}</b>.`)}
 ${detailsPanel(rows)}
-<tr><td class="px m" style="padding:16px 36px 24px 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(attachLine)}${escapeHtml(capLine)} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.</td></tr>`,
+${tableBlock}
+<tr><td class="px m" style="padding:16px 36px 24px 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(attachLine)}${escapeHtml(tableLine)}${escapeHtml(capLine)} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.</td></tr>`,
   })
 
   const text = [
@@ -84,7 +92,9 @@ ${detailsPanel(rows)}
     `Rows: ${args.rowCount}`,
     `Format: ${FORMAT_LABELS[args.format]}`,
     "",
-    `${attachLine}${capLine}`,
+    `${attachLine}${tableLine}${capLine}`,
+    ...(args.tableText ? ["", args.tableText] : []),
+    "",
     "This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.",
   ].join("\n")
 

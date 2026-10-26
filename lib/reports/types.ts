@@ -104,7 +104,13 @@ export interface ReportScheduleInput {
   recipients: string[]
   format: ReportFormat
   durationUnit: DurationUnit
+  includeTable: boolean
   enabled: boolean
+}
+
+/** Missing, null, or unexpected values stay off so existing schedules do not change. */
+export function parseIncludeTableFlag(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1"
 }
 
 export interface ReportSchedule extends ReportScheduleInput {

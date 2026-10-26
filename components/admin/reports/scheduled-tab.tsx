@@ -190,7 +190,7 @@ export function ScheduledTab({
         <div>
           <h2 className="text-lg font-semibold">Scheduled reports</h2>
           <p className="text-sm text-muted-foreground">
-            Email a CSV, an inline summary, or both. Built-in admins only.
+            Email a CSV, an inline summary, or both. You can also include the table in the email body. Built-in admins only.
           </p>
         </div>
         <Button
