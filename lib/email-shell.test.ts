@@ -59,8 +59,11 @@ describe("email-shell color scheme", () => {
     assert.match(report.html, /<meta name="supported-color-schemes" content="light">/)
     assert.equal(report.html.includes("prefers-color-scheme: dark"), false)
     assert.equal(report.html.includes("#111a15"), false)
-    assert.match(report.html, /\.rt\{[^}]*table-layout:fixed/)
+    assert.match(report.html, /\.rt\{[^}]*table-layout:auto/)
+    assert.equal(report.html.includes("table-layout:fixed"), false)
     assert.match(report.html, /\.rt th,\.rt td\{border:1px solid #dce6df/)
+    assert.match(report.html, /\.rt \.rt-em\{word-break:break-word;overflow-wrap:anywhere\}/)
+    assert.equal(report.html.includes("white-space:nowrap"), false)
 
     const defaultShell = emailShell({
       lang: "en",

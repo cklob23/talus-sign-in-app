@@ -128,6 +128,16 @@ describe("report email", () => {
     assert.ok(bytes < 100_000, `40-row email was ${bytes} bytes`)
   })
 
+  it("keeps a 245-row table email at or below the previous 87.9 KB clip", () => {
+    const { table, mail, bytes } = visitorMail(245)
+    assert.equal(table.shown, 245)
+    assert.equal(table.capped, false)
+    assert.match(mail.html, /class="rt"/)
+    assert.match(mail.html, /In \/ out/)
+    assert.ok(bytes <= 87_900, `245-row email was ${bytes} bytes`)
+    assert.ok(bytes < 100_000, `245-row email was ${bytes} bytes`)
+  })
+
   it("keeps a 300-row table email under 100 KB including the footer", () => {
     const { table, mail, bytes } = visitorMail(300)
     assert.equal(table.shown, 300)

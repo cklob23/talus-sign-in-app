@@ -72,7 +72,7 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
   const notice = `${attachLine}${capLine} This report includes personal data. Keep it inside Talus Ag unless you meant to send it elsewhere.`
   const tableBlock = hasTable
     ? `<tr><td class="px m" style="padding:8px 36px 0 36px;font-family:Geist,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#55625a;">${escapeHtml(tableLine)}</td></tr>
-<tr><td class="px" style="padding:8px 36px 24px 36px;">${args.tableHtml}</td></tr>`
+<tr><td class="px rt-box" style="padding:8px 36px 24px 36px;">${args.tableHtml}</td></tr>`
     : ""
 
   const html = emailShell({
