@@ -1,11 +1,15 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
+import { loadPortalUser } from "@/lib/admin-auth"
 import { formatEmailPeriod } from "@/lib/reports/email"
-import { REPORT_VIEW_MAX_ROWS } from "@/lib/reports/period"
+import { REPORT_VIEW_MAX_RANGE_DAYS, REPORT_VIEW_MAX_ROWS } from "@/lib/reports/period"
 import { loadReportRows } from "@/lib/reports/query"
 import { csvRowsForKind, locationNamesForIds } from "@/lib/reports/run"
 import { formatEmailTableDate } from "@/lib/reports/table"
 import { DURATION_UNIT_LABELS, REPORT_KIND_LABELS } from "@/lib/reports/types"
-import { parseReportViewSearch } from "@/lib/reports/view-url"
+import { authorizeReportView, loadReportViewIfAuthorized } from "@/lib/reports/view-access"
+import { clampReportViewRange, parseReportViewSearch, REPORT_VIEW_PATH } from "@/lib/reports/view-url"
+import { adminPageLoginRedirect } from "@/lib/safe-redirect"
 import { createAdminClient } from "@/lib/supabase/server"
 
 function firstString(value: string | string[] | undefined): string | undefined {
@@ -13,10 +17,21 @@ function firstString(value: string | string[] | undefined): string | undefined {
 }
 
 function displayCell(header: string, value: string): string {
+  if (/^Sign out$/i.test(header) && !value.trim()) return "Still on site"
   if (/^(Sign in|Sign out|Completed|Expires)$/i.test(header)) {
     return formatEmailTableDate(value) || value
   }
   return value
+}
+
+function searchFromRaw(raw: Record<string, string | string[] | undefined>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(raw)) {
+    const text = firstString(value)
+    if (text) params.set(key, text)
+  }
+  const encoded = params.toString()
+  return encoded ? `?${encoded}` : ""
 }
 
 export default async function ReportViewPage({
@@ -25,6 +40,25 @@ export default async function ReportViewPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const raw = await searchParams
+  const portal = await loadPortalUser()
+  const allowed = authorizeReportView(portal)
+  if (!allowed.ok) {
+    if (allowed.status === 401) {
+      redirect(adminPageLoginRedirect(401, REPORT_VIEW_PATH, searchFromRaw(raw)))
+    }
+    return (
+      <div className="mx-auto max-w-3xl space-y-3">
+        <h1 className="text-2xl font-bold">Not authorized</h1>
+        <p className="text-sm text-muted-foreground">
+          You need a built-in admin account to open this report table.
+        </p>
+        <Link href="/admin" className="text-sm font-medium text-primary underline underline-offset-4">
+          Back to dashboard
+        </Link>
+      </div>
+    )
+  }
+
   const filters = parseReportViewSearch(
     Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, firstString(value)])),
   )
@@ -43,38 +77,59 @@ export default async function ReportViewPage({
     )
   }
 
-  const admin = createAdminClient()
+  const range = clampReportViewRange(filters.from, filters.to)
   let names: string[] = []
   let headers: string[] = []
   let rows: string[][] = []
   let truncated = false
-  let error = ""
+  let loadFailed = false
 
-  try {
-    names = await locationNamesForIds(admin, filters.locationIds)
-    const loaded = await loadReportRows(
-      admin,
-      {
-        kind: filters.kind,
-        locationIds: filters.locationIds,
-        visitorTypeIds: filters.kind === "employees" ? [] : filters.visitorTypeIds,
-        from: filters.from,
-        to: filters.to,
-      },
-      REPORT_VIEW_MAX_ROWS,
+  const loaded = await loadReportViewIfAuthorized(portal, async () => {
+    try {
+      const admin = createAdminClient()
+      const siteNames = await locationNamesForIds(admin, filters.locationIds)
+      const report = await loadReportRows(
+        admin,
+        {
+          kind: filters.kind,
+          locationIds: filters.locationIds,
+          visitorTypeIds: filters.kind === "employees" ? [] : filters.visitorTypeIds,
+          from: range.from,
+          to: range.to,
+        },
+        REPORT_VIEW_MAX_ROWS,
+      )
+      return { siteNames, report }
+    } catch {
+      return { siteNames: [] as string[], report: null }
+    }
+  })
+
+  if (!loaded.ok) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-3">
+        <h1 className="text-2xl font-bold">Not authorized</h1>
+        <p className="text-sm text-muted-foreground">
+          You need a built-in admin account to open this report table.
+        </p>
+      </div>
     )
-    truncated = loaded.truncated
-    const csvRows = csvRowsForKind(loaded.kind, loaded.rows, Date.now(), filters.durationUnit)
+  }
+
+  if (!loaded.data.report) {
+    loadFailed = true
+  } else {
+    names = loaded.data.siteNames
+    truncated = loaded.data.report.truncated
+    const csvRows = csvRowsForKind(loaded.data.report.kind, loaded.data.report.rows, Date.now(), filters.durationUnit)
     headers = (csvRows[0] || []).map((cell) => String(cell ?? ""))
     rows = csvRows.slice(1).map((row) => row.map((cell) => String(cell ?? "")))
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load this report"
   }
 
   const title = filters.name || REPORT_KIND_LABELS[filters.kind]
   const period = formatEmailPeriod({
-    periodStart: filters.from,
-    periodEnd: filters.to,
+    periodStart: range.from,
+    periodEnd: range.to,
     timezone: filters.timezone,
   })
   const sites = names.length ? names.join(", ") : filters.locationIds.length ? "Selected sites" : "All sites"
@@ -95,8 +150,15 @@ export default async function ReportViewPage({
         </Link>
       </div>
 
-      {error ? (
-        <p className="text-sm text-destructive">{error}</p>
+      {range.clamped ? (
+        <p className="text-sm text-muted-foreground">
+          This page shows at most {REPORT_VIEW_MAX_RANGE_DAYS} days ending at the report&apos;s end date. Use the CSV
+          for the full period.
+        </p>
+      ) : null}
+
+      {loadFailed ? (
+        <p className="text-sm text-destructive">This report could not be loaded. Try again or export a CSV from Reports.</p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No rows matched this period.</p>
       ) : (

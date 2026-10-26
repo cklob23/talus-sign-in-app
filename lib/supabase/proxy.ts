@@ -2,9 +2,16 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { loginUrlForProtectedPath } from "@/lib/safe-redirect"
 
+function requestWithPathHeaders(request: NextRequest): Headers {
+  const headers = new Headers(request.headers)
+  headers.set("x-talus-pathname", request.nextUrl.pathname)
+  headers.set("x-talus-search", request.nextUrl.search)
+  return headers
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
-    request,
+    request: { headers: requestWithPathHeaders(request) },
   })
 
   const supabase = createServerClient(
@@ -18,7 +25,7 @@ export async function updateSession(request: NextRequest) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({
-            request,
+            request: { headers: requestWithPathHeaders(request) },
           })
           cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options))
         },
@@ -43,7 +50,7 @@ export async function updateSession(request: NextRequest) {
 
   // Protect admin routes. Session existence is a first gate; the admin
   // layout re-checks the verified user and role with getUser().
-  if (request.nextUrl.pathname.startsWith("/admin") && !session) {
+  if (request.nextUrl.pathname.startsWith("/admin") && (!session || sessionError)) {
     return NextResponse.redirect(new URL(
       loginUrlForProtectedPath(request.nextUrl.pathname, request.nextUrl.search),
       request.nextUrl.origin,

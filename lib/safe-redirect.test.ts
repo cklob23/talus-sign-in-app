@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { loginUrlForProtectedPath, safeNextPath } from "./safe-redirect.ts"
+import { adminPageLoginRedirect, loginUrlForProtectedPath, safeNextPath } from "./safe-redirect.ts"
 
 describe("safeNextPath", () => {
   it("allows a same-origin admin path", () => {
@@ -30,5 +30,10 @@ describe("safeNextPath", () => {
     const dest = "/admin/reports/view?kind=visitors&name=Kenya farm daily"
     const login = loginUrlForProtectedPath("/admin/reports/view", "?kind=visitors&name=Kenya farm daily")
     assert.equal(login, `/auth/login?next=${encodeURIComponent(dest)}`)
+    assert.equal(adminPageLoginRedirect(403), "/auth/login?error=not_authorized")
+    assert.equal(
+      adminPageLoginRedirect(401, "/admin/reports/view", "?kind=visitors"),
+      `/auth/login?next=${encodeURIComponent("/admin/reports/view?kind=visitors")}`,
+    )
   })
 })

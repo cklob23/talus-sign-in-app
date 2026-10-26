@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { buildReportViewPath, buildReportViewUrl, parseReportViewSearch, REPORT_VIEW_PATH } from "./view-url.ts"
+import { REPORT_VIEW_MAX_RANGE_DAYS } from "./period.ts"
+import { buildReportViewPath, buildReportViewUrl, clampReportViewRange, parseReportViewSearch, REPORT_VIEW_PATH } from "./view-url.ts"
 
 const ORIGIN = "https://signin.talusag.com"
 const LOC = "11111111-1111-4111-8111-111111111111"
@@ -64,6 +65,21 @@ describe("report view URL", () => {
       new URLSearchParams(`kind=training&from=2026-10-21T00:00:00.000Z&to=2026-10-22T00:00:00.000Z&locations=not-a-uuid,${LOC}`),
     )
     assert.deepEqual(parsed?.locationIds, [LOC])
+  })
+
+  it("clamps a range longer than 366 days to the last window", () => {
+    const from = "1970-01-01T00:00:00.000Z"
+    const to = "2026-10-27T00:00:00.000Z"
+    const clamped = clampReportViewRange(from, to)
+    assert.equal(clamped.clamped, true)
+    assert.equal(clamped.to, to)
+    const spanDays = (Date.parse(clamped.to) - Date.parse(clamped.from)) / 86_400_000
+    assert.ok(spanDays <= REPORT_VIEW_MAX_RANGE_DAYS + 0.001)
+    assert.deepEqual(clampReportViewRange("2026-10-26T00:00:00.000Z", "2026-10-27T00:00:00.000Z"), {
+      from: "2026-10-26T00:00:00.000Z",
+      to: "2026-10-27T00:00:00.000Z",
+      clamped: false,
+    })
   })
 
   it("keeps the URL on the app origin and drops off-origin hosts", () => {
