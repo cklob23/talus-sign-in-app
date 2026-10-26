@@ -1,10 +1,27 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import {
+  REPORT_EMAIL_TABLE_MAX_HTML_BYTES,
   REPORT_EMAIL_TABLE_MAX_ROWS,
+  emailTableSummaryLine,
   renderReportTable,
   reportEmailTableCapNote,
 } from "./table.ts"
+import { buildVisitorCsvRows } from "./rows.ts"
+import { renderReportEmail } from "./email.ts"
+
+function visitorFixture(count: number, name = "Ada") {
+  return buildVisitorCsvRows(
+    Array.from({ length: count }, (_, index) => ({
+      sign_in_time: "2026-10-22T15:30:00.000Z",
+      sign_out_time: "2026-10-22T17:00:00.000Z",
+      visitor: { first_name: name, last_name: String(index + 1), email: "ada@example.com", company: "Analytical" },
+      host: { name: "Hiro Iwanaga" },
+      visitor_type: { name: "Contractor" },
+      location: { name: "Houston HQ", timezone: "America/Chicago" },
+    })),
+  )
+}
 
 describe("renderReportTable", () => {
   it("escapes HTML in headers and cells", () => {
@@ -31,35 +48,75 @@ describe("renderReportTable", () => {
     assert.equal(out.text, "")
   })
 
-  it("caps very large reports at 40 rows and notes the CSV", () => {
-    const csvRows = [
-      ["Name"],
-      ...Array.from({ length: 80 }, (_, index) => [`Visitor ${index + 1}`]),
-    ]
+  it("uses class-level styles, a 528px max width, and plain cells", () => {
+    const headers = Array.from({ length: 10 }, (_, index) => `Col ${index + 1}`)
+    const out = renderReportTable({
+      csvRows: [headers, headers.map((_, index) => `c${index}`)],
+    })
+    assert.match(out.html, /class="rt"/)
+    assert.match(out.html, /max-width:528px/)
+    assert.match(out.html, /width:100%/)
+    assert.match(out.html, /table-layout:fixed/)
+    assert.equal(out.html.includes("overflow-x"), false)
+    assert.equal(out.html.includes("white-space:nowrap"), false)
+    assert.equal(/<(td|th)[^>]*style=/.test(out.html), false)
+    assert.match(out.html, /bgcolor="#ffffff"/)
+    assert.match(out.html, /<td>c0<\/td>/)
+    const row = out.html.match(/<tbody><tr>(.*?)<\/tr>/)
+    assert.ok(row)
+    assert.ok(row[1].length < 250, `10-column row was ${row[1].length} bytes`)
+  })
+
+  it("nowraps only the duration column", () => {
+    const out = renderReportTable({ csvRows: visitorFixture(1) })
+    assert.match(out.html, /<th bgcolor="#f5f8f6" class="rt-now">Duration/)
+    assert.equal(out.html.includes("Sign-out source"), false)
+    assert.match(out.html, /<th bgcolor="#f5f8f6">Sign in<\/th>/)
+  })
+
+  it("caps at 500 rows and notes the email size limit", () => {
+    const csvRows = [["Name"], ...Array.from({ length: 520 }, (_, index) => [`Visitor ${index + 1}`])]
     const out = renderReportTable({ csvRows, csvAttached: true })
-    assert.equal(out.total, 80)
+    assert.equal(out.total, 520)
     assert.equal(out.shown, REPORT_EMAIL_TABLE_MAX_ROWS)
     assert.equal(out.capped, true)
-    assert.match(out.html, /Showing first 40 of 80 rows, full data in attached CSV/)
-    assert.equal(out.html.includes("Visitor 40"), true)
-    assert.equal(out.html.includes("Visitor 41"), false)
+    assert.match(out.html, /Showing first 500 of 520 rows \(email size limit\), full data in attached CSV/)
+    assert.equal(out.html.includes("Visitor 500"), true)
+    assert.equal(out.html.includes("Visitor 501"), false)
     assert.equal(
-      reportEmailTableCapNote(40, 80, true),
-      "Showing first 40 of 80 rows, full data in attached CSV",
+      reportEmailTableCapNote(500, 520, true),
+      "Showing first 500 of 520 rows (email size limit), full data in attached CSV",
     )
   })
 
-  it("stops early when the HTML would exceed the size budget", () => {
-    const huge = "x".repeat(6000)
-    const csvRows = [["Note"], ...Array.from({ length: 40 }, () => [huge])]
-    const out = renderReportTable({ csvRows, maxHtmlBytes: 20_000 })
+  it("stops at the HTML budget on a worst-case long-cell fixture", () => {
+    const huge = "x".repeat(400)
+    const headers = Array.from({ length: 10 }, (_, index) => `Col ${index + 1}`)
+    const csvRows = [headers, ...Array.from({ length: 200 }, () => headers.map(() => huge))]
+    const out = renderReportTable({ csvRows })
     assert.equal(out.capped, true)
-    assert.ok(out.shown < 40)
+    assert.ok(out.shown < 200)
     assert.ok(out.shown >= 1)
-    assert.ok(new TextEncoder().encode(out.html).length < 22_000)
+    const tableBytes = new TextEncoder().encode(out.html).length
+    assert.ok(tableBytes <= REPORT_EMAIL_TABLE_MAX_HTML_BYTES + 400, `table was ${tableBytes} bytes`)
+    const mail = renderReportEmail({
+      scheduleName: "Nightly visitor log",
+      kind: "visitors",
+      periodStart: "2026-10-21T05:00:00.000Z",
+      periodEnd: "2026-10-22T05:00:00.000Z",
+      timezone: "America/Chicago",
+      locationNames: ["Houston HQ"],
+      rowCount: 200,
+      format: "both",
+      csvAttached: true,
+      tableHtml: out.html,
+      tableText: out.text,
+    })
+    const emailBytes = new TextEncoder().encode(mail.html).length
+    assert.ok(emailBytes < 100_000, `email was ${emailBytes} bytes`)
   })
 
-  it("replaces pipes in the plain-text table and nowraps date headers", () => {
+  it("replaces pipes in the plain-text table", () => {
     const out = renderReportTable({
       csvRows: [
         ["Visitor name", "Sign in"],
@@ -68,6 +125,18 @@ describe("renderReportTable", () => {
     })
     assert.match(out.text, /Ada \/ Lovelace/)
     assert.equal(out.text.includes("Ada | Lovelace"), false)
-    assert.match(out.html, /white-space:nowrap/)
+  })
+
+  it("summarizes the table only when markup exists", () => {
+    assert.equal(emailTableSummaryLine(null), null)
+    assert.equal(emailTableSummaryLine({ html: "", shown: 0, total: 0, capped: false }), null)
+    assert.deepEqual(emailTableSummaryLine({ html: "<table></table>", shown: 12, total: 12, capped: false }), {
+      label: "Email table",
+      value: "Included",
+    })
+    assert.deepEqual(emailTableSummaryLine({ html: "<table></table>", shown: 40, total: 80, capped: true }), {
+      label: "Email table",
+      value: "First 40 of 80 rows",
+    })
   })
 })

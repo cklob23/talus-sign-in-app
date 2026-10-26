@@ -1,7 +1,7 @@
 import { sendEmail } from "@/lib/email"
 import { csvFilename, csvWithBom, toCsv } from "./csv.ts"
 import { renderReportEmail } from "./email.ts"
-import { renderReportTable } from "./table.ts"
+import { emailTableSummaryLine, renderReportTable } from "./table.ts"
 import {
   buildEmployeeCsvRows,
   buildTrainingCsvRows,
@@ -103,6 +103,7 @@ export async function sendBuiltReport(args: {
     : null
   const tableHtml = table?.html?.trim() ? table.html : undefined
   const tableText = tableHtml ? table?.text : undefined
+  const tableSummary = emailTableSummaryLine(tableHtml ? table : null)
   const mail = renderReportEmail({
     scheduleName: args.scheduleName,
     kind: args.kind,
@@ -120,7 +121,7 @@ export async function sendBuiltReport(args: {
       ...(args.kind === "visitors" || args.kind === "employees"
         ? [{ label: "Duration unit", value: DURATION_UNIT_LABELS[args.durationUnit || "minutes"] }]
         : []),
-      ...(args.includeTable ? [{ label: "Email table", value: "Included" }] : []),
+      ...(tableSummary ? [tableSummary] : []),
       ...(args.extraLines || []),
     ],
     truncated: args.report.truncated,

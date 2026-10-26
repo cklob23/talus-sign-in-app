@@ -1,16 +1,29 @@
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
 
-/** Gmail clips around 102 KB. 40 compact rows stay well under 90 KB with the footer. */
-export const REPORT_EMAIL_TABLE_MAX_ROWS = 40
-export const REPORT_EMAIL_TABLE_MAX_HTML_BYTES = 70_000
+/** Gmail clips around 102 KB. Compact class-styled rows stay under ~80 KB. */
+export const REPORT_EMAIL_TABLE_MAX_ROWS = 500
+export const REPORT_EMAIL_TABLE_MAX_HTML_BYTES = 80_000
 
 export const REPORT_EMAIL_TABLE_EMPTY = "No rows matched this period."
 
 export function reportEmailTableCapNote(shown: number, total: number, csvAttached = true): string {
   if (csvAttached) {
-    return `Showing first ${shown} of ${total} rows, full data in attached CSV`
+    return `Showing first ${shown} of ${total} rows (email size limit), full data in attached CSV`
   }
-  return `Showing first ${shown} of ${total} rows`
+  return `Showing first ${shown} of ${total} rows (email size limit)`
+}
+
+export function emailTableSummaryLine(table: {
+  html?: string
+  shown: number
+  total: number
+  capped: boolean
+} | null): { label: string; value: string } | null {
+  if (!table?.html?.trim()) return null
+  return {
+    label: "Email table",
+    value: table.capped ? `First ${table.shown} of ${table.total} rows` : "Included",
+  }
 }
 
 function cellText(value: string | number | boolean | null | undefined): string {
@@ -26,13 +39,10 @@ function htmlBytes(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
-const NOWRAP_HEADER =
-  /^(sign in|sign out|completed|expires|duration|auto sign-in|status|method|sign-out source)/i
+const NOWRAP_HEADER = /^duration/i
 
-const TABLE_STYLE = "border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#0f1a13"
-const TH_STYLE = "padding:5px 6px;border:1px solid #dce6df;background:#f5f8f6;text-align:left;font-weight:700"
-const TD_STYLE = "padding:5px 6px;border:1px solid #dce6df"
-const TD_NOW = `${TD_STYLE};white-space:nowrap`
+const TABLE_STYLE =
+  "border-collapse:collapse;table-layout:fixed;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px"
 
 export function renderReportTable(args: {
   csvRows: Array<Array<string | number | boolean | null | undefined>>
@@ -54,15 +64,15 @@ export function renderReportTable(args: {
   const nowrap = headers.map((header) => NOWRAP_HEADER.test(cellText(header)))
   const headCells = headers
     .map((header, index) => {
-      const style = nowrap[index] ? `${TH_STYLE};white-space:nowrap` : TH_STYLE
-      return `<th style="${style}">${escapeHtml(cellText(header))}</th>`
+      const now = nowrap[index] ? ' class="rt-now"' : ""
+      return `<th bgcolor="#f5f8f6"${now}>${escapeHtml(cellText(header))}</th>`
     })
     .join("")
   const headRow = `<tr>${headCells}</tr>`
 
-  const noteReserve = 220
-  const wrapOpen = `<div style="overflow-x:auto;width:100%;"><table role="presentation" cellpadding="5" cellspacing="0" border="0" style="${TABLE_STYLE}"><thead>${headRow}</thead><tbody>`
-  const wrapClose = `</tbody></table></div>`
+  const noteReserve = 260
+  const wrapOpen = `<table class="rt" role="presentation" width="100%" cellpadding="4" cellspacing="0" border="1" bgcolor="#ffffff" style="${TABLE_STYLE}"><thead>${headRow}</thead><tbody>`
+  const wrapClose = `</tbody></table>`
   const fixedBytes = htmlBytes(wrapOpen + wrapClose) + noteReserve
 
   const bodyRows: string[] = []
@@ -71,8 +81,8 @@ export function renderReportTable(args: {
     if (bodyRows.length >= Math.max(0, maxRows)) break
     const cells = headers
       .map((_, index) => {
-        const style = nowrap[index] ? TD_NOW : TD_STYLE
-        return `<td style="${style}">${escapeHtml(cellText(row[index]))}</td>`
+        const now = nowrap[index] ? ' class="rt-now"' : ""
+        return `<td${now}>${escapeHtml(cellText(row[index]))}</td>`
       })
       .join("")
     const tr = `<tr>${cells}</tr>`

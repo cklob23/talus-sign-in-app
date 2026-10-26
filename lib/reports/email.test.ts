@@ -23,6 +23,9 @@ describe("report email", () => {
     assert.match(mail.html, /Visitor sign-ins/)
     assert.match(mail.html, /Houston HQ/)
     assert.match(mail.html, /The CSV is attached/)
+    assert.match(mail.html, /<meta name="color-scheme" content="light only">/)
+    assert.match(mail.html, /<meta name="supported-color-schemes" content="light">/)
+    assert.equal(mail.html.includes("prefers-color-scheme: dark"), false)
     assert.equal(mail.html.includes("\u2014"), false)
     assert.equal(mail.text.includes("\u2014"), false)
     assert.match(mail.subject, /Nightly visitor log/)
@@ -89,9 +92,9 @@ describe("report email", () => {
     assert.equal(mail.html.includes("\u2014"), false)
   })
 
-  it("keeps a 40-row table email under 90 KB including the footer", () => {
+  function visitorMail(rowCount: number) {
     const csvRows = buildVisitorCsvRows(
-      Array.from({ length: 40 }, (_, index) => ({
+      Array.from({ length: rowCount }, (_, index) => ({
         sign_in_time: "2026-10-22T15:30:00.000Z",
         sign_out_time: "2026-10-22T17:00:00.000Z",
         visitor: { first_name: "Ada", last_name: String(index + 1), email: "ada@example.com", company: "Analytical" },
@@ -108,14 +111,28 @@ describe("report email", () => {
       periodEnd: "2026-10-22T05:00:00.000Z",
       timezone: "America/Chicago",
       locationNames: ["Houston HQ"],
-      rowCount: 40,
+      rowCount,
       format: "both",
       csvAttached: true,
       tableHtml: table.html,
       tableText: table.text,
     })
-    const bytes = new TextEncoder().encode(mail.html).length
+    return { table, mail, bytes: new TextEncoder().encode(mail.html).length }
+  }
+
+  it("keeps a 40-row table email well under 100 KB including the footer", () => {
+    const { table, mail, bytes } = visitorMail(40)
     assert.equal(table.shown, 40)
-    assert.ok(bytes < 90_000, `email was ${bytes} bytes`)
+    assert.equal(table.capped, false)
+    assert.match(mail.html, /content="light only"/)
+    assert.ok(bytes < 100_000, `40-row email was ${bytes} bytes`)
+  })
+
+  it("keeps a 300-row table email under 100 KB including the footer", () => {
+    const { table, mail, bytes } = visitorMail(300)
+    assert.equal(table.shown, 300)
+    assert.equal(table.capped, false)
+    assert.match(mail.html, /class="rt"/)
+    assert.ok(bytes < 100_000, `300-row email was ${bytes} bytes`)
   })
 })
