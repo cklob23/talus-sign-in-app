@@ -94,7 +94,7 @@ export function buildReportViewPath(filters: ReportViewUrlArgs): string {
 export function buildReportViewUrl(origin: string, filters: ReportViewUrlArgs): string {
   const base = origin.trim().replace(/\/+$/, "")
   if (!base) return ""
-  return sanitizeAppUrl(`${base}${buildReportViewPath(filters)}`, base)
+  return sanitizeAppUrl(`${base}${buildReportViewPath(filters)}`)
 }
 
 export function parseReportViewSearch(

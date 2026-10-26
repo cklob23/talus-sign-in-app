@@ -1,5 +1,4 @@
 import { sendEmail } from "@/lib/email"
-import { sanitizeAppUrl } from "@/lib/html-escape"
 import { resolveAppOrigin } from "@/lib/nda"
 import { csvFilename, csvWithBom, toCsv } from "./csv.ts"
 import { renderReportEmail } from "./email.ts"
@@ -112,19 +111,16 @@ export async function sendBuiltReport(args: {
   const origin = (args.origin || resolveAppOrigin()).replace(/\/+$/, "")
   const viewUrl =
     tableHtml && origin
-      ? sanitizeAppUrl(
-          buildReportViewUrl(origin, {
-            kind: args.kind,
-            from: args.periodStart,
-            to: args.periodEnd,
-            locationIds: args.locationIds,
-            visitorTypeIds: args.visitorTypeIds,
-            durationUnit: args.durationUnit || "minutes",
-            timezone: args.timezone,
-            name: args.scheduleName,
-          }),
-          origin,
-        )
+      ? buildReportViewUrl(origin, {
+          kind: args.kind,
+          from: args.periodStart,
+          to: args.periodEnd,
+          locationIds: args.locationIds,
+          visitorTypeIds: args.visitorTypeIds,
+          durationUnit: args.durationUnit || "minutes",
+          timezone: args.timezone,
+          name: args.scheduleName,
+        })
       : ""
   const mail = renderReportEmail({
     scheduleName: args.scheduleName,
