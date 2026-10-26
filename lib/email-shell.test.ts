@@ -64,7 +64,8 @@ describe("email-shell color scheme", () => {
     assert.match(report.html, /\.rt th\{background:#f5f8f6;font-weight:700;white-space:normal\}/)
     assert.match(report.html, /\.rt th,\.rt td\{border:1px solid #dce6df/)
     assert.match(report.html, /\.rt \.rt-em\{display:block;word-break:break-word;overflow-wrap:anywhere\}/)
-    assert.match(report.html, /\.rt \.rt-time\{white-space:nowrap\}/)
+    assert.match(report.html, /\.rt \.rt-time\{white-space:normal\}/)
+    assert.equal(report.html.includes(".rt-time{white-space:nowrap}"), false)
 
     const defaultShell = emailShell({
       lang: "en",

@@ -42,7 +42,7 @@ export function emailShell(args: {
 .rt th,.rt td{border:1px solid #dce6df;padding:4px 6px;text-align:left;vertical-align:top;color:#0f1a13;background-color:#ffffff;word-break:normal;overflow-wrap:normal}
 .rt th{background:#f5f8f6;font-weight:700;white-space:normal}
 .rt .rt-em{display:block;word-break:break-word;overflow-wrap:anywhere}
-.rt .rt-time{white-space:nowrap}
+.rt .rt-time{white-space:normal}
 `
 
   return `<!DOCTYPE html><html lang="${args.lang}" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="${scheme}"><meta name="supported-color-schemes" content="${supported}"><title></title><style>
