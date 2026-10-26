@@ -62,8 +62,8 @@ describe("email-shell color scheme", () => {
     assert.match(report.html, /\.rt\{[^}]*table-layout:auto/)
     assert.equal(report.html.includes("table-layout:fixed"), false)
     assert.match(report.html, /\.rt th,\.rt td\{border:1px solid #dce6df/)
-    assert.match(report.html, /\.rt \.rt-em\{word-break:break-word;overflow-wrap:anywhere\}/)
-    assert.equal(report.html.includes("white-space:nowrap"), false)
+    assert.match(report.html, /\.rt \.rt-em\{display:block;word-break:break-word;overflow-wrap:anywhere\}/)
+    assert.match(report.html, /\.rt \.rt-time\{white-space:nowrap\}/)
 
     const defaultShell = emailShell({
       lang: "en",

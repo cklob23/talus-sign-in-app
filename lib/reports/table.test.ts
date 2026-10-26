@@ -85,7 +85,7 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes('class="rt-now"'), false)
     assert.match(out.html, /Agricultural<br>Contractor/)
     assert.match(out.html, /Hiro Iwanaga<br>Houston HQ/)
-    assert.match(out.html, /Oct 22, 10:30 AM<br>Oct 22, 12:00 PM<br>90 min/)
+    assert.match(out.html, /<td class="rt-time">Oct 22<br>10:30 AM<br>Oct 22<br>12:00 PM<br>90 min<\/td>/)
     assert.equal(out.html.includes("2026"), false)
     assert.equal(out.html.includes("CDT"), false)
     assert.match(out.html, /<span class="rt-em">ada@example.com<\/span>/)
@@ -98,8 +98,8 @@ describe("renderReportTable", () => {
   it("shortens duration headers and email-table dates", () => {
     assert.equal(emailDurationHeader("Duration (min)"), "Min")
     assert.equal(emailDurationHeader("Duration (hr)"), "Hrs")
-    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22, 10:30 AM")
-    assert.equal(formatEmailTableDate("Thu, Oct 26, 2026, 3:10 PM GMT-5"), "Oct 26, 3:10 PM")
+    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22\n10:30 AM")
+    assert.equal(formatEmailTableDate("Thu, Oct 26, 2026, 3:10 PM GMT-5"), "Oct 26\n3:10 PM")
     assert.equal(formatEmailTableDate(""), "")
     const hours = renderReportTable({
       csvRows: buildVisitorCsvRows(

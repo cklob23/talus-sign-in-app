@@ -33,7 +33,7 @@ export function formatEmailTableDate(value: string): string {
   const match = text.match(
     /^(?:[A-Za-z]{3},\s+)?([A-Za-z]{3}\s+\d{1,2}),\s+\d{4},\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
   )
-  if (match) return `${match[1]}, ${match[2].replace(/\s+/g, " ")}`
+  if (match) return `${match[1]}\n${match[2].replace(/\s+/g, " ")}`
   return text
 }
 
@@ -235,14 +235,21 @@ function renderEmailCell(
     })
     .filter((part) => part.raw)
 
-  const htmlParts = parts.map((part) => {
-    const safe = escapeHtml(part.raw)
-    return part.kind === "email" ? `<span class="rt-em">${safe}</span>` : safe
-  })
-  const tdClass = parts.length === 1 && parts[0].kind === "email" ? ' class="rt-em"' : ""
+  const htmlParts = parts.flatMap((part) =>
+    part.raw.split("\n").map((line) => {
+      const safe = escapeHtml(line)
+      return part.kind === "email" ? `<span class="rt-em">${safe}</span>` : safe
+    }),
+  )
+  const tdClass =
+    parts.length === 1 && parts[0].kind === "email"
+      ? ' class="rt-em"'
+      : column.kinds.some((kind) => kind === "signin" || kind === "completed" || kind === "duration")
+        ? ' class="rt-time"'
+        : ""
   return {
     html: `<td${tdClass}>${htmlParts.join("<br>")}</td>`,
-    text: parts.map((part) => part.raw).join(" / "),
+    text: parts.map((part) => part.raw.replace(/\n/g, " ")).join(" / "),
   }
 }
 
