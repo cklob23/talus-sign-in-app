@@ -81,6 +81,12 @@ describe("schedule row hydrate and optional writes", () => {
     assert.equal(missingColumnName({ message: 'column "include_table" does not exist' }), "include_table")
     assert.equal(
       missingColumnName({
+        message: 'column "include_table" of relation "report_schedules" does not exist',
+      }),
+      "include_table",
+    )
+    assert.equal(
+      missingColumnName({
         message: "Could not find the 'include_table' column of 'report_schedules' in the schema cache",
       }),
       "include_table",
@@ -92,10 +98,10 @@ describe("schedule row hydrate and optional writes", () => {
     message: "Could not find the 'include_table' column of 'report_schedules' in the schema cache",
   }
 
-  function mockScheduleClient(seen: Array<Record<string, unknown>>) {
+  function mockScheduleClient(seen: Array<Record<string, unknown>>, rejectIncludeTable = true) {
     const decide = (payload: Record<string, unknown>) => {
       seen.push({ ...payload })
-      if ("include_table" in payload) {
+      if (rejectIncludeTable && "include_table" in payload) {
         return { data: null, error: PGRST204 }
       }
       return { data: { id: "sch-1", ...payload }, error: null }
@@ -134,40 +140,58 @@ describe("schedule row hydrate and optional writes", () => {
     assert.equal(seen[1].duration_unit, "minutes")
   })
 
-  it("omits include_table on toggle when the flag is off so the write succeeds before SQL 017", async () => {
+  const sampleInput = {
+    name: "Nightly visitors",
+    kind: "visitors" as const,
+    locationIds: [],
+    visitorTypeIds: [],
+    rangeType: "previous_day" as const,
+    lastNDays: null,
+    frequency: "daily" as const,
+    weekday: null,
+    monthDay: null,
+    sendTime: "08:00",
+    timezone: "America/Chicago",
+    recipients: ["caleb@talusag.com"],
+    format: "csv" as const,
+    durationUnit: "minutes" as const,
+    includeTable: false,
+    enabled: false,
+  }
+
+  it("omits include_table on insert when the flag is off so create still works before SQL 017", async () => {
     const seen: Array<Record<string, unknown>> = []
-    const created = scheduleToRow(
-      {
-        name: "Nightly visitors",
-        kind: "visitors",
-        locationIds: [],
-        visitorTypeIds: [],
-        rangeType: "previous_day",
-        lastNDays: null,
-        frequency: "daily",
-        weekday: null,
-        monthDay: null,
-        sendTime: "08:00",
-        timezone: "America/Chicago",
-        recipients: ["caleb@talusag.com"],
-        format: "csv",
-        durationUnit: "minutes",
-        includeTable: false,
-        enabled: false,
-      },
-      null,
-    )
-    assert.equal("include_table" in created, false)
+    const created = scheduleToRow(sampleInput, null)
+    assert.equal(created.include_table, false)
+    const written = await writeReportSchedule(mockScheduleClient(seen), "insert", created)
+    assert.equal(written.error, null)
+    assert.equal(seen.length, 1)
+    assert.equal("include_table" in seen[0], false)
+  })
+
+  it("sends include_table false on update so unchecking the box clears a stored true", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const created = scheduleToRow(sampleInput, null)
     const written = await writeReportSchedule(
-      mockScheduleClient(seen),
+      mockScheduleClient(seen, false),
       "update",
-      { ...created, include_table: false },
+      created,
       "sch-1",
     )
     assert.equal(written.error, null)
     assert.equal(seen.length, 1)
-    assert.equal("include_table" in seen[0], false)
+    assert.equal(seen[0].include_table, false)
     assert.equal(seen[0].enabled, false)
+  })
+
+  it("retries an uncheck update without include_table when SQL 017 is still absent", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const created = scheduleToRow(sampleInput, null)
+    const written = await writeReportSchedule(mockScheduleClient(seen), "update", created, "sch-1")
+    assert.equal(written.error, null)
+    assert.equal(seen.length, 2)
+    assert.equal(seen[0].include_table, false)
+    assert.equal("include_table" in seen[1], false)
   })
 
   it("retries edit without include_table on PGRST204", async () => {

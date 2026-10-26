@@ -153,9 +153,9 @@ export function scheduleToRow(input: ReportScheduleInput, nextRunAt: string | nu
     recipients: input.recipients,
     format: input.format,
     duration_unit: input.durationUnit,
+    include_table: input.includeTable === true,
     enabled: input.enabled,
     next_run_at: nextRunAt,
-    ...(input.includeTable === true ? { include_table: true } : {}),
     ...(createdBy ? { created_by: createdBy } : {}),
     updated_at: new Date().toISOString(),
   }
@@ -211,7 +211,9 @@ export function missingColumnName(error: { message?: string } | null | undefined
   const message = error?.message || ""
   const postgrest = message.match(/Could not find the '(\w+)' column/i)
   if (postgrest) return postgrest[1]
-  const postgres = message.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i)
+  const postgres = message.match(
+    /column ["']?([a-zA-Z0-9_]+)["']?(?: of relation ["']?[a-zA-Z0-9_]+["']?)? does not exist/i,
+  )
   return postgres?.[1] ?? null
 }
 
@@ -223,7 +225,7 @@ export async function writeReportSchedule(
   id?: string,
 ) {
   let payload: Record<string, unknown> = { ...row }
-  if (payload.include_table !== true) {
+  if (mode === "insert" && payload.include_table !== true) {
     payload = omitField(payload, "include_table")
   }
   const attempt = () =>

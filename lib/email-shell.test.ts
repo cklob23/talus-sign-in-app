@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { emailButton } from "./email-shell.ts"
+import { emailButton, emailShell } from "./email-shell.ts"
 import { escapeHtml, sanitizeAppUrl, sanitizePlainText } from "./html-escape.ts"
 import { renderHostArrivalEmail } from "./host-mail.ts"
+import { renderReportEmail } from "./reports/email.ts"
 
 const ORIGIN = "https://signin.talusag.com"
 
@@ -27,5 +28,57 @@ describe("email-shell URLs", () => {
     })
     assert.ok(arrival.html.includes(href))
     assert.ok(arrival.text.includes(url))
+  })
+})
+
+describe("email-shell color scheme", () => {
+  it("keeps host mail on light-dark and lets report mail opt into light-only", () => {
+    const host = renderHostArrivalEmail({
+      visitorName: "Carlos Mendoza",
+      locationName: "Houston HQ",
+      visitUrl: `${ORIGIN}/visit/abc`,
+      appOrigin: ORIGIN,
+    })
+    assert.match(host.html, /<meta name="color-scheme" content="light dark">/)
+    assert.match(host.html, /<meta name="supported-color-schemes" content="light dark">/)
+    assert.match(host.html, /@media \(prefers-color-scheme: dark\)/)
+    assert.match(host.html, /\.card\{background:#111a15/)
+
+    const report = renderReportEmail({
+      scheduleName: "Nightly visitor log",
+      kind: "visitors",
+      periodStart: "2026-10-21T05:00:00.000Z",
+      periodEnd: "2026-10-22T05:00:00.000Z",
+      timezone: "America/Chicago",
+      locationNames: ["Houston HQ"],
+      rowCount: 12,
+      format: "both",
+      csvAttached: true,
+    })
+    assert.match(report.html, /<meta name="color-scheme" content="light only">/)
+    assert.match(report.html, /<meta name="supported-color-schemes" content="light">/)
+    assert.equal(report.html.includes("prefers-color-scheme: dark"), false)
+    assert.equal(report.html.includes("#111a15"), false)
+    assert.match(report.html, /\.rt th,\.rt td\{border:1px solid #dce6df/)
+
+    const defaultShell = emailShell({
+      lang: "en",
+      preheader: "Hello",
+      logoUrl: "",
+      bodyHtml: "<tr><td>Hi</td></tr>",
+    })
+    assert.match(defaultShell, /content="light dark"/)
+    assert.match(defaultShell, /prefers-color-scheme: dark/)
+
+    const lightOnly = emailShell({
+      lang: "en",
+      preheader: "Hello",
+      logoUrl: "",
+      bodyHtml: "<tr><td>Hi</td></tr>",
+      colorScheme: "light-only",
+    })
+    assert.match(lightOnly, /content="light only"/)
+    assert.match(lightOnly, /supported-color-schemes" content="light"/)
+    assert.equal(lightOnly.includes("prefers-color-scheme: dark"), false)
   })
 })

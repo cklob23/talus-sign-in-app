@@ -1,7 +1,19 @@
-/** Neutralize Excel/Sheets formula injection (=, +, -, @) with a leading quote. */
+/** Neutralize Excel/Sheets formula injection with a leading quote. */
 export function neutralizeCsvFormula(value: string): string {
   const first = value.charAt(0)
-  if (first === "=" || first === "+" || first === "-" || first === "@") return `'${value}`
+  if (
+    first === "=" ||
+    first === "+" ||
+    first === "-" ||
+    first === "@" ||
+    first === "\uFF1D" ||
+    first === "\t" ||
+    first === "\r" ||
+    first === "\n" ||
+    first === " "
+  ) {
+    return `'${value}`
+  }
   return value
 }
 

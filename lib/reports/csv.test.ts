@@ -24,6 +24,11 @@ describe("CSV builders", () => {
     assert.equal(escapeCsvCell("-1"), '"\'-1"')
     assert.equal(escapeCsvCell("@import"), '"\'@import"')
     assert.equal(escapeCsvCell("90"), '"90"')
+    assert.equal(escapeCsvCell("\tcmd"), `"'${"\t"}cmd"`)
+    assert.equal(escapeCsvCell("\rcmd"), `"'${"\r"}cmd"`)
+    assert.equal(escapeCsvCell("\ncmd"), `"'${"\n"}cmd"`)
+    assert.equal(escapeCsvCell(" cmd"), `"' cmd"`)
+    assert.equal(escapeCsvCell("\uFF1D1+1"), `"'${"\uFF1D"}1+1"`)
   })
 
   it("adds a UTF-8 BOM and a trailing newline", () => {

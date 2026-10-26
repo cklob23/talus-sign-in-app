@@ -79,6 +79,7 @@ export function renderReportEmail(args: ReportEmailArgs): { subject: string; htm
     lang: "en",
     preheader,
     logoUrl: args.logoUrl || "",
+    colorScheme: "light-only",
     bodyHtml: `${pill(args.badge || "Scheduled report")}
 ${headingBlock(name, `${escapeHtml(kind)} for <b class="t" style="color:#0f1a13;">${escapeHtml(sites)}</b>.`)}
 ${detailsPanel(rows)}

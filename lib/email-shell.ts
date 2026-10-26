@@ -18,22 +18,35 @@ export function emailShell(args: {
   preheader: string
   logoUrl: string
   bodyHtml: string
+  colorScheme?: "light-dark" | "light-only"
 }): string {
   const footer =
     args.lang === "es"
       ? `Talus Ag Visitor Management. Mensaje automático.<br>¿Necesita ayuda? Escriba a IT Support en <a class="g" href="mailto:${IT_SUPPORT}" style="color:#00703f;text-decoration:underline;font-weight:600;">${IT_SUPPORT}</a>.`
       : `Talus Ag Visitor Management. This is an automated message.<br>Need help? Contact IT Support at <a class="g" href="mailto:${IT_SUPPORT}" style="color:#00703f;text-decoration:underline;font-weight:600;">${IT_SUPPORT}</a>.`
 
-  return `<!DOCTYPE html><html lang="${args.lang}" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title></title><style>
-:root{color-scheme:light dark;supported-color-schemes:light dark}
-@media (prefers-color-scheme: dark){
+  const lightOnly = args.colorScheme === "light-only"
+  const scheme = lightOnly ? "light only" : "light dark"
+  const supported = lightOnly ? "light" : "light dark"
+  const darkMedia = lightOnly
+    ? ""
+    : `@media (prefers-color-scheme: dark){
  .bg{background:#0a110d!important} .card{background:#111a15!important;border-color:#263429!important}
  .t{color:#e8efea!important} .m{color:#a0afa5!important} .g{color:#4fd68f!important}
  .panel{background:#17231c!important;border-color:#263429!important} .tint{background:#123a26!important}
  .warnp{background:#3a2a0e!important} .w{color:#f6b44c!important} .line{border-color:#263429!important}
  .code{background:#17231c!important;color:#e8efea!important;border-color:#4fd68f!important}
 }
-@media (max-width:480px){.px{padding-left:20px!important;padding-right:20px!important}.h1{font-size:24px!important;line-height:30px!important}.stk{display:block!important;width:100%!important}.btnw{width:100%!important}td.stk.m{padding-bottom:0!important;padding-top:12px!important}td.stk.t{padding-top:2px!important}}
+`
+  const rtRules = `.rt{border-collapse:collapse;width:100%;max-width:528px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#0f1a13;background-color:#ffffff}
+.rt th,.rt td{border:1px solid #dce6df;padding:4px 6px;text-align:left;vertical-align:top;color:#0f1a13;background-color:#ffffff}
+.rt th{background:#f5f8f6;font-weight:700}
+.rt .rt-now{white-space:nowrap}
+`
+
+  return `<!DOCTYPE html><html lang="${args.lang}" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="${scheme}"><meta name="supported-color-schemes" content="${supported}"><title></title><style>
+:root{color-scheme:${scheme};supported-color-schemes:${supported}}
+${darkMedia}${rtRules}@media (max-width:480px){.px{padding-left:20px!important;padding-right:20px!important}.h1{font-size:24px!important;line-height:30px!important}.stk{display:block!important;width:100%!important}.btnw{width:100%!important}td.stk.m{padding-bottom:0!important;padding-top:12px!important}td.stk.t{padding-top:2px!important}}
 </style></head>
 <body class="bg" style="margin:0;padding:0;background:#eef4f0;-webkit-text-size-adjust:100%;">
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${preheaderPad(args.preheader)}</div>
