@@ -1,34 +1,39 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { describe, it } from "node:test"
 
-const nav = readFileSync(new URL("../components/admin/admin-mobile-nav.tsx", import.meta.url), "utf8")
 const layout = readFileSync(new URL("../components/admin/admin-layout-client.tsx", import.meta.url), "utf8")
+const header = readFileSync(new URL("../components/admin/admin-header.tsx", import.meta.url), "utf8")
+const sidebar = readFileSync(new URL("../components/admin/admin-sidebar.tsx", import.meta.url), "utf8")
 const root = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8")
 const preview = readFileSync(new URL("../app/dev/preview-ui/preview-client.tsx", import.meta.url), "utf8")
 const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
 
-describe("admin mobile tab bar pin", () => {
-  it("pins the bar with position:fixed, viewport edges, z-index, and safe-area padding", () => {
-    assert.match(nav, /position:\s*"fixed"/)
-    assert.match(nav, /bottom:\s*0/)
-    assert.match(nav, /left:\s*0/)
-    assert.match(nav, /right:\s*0/)
-    assert.match(nav, /zIndex:\s*50/)
-    assert.match(nav, /env\(safe-area-inset-bottom/)
-    assert.match(nav, /fixed bottom-0 left-0 right-0 z-50/)
-    assert.match(nav, /createPortal\(nav, document\.body\)/)
-    assert.match(nav, /data-testid="admin-mobile-nav"/)
+describe("admin mobile tab bar removed", () => {
+  it("does not ship AdminMobileNav or a bottom tab bar", () => {
+    assert.equal(
+      existsSync(new URL("../components/admin/admin-mobile-nav.tsx", import.meta.url)),
+      false,
+    )
+    assert.doesNotMatch(layout, /AdminMobileNav/)
+    assert.doesNotMatch(layout, /admin-mobile-nav/)
+    assert.doesNotMatch(preview, /admin-mobile-nav/)
+    assert.doesNotMatch(preview, /label: "Home"/)
   })
 
-  it("lets the document scroll instead of an inner overflow container", () => {
+  it("does not reserve extra bottom padding for a tab bar", () => {
+    assert.doesNotMatch(layout, /pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
+    assert.doesNotMatch(layout, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
+    assert.doesNotMatch(preview, /pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
+    assert.doesNotMatch(preview, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
+  })
+
+  it("keeps document scroll and min-h-dvh", () => {
     assert.match(layout, /min-h-dvh/)
     assert.doesNotMatch(layout, /min-h-svh/)
     assert.doesNotMatch(layout, /min-h-screen/)
     assert.doesNotMatch(layout, /className="[^"]*overflow-auto/)
     assert.match(layout, /overflow-visible/)
-    assert.match(layout, /pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
-    assert.match(layout, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
     assert.match(layout, /\[transform:none\]/)
     assert.match(layout, /\[filter:none\]/)
     assert.match(layout, /\[contain:none\]/)
@@ -40,19 +45,12 @@ describe("admin mobile tab bar pin", () => {
     assert.match(globals, /min-height:\s*100dvh/)
   })
 
-  it("uses the same pin on the preview AdminChrome mock", () => {
-    assert.match(preview, /min-h-dvh/)
-    assert.doesNotMatch(preview, /min-h-svh min-h-dvh/)
-    assert.match(preview, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
-    assert.doesNotMatch(preview, /overflow-auto p-4 pb-24/)
-    assert.match(preview, /data-testid="admin-mobile-nav"/)
-    assert.match(preview, /position:\s*"fixed"/)
-    assert.match(preview, /zIndex:\s*50/)
-    assert.match(preview, /env\(safe-area-inset-bottom/)
-  })
-
-  it("is the only bottom tab bar and is mounted from the shared /admin layout", () => {
-    assert.match(layout, /<AdminMobileNav /)
-    assert.doesNotMatch(nav, /employee|kiosk/i)
+  it("exposes every former tab destination in the header hamburger menu", () => {
+    assert.match(header, /<MobileSidebar/)
+    assert.match(sidebar, /export function MobileSidebar/)
+    assert.match(sidebar, /href: "\/admin", label: "Dashboard"/)
+    assert.match(sidebar, /href: "\/admin\/visitors", label: "On site now"/)
+    assert.match(sidebar, /href: "\/admin\/bookings", label: "Bookings"/)
+    assert.match(sidebar, /<NavContent onNavigate=\{\(\) => setSheetOpen\(false\)\} \/>/)
   })
 })
