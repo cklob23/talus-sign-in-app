@@ -333,6 +333,17 @@ describe("renderReportTable", () => {
     assert.match(out.text, /Still on site/)
   })
 
+  it("clips a huge email-table cell and leaves the source CSV row unchanged", () => {
+    const huge = "H".repeat(400)
+    const csvRows = [["Name"], [huge]]
+    const out = renderReportTable({ csvRows })
+    assert.equal(csvRows[1][0], huge)
+    assert.equal(out.html.replaceAll("<wbr>", "").includes(`${"H".repeat(200)}...`), true)
+    assert.equal(out.html.replaceAll("<wbr>", "").includes(huge), false)
+    assert.equal(out.text.includes("<wbr>"), false)
+    assert.equal(out.text.includes(huge), false)
+  })
+
   it("soft-breaks 15+ character tokens so a 100-char name cannot stretch the email", () => {
     const token = "A".repeat(100)
     const out = renderReportTable({ csvRows: [["Name"], [token]] })
@@ -420,10 +431,10 @@ describe("renderReportTable", () => {
     assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner-Kensington"), "Wolfensteiner-Kensington")
     assert.equal(escapeHtmlWithSoftBreaks("Montgomery-Smythe"), "Montgomery-Smythe")
     assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2010Kensington"), "Wolfensteiner\u2010Kensington")
-    assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2011Kensington"), "Wolfensteiner\u2011Kensington")
+    assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2011Kensington"), "Wolfensteiner\u2011<wbr>Kensington")
     assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2013Kensington"), "Wolfensteiner\u2013Kensington")
     assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2014Kensington"), "Wolfensteiner\u2014Kensington")
-    assert.equal(escapeHtmlWithSoftBreaks("Acme/Environmental"), "Acme/Environmental")
+    assert.equal(escapeHtmlWithSoftBreaks("Acme/Environmental"), "Acme/<wbr>Environmental")
     assert.equal(
       escapeHtmlWithSoftBreaks("Wolfensteiner-Supercalifragilistic"),
       "Wolfensteiner-Supercal<wbr>ifragili<wbr>stic",
@@ -453,6 +464,26 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes("Montgome<wbr>"), false)
     assert.equal(out.html.includes("ry-Smyth<wbr>"), false)
     assert.equal(out.text.includes("<wbr>"), false)
+  })
+
+  it("inserts <wbr> after slash and the non-breaking hyphen", () => {
+    assert.equal(escapeHtmlWithSoftBreaks("Acme/Environmental"), "Acme/<wbr>Environmental")
+    assert.equal(escapeHtmlWithSoftBreaks("Wolfensteiner\u2011Kensington"), "Wolfensteiner\u2011<wbr>Kensington")
+    assert.equal(escapeHtmlWithSoftBreaks("Acme/\u2011Environmental"), "Acme/\u2011<wbr>Environmental")
+    assert.equal(escapeHtmlWithSoftBreaks("A/<script>"), "A/<wbr>&lt;script&gt;")
+    assert.equal(escapeHtmlWithSoftBreaks("A\u2011<script>"), "A\u2011<wbr>&lt;script&gt;")
+
+    const out = renderReportTable({
+      csvRows: [
+        ["Name", "Company"],
+        ["Ada Wolfensteiner\u2011Kensington", "Acme/Environmental"],
+      ],
+    })
+    assert.match(out.html, /Acme\/<wbr>Environmental/)
+    assert.match(out.html, /Wolfensteiner\u2011<wbr>Kensington/)
+    assert.equal(out.text.includes("<wbr>"), false)
+    assert.match(out.text, /Acme\/Environmental/)
+    assert.match(out.text, /Wolfensteiner\u2011Kensington/)
   })
 
   it("chunks long tokens by grapheme so emoji, flags, and combining marks stay intact", () => {

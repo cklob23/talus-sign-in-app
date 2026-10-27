@@ -263,10 +263,24 @@ const SOFT_BREAK_EVERY = 8
 const TOKEN_SEPARATOR = /([\s/\u2010\u2011\u2013\u2014-]+)/
 const TOKEN_SEPARATOR_ONLY = /^[\s/\u2010\u2011\u2013\u2014-]+$/
 
-const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" })
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter("en", { granularity: "grapheme" })
+    : null
 
 function graphemesOf(value: string): string[] {
-  return [...graphemeSegmenter.segment(value)].map((part) => part.segment)
+  if (graphemeSegmenter) {
+    return [...graphemeSegmenter.segment(value)].map((part) => part.segment)
+  }
+  return Array.from(value)
+}
+
+const EMAIL_TABLE_CELL_MAX = 200
+
+function clipEmailTableCell(value: string): string {
+  const graphemes = graphemesOf(value)
+  if (graphemes.length <= EMAIL_TABLE_CELL_MAX) return value
+  return `${graphemes.slice(0, EMAIL_TABLE_CELL_MAX).join("")}...`
 }
 
 const TIME_KINDS = new Set<ColKind>(["signin", "signout", "duration", "completed", "expires"])
@@ -298,7 +312,10 @@ function cellOpen(tag: "th" | "td", column: EmailColumn, extraClass = ""): strin
 /** Soft-break 15+ grapheme pieces so ordinary and hyphenated names stay whole. */
 export function escapeHtmlWithSoftBreaks(value: string): string {
   return value.split(TOKEN_SEPARATOR).map((piece) => {
-    if (!piece || TOKEN_SEPARATOR_ONLY.test(piece)) return escapeHtml(piece)
+    if (!piece) return ""
+    if (TOKEN_SEPARATOR_ONLY.test(piece)) {
+      return /[/\u2011]$/.test(piece) ? `${escapeHtml(piece)}<wbr>` : escapeHtml(piece)
+    }
     const graphemes = graphemesOf(piece)
     if (graphemes.length < SOFT_BREAK_WORD) return escapeHtml(piece)
     const chunks: string[] = []
@@ -322,7 +339,7 @@ function renderEmailCell(
 ): { html: string; text: string } {
   const parts = column.sources.map((source, index) => {
     const kind = column.kinds[index]
-    const raw = formatPart(kind, cellText(row[source]), headers[source] || "")
+    const raw = clipEmailTableCell(formatPart(kind, cellText(row[source]), headers[source] || ""))
     return { kind, raw }
   })
 

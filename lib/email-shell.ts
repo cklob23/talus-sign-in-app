@@ -47,7 +47,7 @@ export function emailShell(args: {
 
   return `<!DOCTYPE html><html lang="${args.lang}" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="${scheme}"><meta name="supported-color-schemes" content="${supported}"><title></title><style>
 :root{color-scheme:${scheme};supported-color-schemes:${supported}}
-${darkMedia}${rtRules}@media (max-width:480px){.px{padding-left:20px!important;padding-right:20px!important}.rt-box{padding-left:12px!important;padding-right:12px!important}.rt th,.rt td{padding:3px 4px!important}.h1{font-size:24px!important;line-height:30px!important}.stk{display:block!important;width:100%!important}.btnw{width:100%!important}td.stk.m{padding-bottom:0!important;padding-top:12px!important}td.stk.t{padding-top:2px!important}}
+${darkMedia}${rtRules}@media (max-width:480px){.px{padding-left:20px!important;padding-right:20px!important}.rt-box{padding-left:12px!important;padding-right:12px!important}.rt th,.rt td{padding:3px 3px!important}.h1{font-size:24px!important;line-height:30px!important}.stk{display:block!important;width:100%!important}.btnw{width:100%!important}td.stk.m{padding-bottom:0!important;padding-top:12px!important}td.stk.t{padding-top:2px!important}}
 </style></head>
 <body class="bg" style="margin:0;padding:0;background:#eef4f0;-webkit-text-size-adjust:100%;">
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${preheaderPad(args.preheader)}</div>
