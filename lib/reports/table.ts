@@ -256,6 +256,47 @@ function formatPart(kind: ColKind, raw: string, durationHeader = ""): string {
   return raw
 }
 
+const WRAP_NORMAL = "word-break:normal;overflow-wrap:normal"
+const WRAP_LONG = "overflow-wrap:anywhere"
+const WRAP_FIXED = "min-width:64px;word-break:normal;overflow-wrap:normal"
+
+type CellWrap = { className: string; style: string }
+
+/** Gmail may ignore nth-child, so wrap/min-width go on each cell inline. */
+export function emailTableCellWrap(column: { header: string; kinds: ColKind[] }): CellWrap {
+  if (
+    column.kinds.some((kind) =>
+      kind === "signin" ||
+      kind === "signout" ||
+      kind === "duration" ||
+      kind === "completed" ||
+      kind === "expires",
+    )
+  ) {
+    return { className: "rt-time", style: WRAP_FIXED }
+  }
+  if (column.kinds.includes("host")) {
+    return { className: "rt-host", style: WRAP_FIXED }
+  }
+  if (column.kinds.includes("name") || column.kinds.includes("company")) {
+    return { className: "rt-long", style: WRAP_LONG }
+  }
+  return { className: "", style: WRAP_NORMAL }
+}
+
+function cellOpen(tag: "th" | "td", column: EmailColumn, extraClass = ""): string {
+  const wrap = emailTableCellWrap(column)
+  const applied =
+    tag === "th" && wrap.className === "rt-long"
+      ? { className: "", style: WRAP_NORMAL }
+      : wrap
+  const classes = [applied.className, extraClass].filter(Boolean).join(" ")
+  const classAttr = classes ? ` class="${classes}"` : ""
+  const styleAttr = applied.style ? ` style="${applied.style}"` : ""
+  const bg = tag === "th" ? ` bgcolor="#f5f8f6"` : ""
+  return `<${tag}${classAttr}${bg}${styleAttr}>`
+}
+
 function renderEmailCell(
   column: EmailColumn,
   row: Array<string | number | boolean | null | undefined>,
@@ -273,7 +314,7 @@ function renderEmailCell(
     const duration = parts.find((part) => part.kind === "duration")?.raw || ""
     const lines = formatEmailInOutLines(signin, signout, duration)
     return {
-      html: `<td class="rt-time">${lines.map((line) => escapeHtml(line)).join("<br>")}</td>`,
+      html: `${cellOpen("td", column)}${lines.map((line) => escapeHtml(line)).join("<br>")}</td>`,
       text: lines.join(" / "),
     }
   }
@@ -285,21 +326,15 @@ function renderEmailCell(
       return part.kind === "email" ? `<span class="rt-em">${safe}</span>` : safe
     }),
   )
-  const tdClass =
-    visible.length === 1 && visible[0].kind === "email"
-      ? ' class="rt-em"'
-      : column.kinds.some((kind) => kind === "completed" || kind === "duration" || kind === "expires")
-        ? ' class="rt-time"'
-        : ""
+  const extraClass = visible.length === 1 && visible[0].kind === "email" ? "rt-em" : ""
   return {
-    html: `<td${tdClass}>${htmlParts.join("<br>")}</td>`,
+    html: `${cellOpen("td", column, extraClass)}${htmlParts.join("<br>")}</td>`,
     text: visible.map((part) => part.raw.replace(/\n/g, " ")).join(" / "),
   }
 }
 
-const CELL_WRAP = "word-break:break-word;overflow-wrap:break-word"
 const TABLE_STYLE =
-  `border-collapse:collapse;table-layout:auto;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;${CELL_WRAP}`
+  "border-collapse:collapse;table-layout:auto;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px"
 
 export function renderReportTable(args: {
   csvRows: Array<Array<string | number | boolean | null | undefined>>
@@ -321,7 +356,7 @@ export function renderReportTable(args: {
   const columns = emailTableColumns(headers)
   const headerLabels = headers.map((header) => cellText(header))
   const headCells = columns
-    .map((column) => `<th bgcolor="#f5f8f6">${escapeHtml(column.header)}</th>`)
+    .map((column) => `${cellOpen("th", column)}${escapeHtml(column.header)}</th>`)
     .join("")
   const headRow = `<tr>${headCells}</tr>`
 
