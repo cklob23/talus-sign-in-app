@@ -194,6 +194,71 @@ const previewCsvRows = buildVisitorCsvRows(
   "hours",
 )
 const previewTable = renderReportTable({ csvRows: previewCsvRows, csvAttached: true })
+const wrapCsvRows = buildVisitorCsvRows(
+  [
+    {
+      sign_in_time: "2026-10-22T15:30:00.000Z",
+      sign_out_time: "2026-10-22T17:00:00.000Z",
+      visitor: {
+        first_name: "Bartholomew",
+        last_name: "Chen",
+        email: "bartholomew.chen@environmentalpartners.example",
+        company: "Environmental Partners",
+      },
+      host: { name: "Hiro Iwanaga" },
+      visitor_type: { name: "Contractor" },
+      location: { name: "Houston HQ", timezone: "America/Chicago" },
+    },
+    {
+      sign_in_time: "2026-10-22T15:45:00.000Z",
+      sign_out_time: "2026-10-22T18:10:00.000Z",
+      visitor: {
+        first_name: "Ada",
+        last_name: "Wolfensteiner",
+        email: "ada.wolfensteiner@example.com",
+        company: "Agricultural Sciences",
+      },
+      host: { name: "Stanley Tioniny" },
+      visitor_type: { name: "Visitor" },
+      location: { name: "Kenya Farm Site", timezone: "Africa/Nairobi" },
+    },
+    {
+      sign_in_time: "2026-10-26T04:48:00.000Z",
+      sign_out_time: "2026-10-26T15:01:00.000Z",
+      visitor: {
+        first_name: "Dolvin",
+        last_name: "Moragwanyanga Residolvin",
+        email: "dolvinmoragwanyangaresidolvin@gmail.com",
+        company: "Talus",
+      },
+      host: { name: "Maya Chen" },
+      visitor_type: { name: "Contractor" },
+      location: { name: "Houston HQ", timezone: "America/Chicago" },
+    },
+  ],
+  "hours",
+)
+const wrapTable = renderReportTable({ csvRows: wrapCsvRows, csvAttached: true })
+const wrapEmail = renderReportEmail({
+  scheduleName: "Nightly visitor log",
+  kind: "visitors",
+  periodStart: "2026-10-21T05:00:00.000Z",
+  periodEnd: "2026-10-22T05:00:00.000Z",
+  timezone: "America/Chicago",
+  locationNames: ["Houston HQ", "Kenya Farm Site"],
+  rowCount: 3,
+  format: "both",
+  csvAttached: true,
+  logoUrl: "",
+  badge: "Scheduled report",
+  extraLines: [{ label: "Email table", value: "Included" }],
+  tableHtml: wrapTable.html,
+  tableText: wrapTable.text,
+})
+const wrapEmailHtml = wrapEmail.html.replaceAll(
+  "Geist,'Segoe UI',Helvetica,Arial,sans-serif",
+  "Liberation Sans,DejaVu Sans,Arial,sans-serif",
+)
 const email = renderReportEmail({
   scheduleName: "Kenya farm daily",
   kind: "visitors",
@@ -318,6 +383,19 @@ export function PreviewReportsScreens({ screen }: { screen?: string }) {
             toIso="2026-10-22T17:00:00.000Z"
             previewRows={trainingRows}
             canSend
+          />
+        </section>
+      ) : null}
+
+      {show("phone-wrap") ? (
+        <section id="phone-wrap" className="mx-auto max-w-[720px]">
+          <p className="mb-2 text-sm text-muted-foreground">
+            3-row wrap sample: {new TextEncoder().encode(wrapEmail.html).length.toLocaleString()} bytes
+          </p>
+          <iframe
+            title="Phone wrap report email"
+            className="h-[1400px] w-full rounded-xl border bg-white"
+            srcDoc={wrapEmailHtml}
           />
         </section>
       ) : null}

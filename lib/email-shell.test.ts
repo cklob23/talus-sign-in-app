@@ -65,8 +65,11 @@ describe("email-shell color scheme", () => {
     assert.match(report.html, /\.rt th,\.rt td\{[^}]*word-break:normal;overflow-wrap:normal/)
     assert.equal(report.html.includes("word-break:break-word"), false)
     assert.match(report.html, /\.rt th,\.rt td\{border:1px solid #dce6df/)
-    assert.match(report.html, /\.rt \.rt-em\{display:block;overflow-wrap:anywhere\}/)
-    assert.match(report.html, /\.rt \.rt-time,\.rt \.rt-host\{white-space:normal;min-width:64px/)
+    assert.match(report.html, /\.rt \.rt-em\{display:block;word-break:normal;overflow-wrap:anywhere\}/)
+    assert.match(report.html, /\.rt th,\.rt td\{padding:3px 3px!important\}/)
+    assert.equal(report.html.includes("padding:3px 4px"), false)
+    assert.equal(report.html.includes(".rt-long"), false)
+    assert.match(report.html, /\.rt \.rt-time,\.rt \.rt-host\{white-space:normal;min-width:64px;word-break:normal;overflow-wrap:normal/)
     assert.equal(report.html.includes(".rt-time{white-space:nowrap}"), false)
 
     const defaultShell = emailShell({
