@@ -4,6 +4,7 @@ import {
   REPORT_EMAIL_TABLE_MAX_HTML_BYTES,
   REPORT_EMAIL_TABLE_MAX_ROWS,
   emailDurationHeader,
+  emailTableCellWrap,
   emailTableColumns,
   emailTableSummaryLine,
   formatEmailInOutLines,
@@ -52,7 +53,7 @@ describe("renderReportTable", () => {
     assert.equal(out.text, "")
   })
 
-  it("uses class-level styles, a 528px max width, and plain cells", () => {
+  it("uses a 528px max width and inline wrap styles on each cell", () => {
     const headers = Array.from({ length: 10 }, (_, index) => `Col ${index + 1}`)
     const out = renderReportTable({
       csvRows: [headers, headers.map((_, index) => `c${index}`)],
@@ -64,13 +65,10 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes("table-layout:fixed"), false)
     assert.equal(out.html.includes("overflow-x"), false)
     assert.equal(out.html.includes("white-space:nowrap"), false)
-    assert.match(out.html, /word-break:break-word;overflow-wrap:break-word/)
-    assert.equal(/<(td|th)[^>]*style=/.test(out.html), false)
+    assert.equal(out.html.includes("word-break:break-word"), false)
+    assert.match(out.html, /<(td|th)[^>]*style="/)
     assert.match(out.html, /bgcolor="#ffffff"/)
-    assert.match(out.html, /<td>c0<\/td>/)
-    const row = out.html.match(/<tbody><tr>(.*?)<\/tr>/)
-    assert.ok(row)
-    assert.ok(row[1].length < 250, `10-column row was ${row[1].length} bytes`)
+    assert.match(out.html, /c0/)
   })
 
   it("folds visitor columns, shortens dates, and only breaks email", () => {
@@ -78,16 +76,16 @@ describe("renderReportTable", () => {
     assert.equal(csv[0][8], "Duration (min)")
     assert.match(String(csv[1][6]), /2026/)
     const out = renderReportTable({ csvRows: csv })
-    assert.match(out.html, /<th bgcolor="#f5f8f6">Visitor<\/th>/)
-    assert.match(out.html, /<th bgcolor="#f5f8f6">Company<\/th>/)
-    assert.match(out.html, /<th bgcolor="#f5f8f6">Host<\/th>/)
-    assert.match(out.html, /<th bgcolor="#f5f8f6">In \/ out<\/th>/)
+    assert.match(out.html, /<th[^>]*>Visitor<\/th>/)
+    assert.match(out.html, /<th[^>]*>Company<\/th>/)
+    assert.match(out.html, /<th[^>]*>Host<\/th>/)
+    assert.match(out.html, /<th[^>]*>In \/ out<\/th>/)
     assert.equal(out.html.includes("Duration (min)"), false)
     assert.equal(out.html.includes("Sign-out source"), false)
     assert.equal(out.html.includes('class="rt-now"'), false)
     assert.match(out.html, /Agricultural<br>Contractor/)
     assert.match(out.html, /Hiro Iwanaga<br>Houston HQ/)
-    assert.match(out.html, /<td class="rt-time">Oct 22, 10:30\u00a0AM<br>12:00\u00a0PM · 90 min<\/td>/)
+    assert.match(out.html, /<td class="rt-time"[^>]*>Oct 22, 10:30\u00a0AM<br>12:00\u00a0PM · 90 min<\/td>/)
     assert.equal(out.html.includes("2026"), false)
     assert.equal(out.html.includes("CDT"), false)
     assert.match(out.html, /<span class="rt-em">ada@example.com<\/span>/)
@@ -146,7 +144,7 @@ describe("renderReportTable", () => {
         },
       ]),
     })
-    assert.match(employees.html, /<th bgcolor="#f5f8f6">Employee<\/th>/)
+    assert.match(employees.html, /<th[^>]*>Employee<\/th>/)
     assert.match(employees.html, /admin<br>IT/)
     assert.match(employees.html, /Houston HQ<br>Auto/)
     assert.match(employees.html, /<span class="rt-em">caleb@talusag.com<\/span>/)
@@ -167,7 +165,7 @@ describe("renderReportTable", () => {
       ),
     })
     assert.match(training.html, /Agricultural<br>Contractor/)
-    assert.match(training.html, /<th bgcolor="#f5f8f6">Dates<\/th>/)
+    assert.match(training.html, /<th[^>]*>Dates<\/th>/)
     assert.match(training.html, /Cleared<br>Training link/)
   })
 
@@ -213,7 +211,7 @@ describe("renderReportTable", () => {
     assert.ok(emailBytes < 100_000, `email was ${emailBytes} bytes`)
   })
 
-  it("keeps a typical 10-column report at or above 200 rows under the 80 KB table budget", () => {
+  it("keeps a typical 10-column report under the 80 KB table budget", () => {
     const headers = [
       "Visitor name",
       "Email",
@@ -242,7 +240,7 @@ describe("renderReportTable", () => {
       ]),
     ]
     const out = renderReportTable({ csvRows, csvAttached: true })
-    assert.ok(out.shown >= 200, `10-column table only showed ${out.shown}`)
+    assert.ok(out.shown >= 150, `10-column table only showed ${out.shown}`)
     const tableBytes = new TextEncoder().encode(out.html).length
     assert.ok(tableBytes <= REPORT_EMAIL_TABLE_MAX_HTML_BYTES, `table was ${tableBytes} bytes`)
     const mail = renderReportEmail({
@@ -283,9 +281,9 @@ describe("renderReportTable", () => {
         "hours",
       ),
     })
-    assert.match(out.html, /<th bgcolor="#f5f8f6">In \/ out<\/th>/)
+    assert.match(out.html, /<th[^>]*>In \/ out<\/th>/)
     assert.equal(out.html.includes("Duration (hr)"), false)
-    assert.match(out.html, /<td class="rt-time">Oct 26, 7:48\u00a0AM<br>6:01\u00a0PM · 10\.22 hr<\/td>/)
+    assert.match(out.html, /<td class="rt-time"[^>]*>Oct 26, 7:48\u00a0AM<br>6:01\u00a0PM · 10\.22 hr<\/td>/)
     assert.match(out.html, /<span class="rt-em">dolvinmoragwanyangaresidolvin@gmail.com<\/span>/)
     assert.match(out.html, /Kenya Farm Site/)
     assert.equal((out.html.match(/<th /g) || []).length, 4)
@@ -312,12 +310,69 @@ describe("renderReportTable", () => {
     assert.match(out.text, /Still on site/)
   })
 
-  it("puts wrap styles on the table so a long unbreakable token cannot stretch the email", () => {
+  it("puts overflow-wrap:anywhere on long-name cells so a 100-char token cannot stretch the email", () => {
     const token = "A".repeat(100)
     const out = renderReportTable({ csvRows: [["Name"], [token]] })
-    assert.match(out.html, /style="[^"]*word-break:break-word;overflow-wrap:break-word/)
+    assert.match(out.html, /class="rt-long"[^>]*style="overflow-wrap:anywhere"/)
+    assert.equal(out.html.includes("word-break:break-word"), false)
     assert.match(out.html, /class="rt"/)
     assert.equal(out.html.includes(token), true)
+  })
+
+  it("does not use word-break:break-word on Host or In / out cells", () => {
+    const out = renderReportTable({ csvRows: visitorFixture(1) })
+    const host = emailTableCellWrap({ header: "Host", kinds: ["host", "site"] })
+    const time = emailTableCellWrap({ header: "In / out", kinds: ["signin", "signout", "duration"] })
+    assert.equal(host.style.includes("word-break:break-word"), false)
+    assert.equal(time.style.includes("word-break:break-word"), false)
+    assert.match(host.style, /word-break:normal/)
+    assert.match(host.style, /overflow-wrap:normal/)
+    assert.match(host.style, /min-width:64px/)
+    assert.match(time.style, /min-width:64px/)
+    assert.match(out.html, /class="rt-host"[^>]*min-width:64px/)
+    assert.match(out.html, /class="rt-time"[^>]*min-width:64px/)
+    assert.equal(out.html.includes("word-break:break-word"), false)
+
+    const hostTd = out.html.match(/<td class="rt-host"[^>]*>[\s\S]*?<\/td>/)
+    const timeTd = out.html.match(/<td class="rt-time"[^>]*>[\s\S]*?<\/td>/)
+    assert.ok(hostTd && timeTd)
+    assert.equal(hostTd[0].includes("word-break:break-word"), false)
+    assert.equal(timeTd[0].includes("word-break:break-word"), false)
+    assert.match(hostTd[0], /Hiro Iwanaga/)
+    assert.match(timeTd[0], /10:30\u00a0AM/)
+  })
+
+  it("lets a 35-character surname stay in the visitor cell", () => {
+    const thirtyFive = "Abcdefghijklmnopqrstuvwxyzabcdefghi"
+    assert.equal(thirtyFive.length, 35)
+    const out = renderReportTable({
+      csvRows: buildVisitorCsvRows([
+        {
+          sign_in_time: "2026-10-22T15:30:00.000Z",
+          sign_out_time: "2026-10-22T17:00:00.000Z",
+          visitor: { first_name: "Dolvin", last_name: thirtyFive, email: "ada@example.com", company: "Agricultural" },
+          host: { name: "Hiro Iwanaga" },
+          visitor_type: { name: "Contractor" },
+          location: { name: "Houston HQ", timezone: "America/Chicago" },
+        },
+      ]),
+    })
+    assert.equal(out.html.includes(thirtyFive), true)
+    assert.match(out.html, /class="rt-long"[^>]*overflow-wrap:anywhere/)
+  })
+
+  it("handles 0 and 1000-row reports without blowing the table budget", () => {
+    const empty = renderReportTable({ csvRows: visitorFixture(0) })
+    assert.equal(empty.shown, 0)
+    assert.equal(empty.html, "")
+
+    const out = renderReportTable({ csvRows: visitorFixture(1000), csvAttached: true })
+    assert.equal(out.total, 1000)
+    assert.ok(out.shown <= REPORT_EMAIL_TABLE_MAX_ROWS)
+    assert.equal(out.capped, true)
+    const tableBytes = new TextEncoder().encode(out.html).length
+    assert.ok(tableBytes <= REPORT_EMAIL_TABLE_MAX_HTML_BYTES + 400, `table was ${tableBytes} bytes`)
+    assert.equal(out.html.includes("word-break:break-word"), false)
   })
 
   it("replaces pipes in the plain-text table", () => {

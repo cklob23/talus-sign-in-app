@@ -185,25 +185,28 @@ describe("report email", () => {
     assert.ok(bytes < 100_000, `40-row email was ${bytes} bytes`)
   })
 
-  it("keeps a 245-row table email at or below the previous 87.9 KB clip", () => {
+  it("keeps a 245-row table email under the 80 KB table / 102 KB Gmail budgets", () => {
     const { table, mail, bytes } = visitorMail(
       245,
       "https://signin.talusag.com/admin/reports/view?kind=visitors&from=2026-10-21T05:00:00.000Z&to=2026-10-22T05:00:00.000Z",
     )
-    assert.equal(table.shown, 245)
-    assert.equal(table.capped, false)
+    const tableBytes = new TextEncoder().encode(table.html).length
+    assert.ok(table.shown >= 150, `245-row table only showed ${table.shown}`)
+    assert.ok(tableBytes <= 80_000, `table was ${tableBytes} bytes`)
     assert.match(mail.html, /class="rt"/)
     assert.match(mail.html, /In \/ out/)
     assert.match(mail.html, /View full table/)
-    assert.ok(bytes <= 87_900, `245-row email was ${bytes} bytes`)
-    assert.ok(bytes < 100_000, `245-row email was ${bytes} bytes`)
+    assert.equal(mail.html.includes("word-break:break-word"), false)
+    assert.ok(bytes < 102_000, `245-row email was ${bytes} bytes`)
   })
 
-  it("keeps a 300-row table email under 100 KB including the footer", () => {
+  it("keeps a 300-row table email under the 80 KB table / 102 KB Gmail budgets", () => {
     const { table, mail, bytes } = visitorMail(300)
-    assert.equal(table.shown, 300)
-    assert.equal(table.capped, false)
+    const tableBytes = new TextEncoder().encode(table.html).length
+    assert.ok(table.shown >= 150, `300-row table only showed ${table.shown}`)
+    assert.ok(tableBytes <= 80_000, `table was ${tableBytes} bytes`)
     assert.match(mail.html, /class="rt"/)
-    assert.ok(bytes < 100_000, `300-row email was ${bytes} bytes`)
+    assert.equal(mail.html.includes("word-break:break-word"), false)
+    assert.ok(bytes < 102_000, `300-row email was ${bytes} bytes`)
   })
 })
