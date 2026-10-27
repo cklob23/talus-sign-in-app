@@ -17,11 +17,13 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const [moreOpen, setMoreOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-svh min-h-dvh bg-background [contain:none] [filter:none] [transform:none]">
       <AdminSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col [contain:none] [filter:none] [transform:none]">
         <AdminHeader mobileOpen={moreOpen} onMobileOpenChange={setMoreOpen} />
-        <main className="flex-1 overflow-auto p-3 pb-24 sm:p-4 lg:p-9 lg:pb-6">
+        {/* Document scrolls — do not use overflow-auto here. Inner overflow + 100vh
+            makes iOS treat position:fixed as the bottom of the first screen. */}
+        <main className="flex-1 overflow-visible p-3 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:p-4 lg:overflow-visible lg:p-9 lg:pb-6">
           <RouteGuard>{children}</RouteGuard>
         </main>
         <Toaster />

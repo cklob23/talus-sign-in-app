@@ -66,7 +66,7 @@ function PhoneChrome({ children, site, lang = true }: { children: ReactNode; sit
 
 function AdminChrome({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-svh bg-background text-foreground">
+    <div className="flex h-full min-h-svh min-h-dvh bg-background text-foreground [contain:none] [filter:none] [transform:none]">
       <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border bg-card p-4 lg:flex">
         <TalusAgLogo className="mb-4" />
         <div className="mb-4 flex min-h-11 items-center gap-2 rounded-xl border border-border px-3 text-15">
@@ -100,9 +100,20 @@ function AdminChrome({ title, subtitle, children }: { title: string; subtitle: s
             </span>
           </div>
         </header>
-        <div className="flex-1 overflow-auto p-4 pb-24 sm:p-6 lg:p-9">{children}</div>
+        <div className="flex-1 overflow-visible p-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:p-6 lg:overflow-visible lg:p-9">{children}</div>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 flex border-t border-border bg-card px-2 pb-3 pt-2 lg:hidden">
+      <nav
+        data-testid="admin-mobile-nav"
+        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-card px-2 pt-2 lg:hidden"
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         {[
           [title === "Dashboard", Home, "Home"],
           [title === "On site now", Users, "On site"],
