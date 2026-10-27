@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { executeProviderSync } from "@/lib/sync/execute"
-import { isSyncDue, parseSyncRequest, shouldRunProvider } from "@/lib/sync/schedule"
+import {
+  explainSyncDue,
+  parseSyncRequest,
+  shouldRunProvider,
+  unwrapSettingValue,
+  type SyncDueExplanation,
+} from "@/lib/sync/schedule"
 
 function createAdminClient() {
   return createSupabaseClient(
@@ -12,7 +19,9 @@ function createAdminClient() {
 }
 
 /**
- * Read a setting value from the settings table (global, location_id IS NULL)
+ * Read a setting value from the settings table (global, location_id IS NULL).
+ * Use limit(1)+maybeSingle so a missing or duplicate row does not throw
+ * and get treated as schedule "off".
  */
 async function getSetting(
   adminClient: ReturnType<typeof createAdminClient>,
@@ -23,9 +32,10 @@ async function getSetting(
     .select("value")
     .eq("key", key)
     .is("location_id", null)
-    .single()
+    .limit(1)
+    .maybeSingle()
   if (!data) return null
-  return typeof data.value === "string" ? data.value : JSON.stringify(data.value)
+  return unwrapSettingValue(data.value)
 }
 
 /**
@@ -41,7 +51,8 @@ async function upsertSetting(
     .select("id")
     .eq("key", key)
     .is("location_id", null)
-    .single()
+    .limit(1)
+    .maybeSingle()
 
   if (existing) {
     await adminClient
@@ -56,6 +67,11 @@ async function upsertSetting(
 type ProviderResult = {
   ran: boolean
   reason?: string
+  due?: boolean
+  schedule?: string
+  lastSync?: string | null
+  start?: string | null
+  nextDueAt?: string | null
   synced?: number
   total?: number
   created?: number
@@ -65,23 +81,42 @@ type ProviderResult = {
   error?: string
 }
 
+function planFields(plan: SyncDueExplanation): Pick<
+  ProviderResult,
+  "due" | "schedule" | "lastSync" | "start" | "nextDueAt"
+> {
+  return {
+    due: plan.due,
+    schedule: plan.normalizedSchedule,
+    lastSync: plan.lastSync,
+    start: plan.start,
+    nextDueAt: plan.nextDueAt,
+  }
+}
+
+function logProvider(name: string, result: ProviderResult) {
+  const next = result.nextDueAt || "none"
+  if (result.error) {
+    console.error(`[scheduled-sync] ${name} error: ${result.error}; nextDueAt=${next}`)
+    return
+  }
+  if (!result.ran) {
+    console.info(`[scheduled-sync] ${name} skipped: ${result.reason || "not_due"}; due=${result.due === true}; nextDueAt=${next}`)
+    return
+  }
+  console.info(
+    `[scheduled-sync] ${name} ran: synced=${result.synced ?? 0} errors=${result.errors ?? 0}; nextDueAt=${next}`,
+  )
+}
+
 /**
  * Core sync logic shared by both GET (scheduler) and POST (manual) triggers.
  * Providers run independently so one failure never blocks the other.
  */
 async function runScheduledSync(request: Request) {
   try {
-    const cronSecret = process.env.CRON_SECRET
-    if (!cronSecret) {
-      return NextResponse.json(
-        { error: "Server is not configured: CRON_SECRET is not set." },
-        { status: 500 },
-      )
-    }
-    const authHeader = request.headers.get("authorization")
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const denied = requireCronSecret(request)
+    if (denied) return denied
 
     const { provider, dryRun } = parseSyncRequest(request.url)
     const adminClient = createAdminClient()
@@ -96,19 +131,18 @@ async function runScheduledSync(request: Request) {
         getSetting(adminClient, "last_ramp_sync"),
       ])
 
-    const azureDue = isSyncDue(azureSchedule || "off", lastAzureSync, azureStart)
-    const rampDue = isSyncDue(rampSchedule || "off", lastRampSync, rampStart)
-    const runAzure = shouldRunProvider(provider, "azure", azureDue)
-    const runRamp = shouldRunProvider(provider, "ramp", rampDue)
+    const azurePlan = explainSyncDue(azureSchedule || "off", lastAzureSync, azureStart)
+    const rampPlan = explainSyncDue(rampSchedule || "off", lastRampSync, rampStart)
+    const runAzure = shouldRunProvider(provider, "azure", azurePlan.due)
+    const runRamp = shouldRunProvider(provider, "ramp", rampPlan.due)
 
     const results: { azure?: ProviderResult; ramp?: ProviderResult } = {}
 
     const azureTask = (async () => {
       if (!runAzure) {
-        results.azure = {
-          ran: false,
-          reason: provider !== "all" ? `provider=${provider}` : "not_due",
-        }
+        const reason = provider !== "all" ? `provider=${provider}` : azurePlan.reason
+        results.azure = { ran: false, reason, ...planFields(azurePlan) }
+        logProvider("azure", results.azure)
         return
       }
       try {
@@ -120,7 +154,8 @@ async function runScheduledSync(request: Request) {
         })
         if (!out.ok || !out.result) {
           const message = out.error || "Azure sync failed"
-          results.azure = { ran: true, error: message }
+          results.azure = { ran: true, reason: "due", error: message, ...planFields(azurePlan) }
+          logProvider("azure", results.azure)
           if (!dryRun) {
             await adminClient.from("audit_logs").insert({
               action: "scheduled_sync.azure_error",
@@ -141,6 +176,8 @@ async function runScheduledSync(request: Request) {
         }
         results.azure = {
           ran: true,
+          reason: "due",
+          ...planFields(azurePlan),
           synced: result.synced,
           total: result.total,
           created: "created" in result ? result.created : undefined,
@@ -148,9 +185,11 @@ async function runScheduledSync(request: Request) {
           deactivated: result.deactivated,
           errors: result.errors.length,
         }
+        logProvider("azure", results.azure)
       } catch (err) {
         const message = err instanceof Error ? err.message : "Azure sync failed"
-        results.azure = { ran: true, error: message }
+        results.azure = { ran: true, reason: "due", error: message, ...planFields(azurePlan) }
+        logProvider("azure", results.azure)
         if (!dryRun) {
           await adminClient.from("audit_logs").insert({
             action: "scheduled_sync.azure_error",
@@ -163,10 +202,9 @@ async function runScheduledSync(request: Request) {
 
     const rampTask = (async () => {
       if (!runRamp) {
-        results.ramp = {
-          ran: false,
-          reason: provider !== "all" ? `provider=${provider}` : "not_due",
-        }
+        const reason = provider !== "all" ? `provider=${provider}` : rampPlan.reason
+        results.ramp = { ran: false, reason, ...planFields(rampPlan) }
+        logProvider("ramp", results.ramp)
         return
       }
       try {
@@ -177,7 +215,8 @@ async function runScheduledSync(request: Request) {
         })
         if (!out.ok || !out.result) {
           const message = out.error || "Ramp sync failed"
-          results.ramp = { ran: true, error: message }
+          results.ramp = { ran: true, reason: "due", error: message, ...planFields(rampPlan) }
+          logProvider("ramp", results.ramp)
           if (!dryRun) {
             await adminClient.from("audit_logs").insert({
               action: "scheduled_sync.ramp_error",
@@ -198,14 +237,18 @@ async function runScheduledSync(request: Request) {
         }
         results.ramp = {
           ran: true,
+          reason: "due",
+          ...planFields(rampPlan),
           synced: result.synced,
           total: result.total,
           deactivated: result.deactivated,
           errors: result.errors.length,
         }
+        logProvider("ramp", results.ramp)
       } catch (err) {
         const message = err instanceof Error ? err.message : "Ramp sync failed"
-        results.ramp = { ran: true, error: message }
+        results.ramp = { ran: true, reason: "due", error: message, ...planFields(rampPlan) }
+        logProvider("ramp", results.ramp)
         if (!dryRun) {
           await adminClient.from("audit_logs").insert({
             action: "scheduled_sync.ramp_error",
@@ -218,17 +261,21 @@ async function runScheduledSync(request: Request) {
 
     await Promise.all([azureTask, rampTask])
 
-    return NextResponse.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      dryRun,
-      provider,
-      schedules: {
-        azure: azureSchedule || "off",
-        ramp: rampSchedule || "off",
+    const failed = Boolean(results.azure?.error || results.ramp?.error)
+    return NextResponse.json(
+      {
+        success: !failed,
+        timestamp: new Date().toISOString(),
+        dryRun,
+        provider,
+        schedules: {
+          azure: azurePlan.normalizedSchedule,
+          ramp: rampPlan.normalizedSchedule,
+        },
+        results,
       },
-      results,
-    })
+      { status: failed ? 500 : 200 },
+    )
   } catch (error) {
     console.error("Scheduled sync error:", error)
     return NextResponse.json(

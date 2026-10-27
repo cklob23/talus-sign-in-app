@@ -10,7 +10,7 @@ import {
   type SyncRunProvider,
   type SyncRunRow,
 } from "@/lib/sync/runs"
-import { getNextSyncAt } from "@/lib/sync/schedule"
+import { getNextSyncAt, unwrapSettingValue } from "@/lib/sync/schedule"
 
 const AUDIT_ACTIONS = [
   "scheduled_sync.azure",
@@ -20,8 +20,7 @@ const AUDIT_ACTIONS = [
 ]
 
 function settingString(value: unknown): string | null {
-  if (value === null || value === undefined) return null
-  return typeof value === "string" ? value : String(value)
+  return unwrapSettingValue(value)
 }
 
 function providerSnapshot(

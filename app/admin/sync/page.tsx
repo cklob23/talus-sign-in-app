@@ -22,7 +22,7 @@ import {
 import { logAudit } from "@/lib/audit-log"
 import { notifyError, notifySuccess } from "@/hooks/admin-notify"
 import { hasFeature } from "@/lib/tier"
-import { formatNextSyncLabel } from "@/lib/sync/schedule"
+import { formatNextSyncLabel, normalizeSchedule, unwrapSettingValue } from "@/lib/sync/schedule"
 import { SyncLiveCard } from "@/components/admin/sync-live-card"
 import { SyncLogsTable } from "@/components/admin/sync-logs-table"
 import type { SyncLogEntry } from "@/lib/sync/history"
@@ -131,12 +131,12 @@ export default function SyncPage() {
       if (setting.key === "microsoft_sso_enabled") {
         setMicrosoftSsoEnabled(setting.value === true || setting.value === "true")
       }
-      if (setting.key === "sync_schedule_azure") setSyncScheduleAzure(typeof setting.value === "string" ? setting.value : "off")
-      if (setting.key === "sync_schedule_ramp") setSyncScheduleRamp(typeof setting.value === "string" ? setting.value : "off")
-      if (setting.key === "sync_start_azure") setSyncStartAzure(typeof setting.value === "string" ? setting.value : "")
-      if (setting.key === "sync_start_ramp") setSyncStartRamp(typeof setting.value === "string" ? setting.value : "")
-      if (setting.key === "last_azure_sync") setLastAzureSync(typeof setting.value === "string" ? setting.value : null)
-      if (setting.key === "last_ramp_sync") setLastRampSync(typeof setting.value === "string" ? setting.value : null)
+      if (setting.key === "sync_schedule_azure") setSyncScheduleAzure(normalizeSchedule(setting.value))
+      if (setting.key === "sync_schedule_ramp") setSyncScheduleRamp(normalizeSchedule(setting.value))
+      if (setting.key === "sync_start_azure") setSyncStartAzure(unwrapSettingValue(setting.value) || "")
+      if (setting.key === "sync_start_ramp") setSyncStartRamp(unwrapSettingValue(setting.value) || "")
+      if (setting.key === "last_azure_sync") setLastAzureSync(unwrapSettingValue(setting.value))
+      if (setting.key === "last_ramp_sync") setLastRampSync(unwrapSettingValue(setting.value))
     }
     setRampConfig(loadedRamp)
   }, [])

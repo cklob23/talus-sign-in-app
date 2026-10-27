@@ -30,7 +30,9 @@ Create the jobs from the Blueprint or by hand in the dashboard. Attach env group
 | `sync_start_azure` / `sync_start_ramp` | optional start instant; future dates skip |
 | `last_azure_sync` / `last_ramp_sync` | last successful write (not updated on dry run) |
 
-Due logic: schedule must be a known interval; start date must have passed; if `last_*_sync` is empty the provider is due; otherwise enough time must have elapsed since the last run.
+Due logic: schedule must be a known interval (`1h`/`6h`/`12h`/`24h`/`168h`, plus the alias `daily` → `24h`); a datetime-local start date is the recurring America/New_York anchor (not a UTC instant and not only a one-time gate); if `last_*_sync` is empty the provider is due once the start has passed; otherwise the next aligned slot after the last successful run must be at or before now. Missed daily slots stay due until a successful write. Failed runs do not update `last_*_sync`, so they retry on the next hour.
+
+Each provider result includes `reason` (`due`, `not_due`, `off`, `unknown_schedule`, `start_in_future`, `never_synced`, or `provider=…`), `nextDueAt`, and `error` when a run throws. HTTP 500 if a provider was attempted and failed; skipped providers stay 200.
 
 Providers run in parallel and independently. An Azure failure does not skip Ramp, and the other way around. The JSON body always includes `results.azure` and `results.ramp`.
 
@@ -93,7 +95,7 @@ Entra already deactivated directory-managed profiles missing from Graph. That sw
 
 1. Confirm `talus-auto-signout`, `talus-scheduled-sync`, and `talus-reports` exist in Oregon, starter plan, env group `talus-cron`.
 2. Trigger a run of `talus-scheduled-sync` (or wait for the hour). Open **Logs**.
-3. The curl line must finish with HTTP 200. The JSON includes `results.azure` and `results.ramp`. `ran: false` with `reason: "not_due"` is expected when that schedule is off or the interval has not elapsed.
+3. The curl line must finish with HTTP 200 when both providers skip or succeed. The JSON includes `results.azure` and `results.ramp` with `reason` and `nextDueAt`. `ran: false` with `reason: "not_due"` (or `off`) is expected when that schedule is off or the next anchored slot is still in the future. HTTP 500 means a provider was due and the sync threw — read `results.*.error` (no secrets).
 4. In Supabase SQL:
 
 ```sql
