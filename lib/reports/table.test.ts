@@ -464,8 +464,9 @@ describe("renderReportTable", () => {
     assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${family}xxxxxxx`), `abcdefg${family}<wbr>xxxxxxx`)
     assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${flag}xxxxxxx`), `abcdefg${flag}<wbr>xxxxxxx`)
     assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${acute}xxxxxxx`), `abcdefg${acute}<wbr>xxxxxxx`)
-    assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${acute}xxxxxxx`).includes("\u0301<wbr>"), false)
+    assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${acute}xxxxxxx`).includes("e<wbr>\u0301"), false)
     assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${family}xxxxxxx`).includes("\u200D<wbr>"), false)
+    assert.equal(escapeHtmlWithSoftBreaks(`abcdefg${flag}xxxxxxx`).includes("\u{1F1FA}<wbr>"), false)
 
     const longToken = "A".repeat(20)
     assert.equal(escapeHtmlWithSoftBreaks(longToken), "AAAAAAAA<wbr>AAAAAAAA<wbr>AAAA")
@@ -489,7 +490,8 @@ describe("renderReportTable", () => {
     assert.match(out.html.replaceAll("<wbr>", ""), /&lt;img src=x onerror=alert\(1\)&gt;/)
     assert.match(out.html.replaceAll("<wbr>", ""), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
     assert.equal(out.text.includes("<wbr>"), false)
-    assert.equal(out.text.includes("<img"), false)
+    assert.equal(out.html.replaceAll("<wbr>", "").includes("<img"), false)
+    assert.equal(out.html.replaceAll("<wbr>", "").includes("<script"), false)
   })
 
   it("caps a ~320-byte visitor day and keeps the shown-count note correct", () => {
