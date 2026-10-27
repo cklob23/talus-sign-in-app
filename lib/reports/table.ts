@@ -259,6 +259,16 @@ function formatPart(kind: ColKind, raw: string, durationHeader = ""): string {
 const SOFT_BREAK_WORD = 15
 const SOFT_BREAK_EVERY = 8
 
+/** Whitespace, ASCII hyphen, unicode dashes (U+2010, U+2011, U+2013, U+2014), and slash. */
+const TOKEN_SEPARATOR = /([\s/\u2010\u2011\u2013\u2014-]+)/
+const TOKEN_SEPARATOR_ONLY = /^[\s/\u2010\u2011\u2013\u2014-]+$/
+
+const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" })
+
+function graphemesOf(value: string): string[] {
+  return [...graphemeSegmenter.segment(value)].map((part) => part.segment)
+}
+
 const TIME_KINDS = new Set<ColKind>(["signin", "signout", "duration", "completed", "expires"])
 const NO_SOFT_BREAK = new Set<ColKind>(["email", "host", ...TIME_KINDS])
 
@@ -285,16 +295,18 @@ function cellOpen(tag: "th" | "td", column: EmailColumn, extraClass = ""): strin
   return `<${tag}${classAttr}${bg}>`
 }
 
-/** Soft-break only 15+ character tokens so ordinary names stay whole. */
+/** Soft-break 15+ grapheme pieces so ordinary and hyphenated names stay whole. */
 export function escapeHtmlWithSoftBreaks(value: string): string {
-  return value.replace(/\S+/g, (word) => {
-    if (word.length < SOFT_BREAK_WORD) return escapeHtml(word)
+  return value.split(TOKEN_SEPARATOR).map((piece) => {
+    if (!piece || TOKEN_SEPARATOR_ONLY.test(piece)) return escapeHtml(piece)
+    const graphemes = graphemesOf(piece)
+    if (graphemes.length < SOFT_BREAK_WORD) return escapeHtml(piece)
     const chunks: string[] = []
-    for (let i = 0; i < word.length; i += SOFT_BREAK_EVERY) {
-      chunks.push(escapeHtml(word.slice(i, i + SOFT_BREAK_EVERY)))
+    for (let i = 0; i < graphemes.length; i += SOFT_BREAK_EVERY) {
+      chunks.push(escapeHtml(graphemes.slice(i, i + SOFT_BREAK_EVERY).join("")))
     }
     return chunks.join("<wbr>")
-  })
+  }).join("")
 }
 
 function htmlCellLine(kind: ColKind, line: string): string {
