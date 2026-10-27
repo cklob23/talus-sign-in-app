@@ -26,6 +26,11 @@ const VISITORS = [
   { initials: "CM", name: "Carlos Mendoza", company: "Gulf Coast Electric", type: "Contractor", tone: "warn" as const, host: "Maya Chen", badge: "V04821", inFor: "20 min", trained: true },
   { initials: "PN", name: "Priya Nair", company: "Acme Valves", type: "Visitor", tone: "ok" as const, host: "Sam Okafor", badge: "V04822", inFor: "55 min", trained: false },
   { initials: "TB", name: "Tom Becker", company: "FedEx", type: "Delivery", tone: "neu" as const, host: "Lena Ortiz", badge: "V04823", inFor: "1 h 30 min", trained: false },
+  { initials: "BW", name: "Bartholomew Chen", company: "Environmental Partners", type: "Contractor", tone: "warn" as const, host: "Hiro Iwanaga", badge: "V04824", inFor: "40 min", trained: true },
+  { initials: "AW", name: "Ada Wolfensteiner", company: "Agricultural Sciences", type: "Visitor", tone: "ok" as const, host: "Stanley Tioniny", badge: "V04825", inFor: "12 min", trained: false },
+  { initials: "DM", name: "Dolvin Residolvin", company: "Talus", type: "Contractor", tone: "warn" as const, host: "Maya Chen", badge: "V04826", inFor: "2 h", trained: true },
+  { initials: "SO", name: "Sam Okafor", company: "Northwind", type: "Guest", tone: "ok" as const, host: "Priya Shah", badge: "V04827", inFor: "8 min", trained: false },
+  { initials: "LO", name: "Lena Ortiz", company: "Rift Valley", type: "Interview", tone: "neu" as const, host: "Jordan Blake", badge: "V04828", inFor: "33 min", trained: false },
 ]
 
 function KioskChrome({ children }: { children: ReactNode }) {
@@ -66,7 +71,7 @@ function PhoneChrome({ children, site, lang = true }: { children: ReactNode; sit
 
 function AdminChrome({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-svh min-h-dvh bg-background text-foreground [contain:none] [filter:none] [transform:none]">
+    <div className="flex h-full min-h-dvh bg-background text-foreground [contain:none] [filter:none] [transform:none]">
       <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border bg-card p-4 lg:flex">
         <TalusAgLogo className="mb-4" />
         <div className="mb-4 flex min-h-11 items-center gap-2 rounded-xl border border-border px-3 text-15">
@@ -100,7 +105,7 @@ function AdminChrome({ title, subtitle, children }: { title: string; subtitle: s
             </span>
           </div>
         </header>
-        <div className="flex-1 overflow-visible p-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:p-6 lg:overflow-visible lg:p-9">{children}</div>
+        <div className="flex-1 overflow-visible p-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:p-6 sm:pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:overflow-visible lg:p-9">{children}</div>
       </div>
       <nav
         data-testid="admin-mobile-nav"

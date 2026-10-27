@@ -191,7 +191,7 @@ describe("report email", () => {
       "https://signin.talusag.com/admin/reports/view?kind=visitors&from=2026-10-21T05:00:00.000Z&to=2026-10-22T05:00:00.000Z",
     )
     const tableBytes = new TextEncoder().encode(table.html).length
-    assert.ok(table.shown >= 150, `245-row table only showed ${table.shown}`)
+    assert.ok(table.shown >= 240, `245-row table only showed ${table.shown}`)
     assert.ok(tableBytes <= 80_000, `table was ${tableBytes} bytes`)
     assert.match(mail.html, /class="rt"/)
     assert.match(mail.html, /In \/ out/)
@@ -203,7 +203,7 @@ describe("report email", () => {
   it("keeps a 300-row table email under the 80 KB table / 102 KB Gmail budgets", () => {
     const { table, mail, bytes } = visitorMail(300)
     const tableBytes = new TextEncoder().encode(table.html).length
-    assert.ok(table.shown >= 150, `300-row table only showed ${table.shown}`)
+    assert.ok(table.shown >= 250, `300-row table only showed ${table.shown}`)
     assert.ok(tableBytes <= 80_000, `table was ${tableBytes} bytes`)
     assert.match(mail.html, /class="rt"/)
     assert.equal(mail.html.includes("word-break:break-word"), false)

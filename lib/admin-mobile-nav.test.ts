@@ -23,11 +23,12 @@ describe("admin mobile tab bar pin", () => {
 
   it("lets the document scroll instead of an inner overflow container", () => {
     assert.match(layout, /min-h-dvh/)
-    assert.match(layout, /min-h-svh/)
+    assert.doesNotMatch(layout, /min-h-svh/)
     assert.doesNotMatch(layout, /min-h-screen/)
     assert.doesNotMatch(layout, /className="[^"]*overflow-auto/)
     assert.match(layout, /overflow-visible/)
     assert.match(layout, /pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
+    assert.match(layout, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
     assert.match(layout, /\[transform:none\]/)
     assert.match(layout, /\[filter:none\]/)
     assert.match(layout, /\[contain:none\]/)
@@ -41,6 +42,8 @@ describe("admin mobile tab bar pin", () => {
 
   it("uses the same pin on the preview AdminChrome mock", () => {
     assert.match(preview, /min-h-dvh/)
+    assert.doesNotMatch(preview, /min-h-svh min-h-dvh/)
+    assert.match(preview, /sm:pb-\[calc\(6rem\+env\(safe-area-inset-bottom/)
     assert.doesNotMatch(preview, /overflow-auto p-4 pb-24/)
     assert.match(preview, /data-testid="admin-mobile-nav"/)
     assert.match(preview, /position:\s*"fixed"/)

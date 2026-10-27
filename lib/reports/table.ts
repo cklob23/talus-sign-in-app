@@ -256,45 +256,51 @@ function formatPart(kind: ColKind, raw: string, durationHeader = ""): string {
   return raw
 }
 
-const WRAP_NORMAL = "word-break:normal;overflow-wrap:normal"
-const WRAP_LONG = "overflow-wrap:anywhere"
-const WRAP_FIXED = "min-width:64px;word-break:normal;overflow-wrap:normal"
+const SOFT_BREAK_WORD = 15
+const SOFT_BREAK_EVERY = 8
 
-type CellWrap = { className: string; style: string }
+const TIME_KINDS = new Set<ColKind>(["signin", "signout", "duration", "completed", "expires"])
+const NO_SOFT_BREAK = new Set<ColKind>(["email", "host", ...TIME_KINDS])
 
-/** Gmail may ignore nth-child, so wrap/min-width go on each cell inline. */
+type CellWrap = { className: string }
+
+/**
+ * Shared wrap / min-width live on `.rt` class rules in the email shell.
+ * Per-cell inline wrap styles doubled row weight and cut the Gmail row cap.
+ */
 export function emailTableCellWrap(column: { header: string; kinds: ColKind[] }): CellWrap {
-  if (
-    column.kinds.some((kind) =>
-      kind === "signin" ||
-      kind === "signout" ||
-      kind === "duration" ||
-      kind === "completed" ||
-      kind === "expires",
-    )
-  ) {
-    return { className: "rt-time", style: WRAP_FIXED }
+  if (column.kinds.some((kind) => TIME_KINDS.has(kind))) {
+    return { className: "rt-time" }
   }
   if (column.kinds.includes("host")) {
-    return { className: "rt-host", style: WRAP_FIXED }
+    return { className: "rt-host" }
   }
-  if (column.kinds.includes("name") || column.kinds.includes("company")) {
-    return { className: "rt-long", style: WRAP_LONG }
-  }
-  return { className: "", style: WRAP_NORMAL }
+  return { className: "" }
 }
 
 function cellOpen(tag: "th" | "td", column: EmailColumn, extraClass = ""): string {
-  const wrap = emailTableCellWrap(column)
-  const applied =
-    tag === "th" && wrap.className === "rt-long"
-      ? { className: "", style: WRAP_NORMAL }
-      : wrap
-  const classes = [applied.className, extraClass].filter(Boolean).join(" ")
+  const classes = [emailTableCellWrap(column).className, extraClass].filter(Boolean).join(" ")
   const classAttr = classes ? ` class="${classes}"` : ""
-  const styleAttr = applied.style ? ` style="${applied.style}"` : ""
   const bg = tag === "th" ? ` bgcolor="#f5f8f6"` : ""
-  return `<${tag}${classAttr}${bg}${styleAttr}>`
+  return `<${tag}${classAttr}${bg}>`
+}
+
+/** Soft-break only 15+ character tokens so ordinary names stay whole. */
+export function escapeHtmlWithSoftBreaks(value: string): string {
+  return value.replace(/\S+/g, (word) => {
+    if (word.length < SOFT_BREAK_WORD) return escapeHtml(word)
+    const chunks: string[] = []
+    for (let i = 0; i < word.length; i += SOFT_BREAK_EVERY) {
+      chunks.push(escapeHtml(word.slice(i, i + SOFT_BREAK_EVERY)))
+    }
+    return chunks.join("<wbr>")
+  })
+}
+
+function htmlCellLine(kind: ColKind, line: string): string {
+  if (kind === "email") return `<span class="rt-em">${escapeHtml(line)}</span>`
+  if (NO_SOFT_BREAK.has(kind)) return escapeHtml(line)
+  return escapeHtmlWithSoftBreaks(line)
 }
 
 function renderEmailCell(
@@ -321,10 +327,7 @@ function renderEmailCell(
 
   const visible = parts.filter((part) => part.raw)
   const htmlParts = visible.flatMap((part) =>
-    part.raw.split("\n").map((line) => {
-      const safe = escapeHtml(line)
-      return part.kind === "email" ? `<span class="rt-em">${safe}</span>` : safe
-    }),
+    part.raw.split("\n").map((line) => htmlCellLine(part.kind, line)),
   )
   const extraClass = visible.length === 1 && visible[0].kind === "email" ? "rt-em" : ""
   return {
