@@ -3,14 +3,17 @@ import { describe, it } from "node:test"
 import {
   collectNumberedPages,
   collectPages,
+  explainSyncDue,
   formatNextSyncLabel,
   getNextSyncAt,
   graphPageItems,
   isSyncDue,
   mapPool,
+  normalizeSchedule,
   parseSyncRequest,
   rampPageItems,
   shouldRunProvider,
+  unwrapSettingValue,
 } from "./schedule.ts"
 
 describe("isSyncDue", () => {
@@ -33,6 +36,47 @@ describe("isSyncDue", () => {
   it("is false until the interval has elapsed", () => {
     assert.equal(isSyncDue("1h", "2026-10-21T17:30:00.000Z", null, now), false)
     assert.equal(isSyncDue("1h", "2026-10-21T16:59:00.000Z", null, now), true)
+  })
+
+  it("treats the production daily Entra case as due after missing several 4:30 PM anchors", () => {
+    // Stored the way the Sync page writes them: frequency alias "daily",
+    // datetime-local start (no timezone), last sync as an ET wall clock.
+    // Now is Mon Oct 27, 2026 7:45 AM ET. Last run was Fri Oct 23 7:19 PM ET.
+    const now = Date.parse("2026-10-27T07:45:00-04:00")
+    const start = "2026-02-16T16:30"
+    const last = "2026-10-23T19:19:12"
+
+    assert.equal(normalizeSchedule("daily"), "24h")
+    assert.equal(isSyncDue("daily", last, start, now), true)
+    assert.equal(isSyncDue("24h", last, start, now), true)
+    assert.equal(isSyncDue('"24h"', last, start, now), true)
+    assert.equal(isSyncDue("24h", "2026-10-23T23:19:12.000Z", start, now), true)
+
+    const explained = explainSyncDue("daily", last, start, now)
+    assert.equal(explained.due, true)
+    assert.equal(explained.reason, "due")
+    assert.equal(explained.nextDueAt, "2026-10-24T20:30:00.000Z")
+
+    const next = getNextSyncAt("daily", last, start, now)
+    assert.equal(next.dueNow, true)
+    assert.equal(next.at?.toISOString(), "2026-10-24T20:30:00.000Z")
+    assert.match(formatNextSyncLabel("daily", last, start, now), /Overdue since/)
+  })
+
+  it("waits for the next 4:30 PM ET slot when the last daily run was yesterday evening", () => {
+    const morning = Date.parse("2026-10-24T07:45:00-04:00")
+    assert.equal(isSyncDue("24h", "2026-10-23T19:19:12", "2026-02-16T16:30", morning), false)
+    const afterAnchor = Date.parse("2026-10-24T16:31:00-04:00")
+    assert.equal(isSyncDue("24h", "2026-10-23T19:19:12", "2026-02-16T16:30", afterAnchor), true)
+  })
+})
+
+describe("unwrapSettingValue / normalizeSchedule", () => {
+  it("strips extra jsonb quotes and aliases daily to 24h", () => {
+    assert.equal(unwrapSettingValue('"24h"'), "24h")
+    assert.equal(unwrapSettingValue(" 24h "), "24h")
+    assert.equal(normalizeSchedule('"daily"'), "24h")
+    assert.equal(normalizeSchedule("off"), "off")
   })
 })
 
@@ -129,7 +173,8 @@ describe("getNextSyncAt", () => {
   it("is due now when the interval has elapsed", () => {
     const next = getNextSyncAt("1h", "2026-10-21T16:59:00.000Z", null, now)
     assert.equal(next.dueNow, true)
-    assert.equal(formatNextSyncLabel("1h", "2026-10-21T16:59:00.000Z", null, now), "Due on the next hourly cron")
+    assert.equal(next.at?.toISOString(), "2026-10-21T17:59:00.000Z")
+    assert.match(formatNextSyncLabel("1h", "2026-10-21T16:59:00.000Z", null, now), /Overdue since/)
   })
 
   it("returns the next clock time when the interval has not elapsed", () => {
