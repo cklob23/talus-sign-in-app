@@ -26,6 +26,12 @@ export function emailTableSummaryLine(table: {
   }
 }
 
+const AM_PM_NBSP = /\s+(?=[AP]M\b)/gi
+
+export function keepAmPmTogether(value: string): string {
+  return value.replace(AM_PM_NBSP, "\u00a0")
+}
+
 /** Short stamp for the email table only. CSV keeps the full weekday/year/zone. */
 export function formatEmailTableDate(value: string): string {
   const text = value.trim()
@@ -33,8 +39,8 @@ export function formatEmailTableDate(value: string): string {
   const match = text.match(
     /^(?:[A-Za-z]{3},\s+)?([A-Za-z]{3}\s+\d{1,2}),\s+\d{4},\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
   )
-  if (match) return `${match[1]}, ${match[2].replace(/\s+/g, " ")}`
-  return text
+  if (match) return keepAmPmTogether(`${match[1]}, ${match[2].replace(/\s+/g, " ")}`)
+  return keepAmPmTogether(text)
 }
 
 function emailDateKey(value: string): string {
@@ -44,13 +50,17 @@ function emailDateKey(value: string): string {
 
 function emailTimeOnly(value: string): string {
   const match = value.match(/(\d{1,2}:\d{2}\s*[AP]M)$/i)
-  return match ? match[1].replace(/\s+/g, " ") : value
+  return match ? keepAmPmTogether(match[1].replace(/\s+/g, " ")) : value
 }
 
 /** Two lines: in stamp, then out time (date omitted when same day) plus duration. */
 export function formatEmailInOutLines(signin: string, signout: string, duration: string): string[] {
   const lines: string[] = []
   if (signin) lines.push(signin)
+  if (!signout && !duration) {
+    if (signin) lines.push("Still on site")
+    return lines
+  }
   const tail: string[] = []
   if (signout) {
     const sameDay = Boolean(signin && emailDateKey(signin) === emailDateKey(signout))
@@ -287,8 +297,9 @@ function renderEmailCell(
   }
 }
 
+const CELL_WRAP = "word-break:break-word;overflow-wrap:break-word"
 const TABLE_STYLE =
-  "border-collapse:collapse;table-layout:auto;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px"
+  `border-collapse:collapse;table-layout:auto;width:100%;max-width:528px;background-color:#ffffff;color:#0f1a13;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;${CELL_WRAP}`
 
 export function renderReportTable(args: {
   csvRows: Array<Array<string | number | boolean | null | undefined>>

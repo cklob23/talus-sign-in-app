@@ -64,6 +64,7 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes("table-layout:fixed"), false)
     assert.equal(out.html.includes("overflow-x"), false)
     assert.equal(out.html.includes("white-space:nowrap"), false)
+    assert.match(out.html, /word-break:break-word;overflow-wrap:break-word/)
     assert.equal(/<(td|th)[^>]*style=/.test(out.html), false)
     assert.match(out.html, /bgcolor="#ffffff"/)
     assert.match(out.html, /<td>c0<\/td>/)
@@ -86,7 +87,7 @@ describe("renderReportTable", () => {
     assert.equal(out.html.includes('class="rt-now"'), false)
     assert.match(out.html, /Agricultural<br>Contractor/)
     assert.match(out.html, /Hiro Iwanaga<br>Houston HQ/)
-    assert.match(out.html, /<td class="rt-time">Oct 22, 10:30 AM<br>12:00 PM · 90 min<\/td>/)
+    assert.match(out.html, /<td class="rt-time">Oct 22, 10:30\u00a0AM<br>12:00\u00a0PM · 90 min<\/td>/)
     assert.equal(out.html.includes("2026"), false)
     assert.equal(out.html.includes("CDT"), false)
     assert.match(out.html, /<span class="rt-em">ada@example.com<\/span>/)
@@ -99,16 +100,20 @@ describe("renderReportTable", () => {
   it("shortens duration headers and email-table dates", () => {
     assert.equal(emailDurationHeader("Duration (min)"), "Min")
     assert.equal(emailDurationHeader("Duration (hr)"), "Hrs")
-    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22, 10:30 AM")
-    assert.equal(formatEmailTableDate("Mon, Oct 26, 2026, 7:30 AM GMT+3"), "Oct 26, 7:30 AM")
+    assert.equal(formatEmailTableDate("Thu, Oct 22, 2026, 10:30 AM CDT"), "Oct 22, 10:30\u00a0AM")
+    assert.equal(formatEmailTableDate("Mon, Oct 26, 2026, 7:30 AM GMT+3"), "Oct 26, 7:30\u00a0AM")
     assert.equal(formatEmailTableDate(""), "")
-    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30 AM", "Oct 26, 6:01 PM", "10.51 hr"), [
-      "Oct 26, 7:30 AM",
-      "6:01 PM · 10.51 hr",
+    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30\u00a0AM", "Oct 26, 6:01\u00a0PM", "10.51 hr"), [
+      "Oct 26, 7:30\u00a0AM",
+      "6:01\u00a0PM · 10.51 hr",
     ])
-    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30 AM", "Oct 27, 6:01 AM", "10.5 hr"), [
-      "Oct 26, 7:30 AM",
-      "Oct 27, 6:01 AM · 10.5 hr",
+    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30\u00a0AM", "Oct 27, 6:01\u00a0AM", "10.5 hr"), [
+      "Oct 26, 7:30\u00a0AM",
+      "Oct 27, 6:01\u00a0AM · 10.5 hr",
+    ])
+    assert.deepEqual(formatEmailInOutLines("Oct 26, 7:30\u00a0AM", "", ""), [
+      "Oct 26, 7:30\u00a0AM",
+      "Still on site",
     ])
     const hours = renderReportTable({
       csvRows: buildVisitorCsvRows(
@@ -280,10 +285,39 @@ describe("renderReportTable", () => {
     })
     assert.match(out.html, /<th bgcolor="#f5f8f6">In \/ out<\/th>/)
     assert.equal(out.html.includes("Duration (hr)"), false)
-    assert.match(out.html, /<td class="rt-time">Oct 26, 7:48 AM<br>6:01 PM · 10\.22 hr<\/td>/)
+    assert.match(out.html, /<td class="rt-time">Oct 26, 7:48\u00a0AM<br>6:01\u00a0PM · 10\.22 hr<\/td>/)
     assert.match(out.html, /<span class="rt-em">dolvinmoragwanyangaresidolvin@gmail.com<\/span>/)
     assert.match(out.html, /Kenya Farm Site/)
     assert.equal((out.html.match(/<th /g) || []).length, 4)
+  })
+
+  it("shows a still-on-site hint when sign-out is empty", () => {
+    const out = renderReportTable({
+      csvRows: [
+        ["Visitor name", "Email", "Company", "Visitor type", "Host", "Site", "Sign in", "Sign out", "Duration (min)"],
+        [
+          "Ada Lovelace",
+          "ada@example.com",
+          "Talus",
+          "Contractor",
+          "Hiro Iwanaga",
+          "Houston HQ",
+          "Thu, Oct 22, 2026, 10:30 AM CDT",
+          "",
+          "",
+        ],
+      ],
+    })
+    assert.match(out.html, /Still on site/)
+    assert.match(out.text, /Still on site/)
+  })
+
+  it("puts wrap styles on the table so a long unbreakable token cannot stretch the email", () => {
+    const token = "A".repeat(100)
+    const out = renderReportTable({ csvRows: [["Name"], [token]] })
+    assert.match(out.html, /style="[^"]*word-break:break-word;overflow-wrap:break-word/)
+    assert.match(out.html, /class="rt"/)
+    assert.equal(out.html.includes(token), true)
   })
 
   it("replaces pipes in the plain-text table", () => {

@@ -22,3 +22,8 @@ export function loginUrlForProtectedPath(pathname: string, search = ""): string 
   const next = safeNextPath(`${pathname}${search}`)
   return `/auth/login?next=${encodeURIComponent(next)}`
 }
+
+export function adminPageLoginRedirect(status: 401 | 403, pathname = "/admin", search = ""): string {
+  if (status === 401) return loginUrlForProtectedPath(pathname, search)
+  return "/auth/login?error=not_authorized"
+}

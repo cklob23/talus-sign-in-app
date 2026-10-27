@@ -4,6 +4,7 @@ import type { RangeType, ReportFrequency } from "./types.ts"
 export const ALL_TIME_START = new Date(0)
 export const REPORT_PAGE_SIZE = 1000
 export const REPORT_VIEW_MAX_ROWS = 10_000
+export const REPORT_VIEW_MAX_RANGE_DAYS = 366
 export const REPORT_EXPORT_MAX_ROWS = 50_000
 export const DEFAULT_REPORT_TIMEZONE = DEFAULT_DISPLAY_TIMEZONE
 

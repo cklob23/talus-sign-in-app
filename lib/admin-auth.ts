@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { resolvePermissions, type PermissionKey } from "@/lib/permissions"
+import { isBuiltInAdminRole } from "@/lib/admin-role"
+import { adminPageLoginRedirect } from "@/lib/safe-redirect"
+
+export { isBuiltInAdminRole }
 
 export interface AdminPortalUser {
   userId: string
@@ -19,7 +24,7 @@ function hasPortalAccess(role: string | null, customRoleId: string | null, permi
   return false
 }
 
-async function loadPortalUser(): Promise<
+export async function loadPortalUser(): Promise<
   | { ok: true; user: AdminPortalUser }
   | { ok: false; status: 401 | 403; error: string }
 > {
@@ -96,7 +101,7 @@ export async function requireBuiltInAdmin(): Promise<
       response: NextResponse.json({ error: result.error }, { status: result.status }),
     }
   }
-  if (result.user.role !== "admin" && result.user.role !== "super_admin") {
+  if (!isBuiltInAdminRole(result.user.role)) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Admin access required" }, { status: 403 }),
@@ -109,8 +114,8 @@ export async function requireBuiltInAdmin(): Promise<
 export async function requireAdminPageUser(): Promise<AdminPortalUser> {
   const result = await loadPortalUser()
   if (result.ok) return result.user
-  if (result.status === 401) {
-    redirect("/auth/login")
-  }
-  redirect("/auth/login?error=not_authorized")
+  const headerStore = await headers()
+  const pathname = headerStore.get("x-talus-pathname") || "/admin"
+  const search = headerStore.get("x-talus-search") || ""
+  redirect(adminPageLoginRedirect(result.status, pathname, search))
 }

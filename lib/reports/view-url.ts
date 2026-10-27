@@ -1,5 +1,5 @@
 import { sanitizeAppUrl, sanitizePlainText } from "@/lib/html-escape"
-import { DEFAULT_REPORT_TIMEZONE } from "./period.ts"
+import { DEFAULT_REPORT_TIMEZONE, REPORT_VIEW_MAX_RANGE_DAYS } from "./period.ts"
 import { isDurationUnit, isReportKind, type DurationUnit, type ReportKind } from "./types.ts"
 
 export const REPORT_VIEW_PATH = "/admin/reports/view"
@@ -95,6 +95,17 @@ export function buildReportViewUrl(origin: string, filters: ReportViewUrlArgs): 
   const base = origin.trim().replace(/\/+$/, "")
   if (!base) return ""
   return sanitizeAppUrl(`${base}${buildReportViewPath(filters)}`)
+}
+
+export function clampReportViewRange(from: string, to: string): { from: string; to: string; clamped: boolean } {
+  const start = Date.parse(from)
+  const end = Date.parse(to)
+  const maxMs = REPORT_VIEW_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return { from, to, clamped: false }
+  }
+  if (end - start <= maxMs) return { from, to, clamped: false }
+  return { from: new Date(end - maxMs).toISOString(), to, clamped: true }
 }
 
 export function parseReportViewSearch(
