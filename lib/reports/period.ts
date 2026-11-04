@@ -1,5 +1,6 @@
 import { DEFAULT_DISPLAY_TIMEZONE, startOfDayInTimezone, toIANATimezone, zonedTimeToUtc } from "@/lib/timezone"
-import type { RangeType, ReportFrequency } from "./types.ts"
+import { formatReportDateTime } from "./rows.ts"
+import { rangeTypeTitle, type RangeType, type ReportFrequency } from "./types.ts"
 
 export const ALL_TIME_START = new Date(0)
 export const REPORT_PAGE_SIZE = 1000
@@ -116,10 +117,15 @@ export function isAllTimeStart(iso: string | Date | null | undefined): boolean {
 }
 
 /**
- * Closed-open window [start, end) in the schedule timezone.
+ * Closed-open window [start, end) in `timezone`.
+ * Calendar ranges (today, previous_day, last_n_days, previous_week, previous_month)
+ * use that zone's midnight. last_24_hours is elapsed time ending at `now` and
+ * ignores DST clock changes. all_time starts at epoch.
  * previous_day and last_n_days end at today's midnight so the current day is excluded.
  * previous_week is the last complete Monday-Sunday week.
  * previous_month is the last complete calendar month.
+ * For scheduled runs, pass the window timezone from reportWindowTimezone()
+ * (one site uses the site timezone). The schedule timezone is only for send-at.
  */
 export function resolveReportPeriod(args: {
   rangeType: RangeType
@@ -133,6 +139,10 @@ export function resolveReportPeriod(args: {
 
   if (args.rangeType === "all_time") {
     return period(ALL_TIME_START, now, todayStart)
+  }
+
+  if (args.rangeType === "last_24_hours") {
+    return period(new Date(now.getTime() - 24 * 60 * 60 * 1000), now, todayStart)
   }
 
   if (args.rangeType === "today") {
@@ -251,15 +261,73 @@ export function dashboardPeriodLabel(period: string, customStart?: string | null
   return "Selected period"
 }
 
+/**
+ * Timezone for report data windows (not send-at time).
+ * One selected location: that site's timezone.
+ * One location with no timezone: fallbackTimezone, or America/New_York.
+ * Multiple locations or all locations: fallbackTimezone, or America/New_York.
+ * On-demand Reports omits fallbackTimezone (America/New_York).
+ * Scheduled reports pass the schedule timezone as fallback so a missing site
+ * timezone, or a multi-site / all-sites schedule, keeps the current window.
+ */
 export function reportWindowTimezone(args: {
   selectedLocationIds: string[]
   locations: Array<{ id: string; timezone?: string | null }>
+  fallbackTimezone?: string | null
 }): string {
+  const fallback = toIANATimezone(args.fallbackTimezone || DEFAULT_REPORT_TIMEZONE)
   if (args.selectedLocationIds.length === 1) {
     const match = args.locations.find((loc) => loc.id === args.selectedLocationIds[0])
-    return toIANATimezone(match?.timezone || DEFAULT_REPORT_TIMEZONE)
+    const raw = typeof match?.timezone === "string" ? match.timezone.trim() : ""
+    return raw ? toIANATimezone(raw) : fallback
   }
-  return DEFAULT_REPORT_TIMEZONE
+  return fallback
+}
+
+/** Actual window start for labels. last_24_hours is stored with today's midnight as period_start. */
+export function displayPeriodStart(
+  rangeType: RangeType | string | null | undefined,
+  periodStart: string,
+  periodEnd: string,
+): string {
+  if (rangeType === "last_24_hours") {
+    const end = Date.parse(periodEnd)
+    if (Number.isFinite(end)) return new Date(end - 24 * 60 * 60 * 1000).toISOString()
+  }
+  return periodStart
+}
+
+function isoFrom(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value
+}
+
+/**
+ * Period text used in email, CSV context, and run history.
+ * Includes a short zone label (EAT, EST) from the window timezone.
+ */
+export function formatReportPeriodLabel(args: {
+  start: Date | string
+  end: Date | string
+  timezone: string
+  title?: string | null
+}): string {
+  const startIso = isoFrom(args.start)
+  const endIso = isoFrom(args.end)
+  const end = formatReportDateTime(endIso, args.timezone)
+  if (isAllTimeStart(startIso)) {
+    const window = `All time through ${end}`
+    const title = args.title?.trim()
+    if (!title || /^all time$/i.test(title)) return window
+    return `${title}: ${window}`
+  }
+  const window = `${formatReportDateTime(startIso, args.timezone)} to ${end}`
+  const title = args.title?.trim()
+  if (!title || title === window) return window
+  return `${title}: ${window}`
+}
+
+export function scheduledPeriodTitle(rangeType: RangeType, lastNDays?: number | null): string {
+  return rangeTypeTitle(rangeType, lastNDays)
 }
 
 export function isScheduleDue(enabled: boolean, nextRunAt: string | Date | null, nowMs = Date.now()): boolean {

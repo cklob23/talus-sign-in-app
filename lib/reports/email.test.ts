@@ -72,6 +72,26 @@ describe("report email", () => {
     assert.equal(mail.html.includes("The report table is included below"), false)
   })
 
+  it("shows the window timezone abbreviation in the Period row", () => {
+    const mail = renderReportEmail({
+      scheduleName: "Daily Visitor Sign-In Logs - Kenya Farm",
+      kind: "visitors",
+      periodStart: "2026-11-03T21:00:00.000Z",
+      periodEnd: "2026-11-04T15:00:00.000Z",
+      timezone: "Africa/Nairobi",
+      locationNames: ["Kenya Farm Site"],
+      rowCount: 6,
+      format: "csv",
+      csvAttached: true,
+      periodLabel: "Today",
+    })
+    assert.match(mail.html, /Today/)
+    assert.match(mail.html, /EAT|GMT\+3/)
+    assert.match(mail.text, /Period: Today/)
+    assert.match(mail.text, /EAT|GMT\+3/)
+    assert.equal(mail.html.includes("\u2014"), false)
+  })
+
   it("labels an all-time ad-hoc period without a 1970 start date", () => {
     const mail = renderReportEmail({
       scheduleName: "Ad-hoc visitor sign-ins",

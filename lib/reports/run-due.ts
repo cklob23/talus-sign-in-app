@@ -1,9 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/server"
+import { scheduledPeriodTitle } from "@/lib/reports/period"
 import {
   advanceNextRun,
   claimScheduledRun,
   finishRun,
   listDueSchedules,
+  loadLocationTimezones,
   periodForSchedule,
 } from "@/lib/reports/schedule"
 import { buildReport, sendBuiltReport } from "@/lib/reports/run"
@@ -39,9 +41,13 @@ export async function runDueReports(): Promise<DueReportsResult> {
   }
 
   const results: Array<Record<string, unknown>> = []
+  const locations = await loadLocationTimezones(
+    admin,
+    due.flatMap((schedule) => schedule.locationIds),
+  )
 
   for (const schedule of due) {
-    const period = periodForSchedule(schedule, now)
+    const period = periodForSchedule(schedule, now, locations)
     let claimed
     try {
       claimed = await claimScheduledRun(admin, {
@@ -92,8 +98,9 @@ export async function runDueReports(): Promise<DueReportsResult> {
         recipients: schedule.recipients,
         periodStart: period.start.toISOString(),
         periodEnd: period.end.toISOString(),
-        timezone: schedule.timezone,
+        timezone: period.timezone,
         locationIds: schedule.locationIds,
+        periodLabel: scheduledPeriodTitle(schedule.rangeType, schedule.lastNDays),
         report,
         durationUnit: schedule.durationUnit,
         includeTable: schedule.includeTable,

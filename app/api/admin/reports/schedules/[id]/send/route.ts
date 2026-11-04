@@ -3,7 +3,8 @@ import { requireBuiltInAdmin } from "@/lib/admin-auth"
 import { isUndefinedTable } from "@/lib/idempotency"
 import { resolveAppOrigin } from "@/lib/nda"
 import { createAdminClient } from "@/lib/supabase/server"
-import { finishRun, hydrateSchedule, insertManualRun, periodForSchedule } from "@/lib/reports/schedule"
+import { scheduledPeriodTitle } from "@/lib/reports/period"
+import { finishRun, hydrateSchedule, insertManualRun, loadLocationTimezones, periodForSchedule } from "@/lib/reports/schedule"
 import { buildReport, sendBuiltReport } from "@/lib/reports/run"
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -24,7 +25,8 @@ export async function POST(request: Request, context: RouteContext) {
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const schedule = hydrateSchedule(data)
-  const period = periodForSchedule(schedule)
+  const locations = await loadLocationTimezones(admin, schedule.locationIds)
+  const period = periodForSchedule(schedule, new Date(), locations)
   const runId = await insertManualRun(admin, {
     scheduleId: schedule.id,
     periodStart: period.runStart.toISOString(),
@@ -53,8 +55,9 @@ export async function POST(request: Request, context: RouteContext) {
       recipients: schedule.recipients,
       periodStart: period.start.toISOString(),
       periodEnd: period.end.toISOString(),
-      timezone: schedule.timezone,
+      timezone: period.timezone,
       locationIds: schedule.locationIds,
+      periodLabel: scheduledPeriodTitle(schedule.rangeType, schedule.lastNDays),
       report,
       durationUnit: schedule.durationUnit,
       includeTable: schedule.includeTable,

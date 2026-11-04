@@ -1,5 +1,5 @@
 import { isMissingColumn, isUndefinedTable, isUniqueViolation } from "@/lib/idempotency"
-import { computeNextRunAt, isScheduleDue, resolveReportPeriod } from "./period.ts"
+import { computeNextRunAt, isScheduleDue, reportWindowTimezone, resolveReportPeriod } from "./period.ts"
 import { decideExistingRun } from "./idempotency.ts"
 import {
   isRangeType,
@@ -251,13 +251,39 @@ export function nextRunIso(input: Pick<ReportScheduleInput, "frequency" | "weekd
   return computeNextRunAt(input, after).toISOString()
 }
 
-export function periodForSchedule(schedule: Pick<ReportScheduleInput, "rangeType" | "lastNDays" | "timezone">, now = new Date()) {
-  return resolveReportPeriod({
-    rangeType: schedule.rangeType,
-    lastNDays: schedule.lastNDays,
-    timezone: schedule.timezone,
-    now,
+export async function loadLocationTimezones(
+  admin: AnyClient,
+  locationIds: string[],
+): Promise<Array<{ id: string; timezone?: string | null }>> {
+  const ids = [...new Set(locationIds.filter(Boolean))]
+  if (ids.length === 0) return []
+  try {
+    const { data } = await admin.from("locations").select("id, timezone").in("id", ids)
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export function periodForSchedule(
+  schedule: Pick<ReportScheduleInput, "rangeType" | "lastNDays" | "timezone" | "locationIds">,
+  now = new Date(),
+  locations: Array<{ id: string; timezone?: string | null }> = [],
+) {
+  const timezone = reportWindowTimezone({
+    selectedLocationIds: schedule.locationIds || [],
+    locations,
+    fallbackTimezone: schedule.timezone,
   })
+  return {
+    ...resolveReportPeriod({
+      rangeType: schedule.rangeType,
+      lastNDays: schedule.lastNDays,
+      timezone,
+      now,
+    }),
+    timezone,
+  }
 }
 
 export async function listDueSchedules(admin: AnyClient, now = new Date()): Promise<ReportSchedule[]> {

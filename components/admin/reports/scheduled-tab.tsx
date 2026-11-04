@@ -14,14 +14,15 @@ import {
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { displayPeriodStart, formatReportPeriodLabel, reportWindowTimezone } from "@/lib/reports/period"
 import { formatReportDateTime } from "@/lib/reports/rows"
 import {
   FREQUENCY_LABELS,
   DURATION_UNIT_LABELS,
-  RANGE_TYPE_LABELS,
   REPORT_KIND_LABELS,
   WEEKDAYS,
   isTalusRecipient,
+  rangeTypeTitle,
   type ReportRun,
   type ReportSchedule,
   type ReportScheduleInput,
@@ -48,11 +49,29 @@ function cadenceLabel(schedule: ReportSchedule): string {
 }
 
 function rangeLabel(schedule: ReportSchedule): string {
-  const range = schedule.rangeType === "last_n_days" ? `Last ${schedule.lastNDays || 7} days` : RANGE_TYPE_LABELS[schedule.rangeType]
+  const range = rangeTypeTitle(schedule.rangeType, schedule.lastNDays)
   if (schedule.kind === "visitors" || schedule.kind === "employees") {
     return `${range} · ${DURATION_UNIT_LABELS[schedule.durationUnit || "minutes"]}`
   }
   return range
+}
+
+function runPeriodLabel(
+  run: ReportRun,
+  schedule: ReportSchedule | undefined,
+  locations: Array<FilterOption & { timezone?: string | null }>,
+): string {
+  const windowTz = reportWindowTimezone({
+    selectedLocationIds: schedule?.locationIds || [],
+    locations,
+    fallbackTimezone: schedule?.timezone,
+  })
+  return formatReportPeriodLabel({
+    start: displayPeriodStart(schedule?.rangeType, run.periodStart, run.periodEnd),
+    end: run.periodEnd,
+    timezone: windowTz,
+    title: schedule ? rangeTypeTitle(schedule.rangeType, schedule.lastNDays) : null,
+  })
 }
 
 export function ScheduledTab({
@@ -62,7 +81,7 @@ export function ScheduledTab({
   previewRuns,
   previewFormOpen,
 }: {
-  locations: FilterOption[]
+  locations: Array<FilterOption & { timezone?: string | null }>
   visitorTypes: FilterOption[]
   previewSchedules?: ReportSchedule[]
   previewRuns?: ReportRun[]
@@ -338,7 +357,7 @@ export function ScheduledTab({
                       <TableCell className="capitalize">{run.status}</TableCell>
                       <TableCell>{run.rowCount ?? "-"}</TableCell>
                       <TableCell className="text-xs">
-                        {formatReportDateTime(run.periodStart, historySchedule?.timezone)}
+                        {runPeriodLabel(run, historySchedule, locations)}
                       </TableCell>
                       <TableCell className="text-xs text-destructive">{run.error || ""}</TableCell>
                     </TableRow>
