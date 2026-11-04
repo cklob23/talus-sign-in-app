@@ -257,6 +257,9 @@ export function ScheduleForm({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            Last 1 day is the previous calendar day at the site. Last 24 hours is the 24 hours ending at send time.
+          </p>
         </div>
         {form.rangeType === "last_n_days" && (
           <div className="space-y-2">
@@ -352,6 +355,10 @@ export function ScheduleForm({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            When the report sends. For one site, calendar ranges use that site timezone. A site with no timezone, or a
+            report for more than one site, uses this timezone.
+          </p>
         </div>
       </div>
 

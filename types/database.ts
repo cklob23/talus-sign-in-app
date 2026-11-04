@@ -137,7 +137,14 @@ export interface ReportSchedule {
   kind: "visitors" | "employees" | "training"
   location_ids: string[]
   visitor_type_ids: string[]
-  range_type: "previous_day" | "previous_week" | "previous_month" | "last_n_days"
+  range_type:
+    | "previous_day"
+    | "previous_week"
+    | "previous_month"
+    | "last_n_days"
+    | "today"
+    | "last_24_hours"
+    | "all_time"
   last_n_days: number | null
   frequency: "daily" | "weekly" | "monthly"
   weekday: number | null

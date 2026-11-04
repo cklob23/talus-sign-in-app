@@ -1,7 +1,15 @@
 export const REPORT_KINDS = ["visitors", "employees", "training"] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
-export const RANGE_TYPES = ["previous_day", "previous_week", "previous_month", "last_n_days", "today", "all_time"] as const
+export const RANGE_TYPES = [
+  "previous_day",
+  "previous_week",
+  "previous_month",
+  "last_n_days",
+  "today",
+  "last_24_hours",
+  "all_time",
+] as const
 export type RangeType = (typeof RANGE_TYPES)[number]
 
 export const FREQUENCIES = ["daily", "weekly", "monthly"] as const
@@ -43,7 +51,17 @@ export const RANGE_TYPE_LABELS: Record<RangeType, string> = {
   previous_month: "Previous month",
   last_n_days: "Last N days",
   today: "Today",
+  last_24_hours: "Last 24 hours",
   all_time: "All time",
+}
+
+/** Human title for a scheduled range, including "Last 1 day". */
+export function rangeTypeTitle(rangeType: RangeType, lastNDays?: number | null): string {
+  if (rangeType === "last_n_days") {
+    const n = lastNDays || 7
+    return n === 1 ? "Last 1 day" : `Last ${n} days`
+  }
+  return RANGE_TYPE_LABELS[rangeType]
 }
 
 export const DASHBOARD_PERIODS = [

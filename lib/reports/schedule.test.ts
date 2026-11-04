@@ -56,6 +56,7 @@ describe("parseScheduleBody", () => {
     assert.equal(parseScheduleBody({ ...base, rangeType: "last_n_days", lastNDays: 14 }).ok, true)
     assert.equal(parseScheduleBody({ ...base, rangeType: "all_time" }).ok, true)
     assert.equal(parseScheduleBody({ ...base, rangeType: "today" }).ok, true)
+    assert.equal(parseScheduleBody({ ...base, rangeType: "last_24_hours" }).ok, true)
     assert.equal(parseScheduleBody({ ...base, recipients: [] }).ok, false)
     assert.equal(parseScheduleBody({ ...base, kind: "bookings" }).ok, false)
   })

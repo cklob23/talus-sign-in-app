@@ -1,7 +1,7 @@
 import { escapeHtml, sanitizePlainText } from "@/lib/html-escape"
 import { detailRow, detailsPanel, emailButton, emailShell, headingBlock, pill } from "@/lib/email-shell"
 import { REPORT_VIEW_PATH } from "./view-url.ts"
-import { isAllTimeStart } from "./period.ts"
+import { formatReportPeriodLabel } from "./period.ts"
 import { formatReportDateTime } from "./rows.ts"
 import {
   FORMAT_LABELS,
@@ -45,10 +45,12 @@ function safeReportViewUrl(value?: string): string {
 }
 
 export function formatEmailPeriod(args: Pick<ReportEmailArgs, "periodStart" | "periodEnd" | "timezone" | "periodLabel">): string {
-  if (args.periodLabel?.trim()) return args.periodLabel.trim()
-  const end = formatReportDateTime(args.periodEnd, args.timezone)
-  if (isAllTimeStart(args.periodStart)) return `All time through ${end}`
-  return `${formatReportDateTime(args.periodStart, args.timezone)} to ${end}`
+  return formatReportPeriodLabel({
+    start: args.periodStart,
+    end: args.periodEnd,
+    timezone: args.timezone,
+    title: args.periodLabel,
+  })
 }
 
 export function reportEmailSubject(args: Pick<ReportEmailArgs, "kind" | "scheduleName" | "periodStart" | "periodEnd" | "timezone">): string {
