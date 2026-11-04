@@ -1,4 +1,92 @@
+import { toCsv } from "@/lib/reports/csv"
+import { signOutSourceLabel } from "@/lib/sign-out-source"
+import { formatDuration, formatSiteDateTime } from "@/lib/timezone"
+
 export const HISTORY_SOURCE_COLUMN_HEADER = "Source"
+
+export type HistoryLocationTime = { name?: string | null; timezone?: string | null } | null | undefined
+
+/** Sign-in and sign-out both use the visitor's sign-in site timezone. */
+export function historySiteStamp(iso: string | null | undefined, locationTimezone?: string | null): string {
+  return formatSiteDateTime(iso, locationTimezone)
+}
+
+export function historySiteZone(location?: HistoryLocationTime): string | null | undefined {
+  return location?.timezone
+}
+
+type HistoryVisitorCsvSource = {
+  sign_in_time: string
+  sign_out_time?: string | null
+  sign_out_source?: string | null
+  visitor?: {
+    first_name?: string | null
+    last_name?: string | null
+    email?: string | null
+    company?: string | null
+  } | null
+  visitor_type?: { name?: string | null } | null
+  location?: HistoryLocationTime
+  host?: { name?: string | null } | null
+}
+
+type HistoryEmployeeCsvSource = {
+  sign_in_time: string
+  sign_out_time?: string | null
+  sign_out_source?: string | null
+  auto_signed_in?: boolean | null
+  profile?: {
+    full_name?: string | null
+    email?: string | null
+    role?: string | null
+  } | null
+  location?: HistoryLocationTime
+}
+
+export function buildHistoryVisitorCsvRows(rows: HistoryVisitorCsvSource[]): string[][] {
+  return [
+    ["Name", "Email", "Company", "Type", "Location", "Host", "Sign In", "Sign Out", "Sign-out source", "Duration"],
+    ...rows.map((row) => {
+      const zone = historySiteZone(row.location)
+      return [
+        `${row.visitor?.first_name || ""} ${row.visitor?.last_name || ""}`.trim(),
+        row.visitor?.email || "",
+        row.visitor?.company || "",
+        row.visitor_type?.name || "",
+        row.location?.name || "",
+        row.host?.name || "",
+        historySiteStamp(row.sign_in_time, zone),
+        historySiteStamp(row.sign_out_time, zone),
+        signOutSourceLabel(row.sign_out_source),
+        formatDuration(row.sign_in_time, row.sign_out_time ?? null),
+      ]
+    }),
+  ]
+}
+
+export function buildHistoryEmployeeCsvRows(rows: HistoryEmployeeCsvSource[]): string[][] {
+  return [
+    ["Name", "Email", "Role", "Location", "Sign In", "Sign Out", "Sign-out source", "Duration", "Auto Sign-In"],
+    ...rows.map((row) => {
+      const zone = historySiteZone(row.location)
+      return [
+        row.profile?.full_name || "",
+        row.profile?.email || "",
+        row.profile?.role || "",
+        row.location?.name || "",
+        historySiteStamp(row.sign_in_time, zone),
+        historySiteStamp(row.sign_out_time, zone),
+        signOutSourceLabel(row.sign_out_source),
+        formatDuration(row.sign_in_time, row.sign_out_time ?? null),
+        row.auto_signed_in ? "Yes" : "No",
+      ]
+    }),
+  ]
+}
+
+export function historyCsvText(rows: string[][]): string {
+  return toCsv(rows)
+}
 
 export const HISTORY_VISITOR_SELECT = `
         *,

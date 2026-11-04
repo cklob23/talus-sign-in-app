@@ -202,21 +202,36 @@ export function isSameLocalDay(utcIso: string, timezone: string, reference: Date
   return a.year === b.year && a.month === b.month && a.day === b.day
 }
 
-/** Date + time in the site timezone, with a short zone label (CST, EAT, UTC). */
+/** Date + time in the site timezone, with a short zone label at that instant (CST vs CDT, EAT). */
 export function formatDateTimeWithZone(utcDateString: string, timezone = "UTC"): string {
-  const stamp = formatInTimezone(utcDateString, timezone, {
+  return formatInTimezone(utcDateString, timezone, {
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   })
-  return `${stamp} ${getTimezoneAbbreviation(timezone)}`
 }
 
 export function formatTimeWithZone(utcDateString: string, timezone = "UTC"): string {
-  return `${formatTime(utcDateString, timezone)} ${getTimezoneAbbreviation(timezone)}`
+  return formatInTimezone(utcDateString, timezone, {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })
+}
+
+/**
+ * Visitor History and reports: stamp a UTC instant in the sign-in site's timezone.
+ * Missing or blank site timezone falls back to America/New_York, not the viewer timezone.
+ */
+export function formatSiteDateTime(utcDateString: string | null | undefined, timezone?: string | null): string {
+  if (!utcDateString) return ""
+  const date = new Date(utcDateString)
+  if (Number.isNaN(date.getTime())) return ""
+  return formatDateTimeWithZone(utcDateString, resolveDisplayTimeZone(timezone))
 }
 
 /**
@@ -336,17 +351,19 @@ export function getCurrentTimeInTimezone(timezone: string): string {
 }
 
 /**
- * Format the timezone abbreviation (e.g., "CST", "EST", "PST")
+ * Format the timezone abbreviation at `at` (e.g., "CST", "CDT", "EAT").
+ * Pass the instant being displayed so DST labels stay correct.
  */
-export function getTimezoneAbbreviation(timezone: string): string {
+export function getTimezoneAbbreviation(timezone: string, at?: Date | string): string {
   try {
-    const date = new Date()
+    const date = at instanceof Date ? at : typeof at === "string" && at ? new Date(at) : new Date()
+    const when = Number.isNaN(date.getTime()) ? new Date() : date
     const ianaTimezone = toIANATimezone(timezone)
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: ianaTimezone,
       timeZoneName: "short",
     })
-    const parts = formatter.formatToParts(date)
+    const parts = formatter.formatToParts(when)
     const tzPart = parts.find(part => part.type === "timeZoneName")
     return tzPart?.value || timezone
   } catch {
