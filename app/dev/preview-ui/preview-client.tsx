@@ -105,41 +105,8 @@ function AdminChrome({ title, subtitle, children }: { title: string; subtitle: s
             </span>
           </div>
         </header>
-        <div className="flex-1 overflow-visible p-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:p-6 sm:pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:overflow-visible lg:p-9">{children}</div>
+        <div className="flex-1 overflow-visible p-4 sm:p-6 lg:p-9">{children}</div>
       </div>
-      <nav
-        data-testid="admin-mobile-nav"
-        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-card px-2 pt-2 lg:hidden"
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 50,
-          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
-        }}
-      >
-        {[
-          [title === "Dashboard", Home, "Home"],
-          [title === "On site now", Users, "On site"],
-          [false, Calendar, "Bookings"],
-        ].map(([active, Icon, label]) => (
-          <span
-            key={String(label)}
-            className={cn(
-              "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold",
-              active ? "bg-accent text-primary-text" : "text-muted-foreground",
-            )}
-          >
-            <Icon className="h-[22px] w-[22px]" />
-            {label}
-          </span>
-        ))}
-        <span className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-semibold text-muted-foreground">
-          <MoreHorizontal className="h-[22px] w-[22px]" />
-          More
-        </span>
-      </nav>
     </div>
   )
 }
