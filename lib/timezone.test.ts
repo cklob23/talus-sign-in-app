@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 import {
   DEFAULT_DISPLAY_TIMEZONE,
   formatDateTimeWithZone,
+  formatSiteDateTime,
   formatTimeWithZone,
   getTimezoneAbbreviation,
   isSameLocalDay,
@@ -107,11 +108,13 @@ describe("localDayBounds and isSameLocalDay", () => {
 })
 
 describe("formatDateTimeWithZone", () => {
-  it("includes a short zone label", () => {
-    const stamp = formatDateTimeWithZone("2026-10-22T15:30:00.000Z", "America/Chicago")
-    const abbr = getTimezoneAbbreviation("America/Chicago")
+  it("includes a short zone label at that instant", () => {
+    const when = "2026-10-22T15:30:00.000Z"
+    const stamp = formatDateTimeWithZone(when, "America/Chicago")
+    const abbr = getTimezoneAbbreviation("America/Chicago", when)
     assert.match(stamp, /2026/)
     assert.match(stamp, new RegExp(`${abbr}$`))
+    assert.match(stamp, /CDT/)
     assert.equal(stamp.includes("GMT+"), false)
   })
 
@@ -121,5 +124,37 @@ describe("formatDateTimeWithZone", () => {
       formatTimeWithZone(when, "Central Standard Time"),
       formatTimeWithZone(when, "America/Chicago"),
     )
+  })
+})
+
+describe("formatSiteDateTime", () => {
+  it("uses the sign-in site timezone, including Nairobi / Kenya Farm", () => {
+    const when = "2026-10-22T15:30:00.000Z"
+    const nairobi = formatSiteDateTime(when, "Africa/Nairobi")
+    const windows = formatSiteDateTime(when, "E. Africa Standard Time")
+    assert.equal(nairobi, windows)
+    assert.match(nairobi, /EAT|GMT\+3/)
+    assert.match(nairobi, /6:30/)
+    assert.equal(nairobi.includes("CDT"), false)
+    assert.equal(nairobi.includes("EDT"), false)
+  })
+
+  it("uses the abbreviation at that instant, not today's offset", () => {
+    const winter = formatSiteDateTime("2026-01-15T18:00:00.000Z", "America/Chicago")
+    const summer = formatSiteDateTime("2026-07-15T17:00:00.000Z", "America/Chicago")
+    assert.match(winter, /CST/)
+    assert.match(summer, /CDT/)
+  })
+
+  it("falls back to America/New_York when the site has no timezone", () => {
+    const when = "2026-01-15T18:00:00.000Z"
+    const fallback = formatSiteDateTime(when, null)
+    const empty = formatSiteDateTime(when, "")
+    const explicit = formatSiteDateTime(when, "America/New_York")
+    assert.equal(fallback, explicit)
+    assert.equal(empty, explicit)
+    assert.match(fallback, /EST/)
+    assert.equal(formatSiteDateTime("", "Africa/Nairobi"), "")
+    assert.equal(formatSiteDateTime("not-a-date", "Africa/Nairobi"), "")
   })
 })

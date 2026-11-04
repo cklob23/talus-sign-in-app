@@ -10,7 +10,7 @@ import {
     DetailBladeField,
 } from "@/components/admin/detail-blade"
 import { printVisitorBadge } from "@/lib/print-badge"
-import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
+import { formatSiteDateTime, formatDuration as formatDurationUtil } from "@/lib/timezone"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
 import { signOutSourceLabel } from "@/lib/sign-out-source"
 
@@ -65,7 +65,8 @@ export function SignInDetailBlade({
     canReprint = false,
     onSignOut,
 }: SignInDetailBladeProps) {
-    const fmt = (d: string | null | undefined) => (d ? formatDateTimeTz(d, timezone) : null)
+    const siteTimezone = record?.data.location?.timezone || timezone
+    const fmt = (d: string | null | undefined) => (d ? formatSiteDateTime(d, siteTimezone) : null)
 
     const onSite = record ? record.data.sign_out_time === null : false
 

@@ -8,6 +8,11 @@ import {
   HISTORY_EMPLOYEE_SELECT,
   HISTORY_SOURCE_COLUMN_HEADER,
   HISTORY_VISITOR_SELECT,
+  buildHistoryEmployeeCsvRows,
+  buildHistoryVisitorCsvRows,
+  historyCsvText,
+  historySiteStamp,
+  historySiteZone,
   isHistoryListPending,
   readHistoryCache,
   runHistoryListLoads,
@@ -21,8 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Download, Search, Users, Briefcase, User } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { SignIn, EmployeeSignIn, Profile, Location } from "@/types/database"
-import { formatDateTime as formatDateTimeTz, formatDuration as formatDurationUtil } from "@/lib/timezone"
-import { useTimezone } from "@/contexts/timezone-context"
+import { formatDuration as formatDurationUtil, resolveDisplayTimeZone } from "@/lib/timezone"
 import { SignInDetailBlade, type SignInRecord } from "@/components/admin/sign-in-detail-blade"
 import { signOutSourceLabel } from "@/lib/sign-out-source"
 
@@ -51,7 +55,6 @@ export function HistoryContent() {
     () => readHistoryCache() != null,
   )
   const [activeTab, setActiveTab] = useState("all")
-  const { timezone: userTimezone } = useTimezone()
   const [bladeRecord, setBladeRecord] = useState<SignInRecord | null>(null)
   const [isBladeOpen, setIsBladeOpen] = useState(false)
   const loadIdRef = useRef(0)
@@ -125,9 +128,9 @@ export function HistoryContent() {
     )
   })
 
-  // Format datetime using user's preferred timezone
-  function formatDateTimeLocal(dateStr: string) {
-    return formatDateTimeTz(dateStr, userTimezone)
+  // Sign-in and sign-out both use the row's sign-in site timezone, never the viewer timezone.
+  function formatHistoryTime(iso: string | null | undefined, location?: SignIn["location"] | EmployeeSignInWithJoins["location"]) {
+    return historySiteStamp(iso, historySiteZone(location)) || "-"
   }
 
   function getDuration(signIn: SignIn | EmployeeSignInWithJoins) {
@@ -151,23 +154,7 @@ export function HistoryContent() {
 
   function handleExport() {
     if (activeTab === "employees") {
-      const csv = [
-        ["Name", "Email", "Role", "Location", "Sign In", "Sign Out", "Sign-out source", "Duration", "Auto Sign-In"],
-        ...filteredEmployeeSignIns.map((s) => [
-          s.profile?.full_name || "",
-          s.profile?.email || "",
-          s.profile?.role || "",
-          s.location?.name || "",
-          s.sign_in_time,
-          s.sign_out_time || "",
-          signOutHow(s),
-          getDuration(s),
-          s.auto_signed_in ? "Yes" : "No",
-        ]),
-      ]
-        .map((row) => row.join(","))
-        .join("\n")
-
+      const csv = historyCsvText(buildHistoryEmployeeCsvRows(filteredEmployeeSignIns))
       const blob = new Blob([csv], { type: "text/csv" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -175,24 +162,7 @@ export function HistoryContent() {
       a.download = `employee-history-${new Date().toISOString().split("T")[0]}.csv`
       a.click()
     } else {
-      const csv = [
-        ["Name", "Email", "Company", "Type", "Location", "Host", "Sign In", "Sign Out", "Sign-out source", "Duration"],
-        ...filteredSignIns.map((s) => [
-          `${s.visitor?.first_name} ${s.visitor?.last_name}`,
-          s.visitor?.email || "",
-          s.visitor?.company || "",
-          s.visitor_type?.name || "",
-          s.location?.name || "",
-          s.host?.name || "",
-          s.sign_in_time,
-          s.sign_out_time || "",
-          signOutHow(s),
-          getDuration(s),
-        ]),
-      ]
-        .map((row) => row.join(","))
-        .join("\n")
-
+      const csv = historyCsvText(buildHistoryVisitorCsvRows(filteredSignIns))
       const blob = new Blob([csv], { type: "text/csv" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -296,8 +266,8 @@ export function HistoryContent() {
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
                           <span>Host: {signIn.host?.name || "-"}</span>
-                          <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</span>
+                          <span>In: {formatHistoryTime(signIn.sign_in_time, signIn.location)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatHistoryTime(signIn.sign_out_time, signIn.location) : "-"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
@@ -360,8 +330,8 @@ export function HistoryContent() {
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
                             <TableCell>{signIn.host?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell className="whitespace-nowrap">{formatHistoryTime(signIn.sign_in_time, signIn.location)}</TableCell>
+                            <TableCell className="whitespace-nowrap">{signIn.sign_out_time ? formatHistoryTime(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
                             <TableCell>
                               <SignOutSourceBadge signIn={signIn} />
                             </TableCell>
@@ -434,8 +404,8 @@ export function HistoryContent() {
                         </button>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span>Location: {signIn.location?.name || "-"}</span>
-                          <span>In: {formatDateTimeLocal(signIn.sign_in_time)}</span>
-                          <span>Out: {signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</span>
+                          <span>In: {formatHistoryTime(signIn.sign_in_time, signIn.location)}</span>
+                          <span>Out: {signIn.sign_out_time ? formatHistoryTime(signIn.sign_out_time, signIn.location) : "-"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={signIn.sign_out_time ? "secondary" : "default"} className="text-xs">
@@ -490,8 +460,8 @@ export function HistoryContent() {
                               </Badge>
                             </TableCell>
                             <TableCell>{signIn.location?.name || "-"}</TableCell>
-                            <TableCell>{formatDateTimeLocal(signIn.sign_in_time)}</TableCell>
-                            <TableCell>{signIn.sign_out_time ? formatDateTimeLocal(signIn.sign_out_time) : "-"}</TableCell>
+                            <TableCell className="whitespace-nowrap">{formatHistoryTime(signIn.sign_in_time, signIn.location)}</TableCell>
+                            <TableCell className="whitespace-nowrap">{signIn.sign_out_time ? formatHistoryTime(signIn.sign_out_time, signIn.location) : "-"}</TableCell>
                             <TableCell>
                               <SignOutSourceBadge signIn={signIn} />
                             </TableCell>
@@ -521,7 +491,7 @@ export function HistoryContent() {
         record={bladeRecord}
         open={isBladeOpen}
         onOpenChange={setIsBladeOpen}
-        timezone={userTimezone}
+        timezone={resolveDisplayTimeZone(bladeRecord?.data.location?.timezone)}
       />
     </div>
   )

@@ -1,4 +1,4 @@
-import { resolveDisplayTimeZone, toIANATimezone } from "@/lib/timezone"
+import { formatSiteDateTime } from "@/lib/timezone"
 import { TRAINING_METHOD_LABELS, type DurationUnit } from "./types.ts"
 
 export interface VisitorSignInSource {
@@ -45,33 +45,7 @@ export interface TrainingCompletionSource {
 
 /** Stamp in the site timezone, including the abbreviation at that instant (CST vs CDT). */
 export function formatReportDateTime(iso: string | null | undefined, timezone?: string | null): string {
-  if (!iso) return ""
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ""
-  const zone = toIANATimezone(resolveDisplayTimeZone(timezone))
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: zone,
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    }).format(date)
-  } catch {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: "UTC",
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short",
-    }).format(date)
-  }
+  return formatSiteDateTime(iso, timezone)
 }
 
 export function durationMinutes(startIso: string, endIso?: string | null): string {

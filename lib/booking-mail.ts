@@ -41,7 +41,7 @@ export function formatBookingWhen(iso: string | Date, timezone: string | null | 
     hour: "numeric",
     minute: "2-digit",
   }).format(date)
-  return `${stamp} ${getTimezoneAbbreviation(zone)}`
+  return `${stamp} ${getTimezoneAbbreviation(zone, date)}`
 }
 
 export function renderBookingInviteEmail(args: BookingInviteMailArgs): { subject: string; html: string; text: string } {
